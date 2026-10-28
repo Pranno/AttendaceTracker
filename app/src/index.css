@@ -10,6 +10,14 @@
 
 html, body { margin: 0; padding: 0; }
 
+/* Tell the browser (and native date/time pickers + autofill) which
+   appearance matches our theme. ThemeProvider sets data-theme to
+   'sunrise' (light) or 'midnight' (dark). Without this, Chrome renders
+   <input type="date"> popups and icons with its own default scheme,
+   which made dates/options invisible in light mode. */
+html[data-theme='sunrise'] { color-scheme: light; }
+html[data-theme='midnight'] { color-scheme: dark; }
+
 body {
   font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
   background: var(--bg);
@@ -326,6 +334,16 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 input[type="date"]::-webkit-datetime-edit,
 input[type="time"]::-webkit-datetime-edit { color: var(--text); }
+/* explicit fallback so empty/partial dates never render white-on-white */
+input[type="date"], input[type="time"] { -webkit-text-fill-color: var(--text); }
+select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--soft) 50%), linear-gradient(135deg, var(--soft) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%; background-size: 6px 6px; background-repeat: no-repeat; }
+option { background: var(--card); color: var(--text); }
+input::placeholder { color: var(--soft); opacity: 1; }
+input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--card) inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
 input[type="date"]:focus-visible, input[type="time"]:focus-visible { outline: 2px solid var(--primary); }
 
 /* sliders */
