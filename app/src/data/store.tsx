@@ -22,6 +22,7 @@ interface AppApi {
   setMark: (date: DateStr, slotId: string, status: MarkStatus | null) => void
   // ---- deadlines (C5 minimal for step 1) ----
   addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'>) => void
+  updateDeadline: (id: string, patch: Partial<Deadline>) => void
   toggleDeadlineDone: (id: string) => void
   deleteDeadline: (id: string) => void
   // ---- settings ----
@@ -101,6 +102,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...d.deadlines,
             { ...dl, id: newId('dl'), done: false, tentative: false, reminderDates: [] },
           ],
+        }))
+      },
+
+      updateDeadline(id, patch) {
+        setRaw((d) => ({
+          ...d,
+          deadlines: d.deadlines.map((x) => (x.id === id ? { ...x, ...patch } : x)),
         }))
       },
 

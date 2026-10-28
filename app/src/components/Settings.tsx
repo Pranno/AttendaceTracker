@@ -19,6 +19,22 @@ function thresholdEmoji(n: number): string {
   return '😱'
 }
 
+/** "A1" -> "A"; "" -> "". */
+function divisionOf(batch: string): string {
+  const m = /^([A-Za-z])/.exec(batch.trim())
+  return m ? m[1].toUpperCase() : ''
+}
+
+/** "A1" -> "1"; "A" -> ""; "" -> "". */
+function batchNumberOf(batch: string): string {
+  const m = /^[A-Za-z]\s*[-_ ]?(\d+)?$/.exec(batch.trim())
+  return m && m[1] ? m[1] : ''
+}
+
+function joinBatch(div: string, num: string): string {
+  return div ? `${div}${num}` : ''
+}
+
 export default function Settings() {
   const { data, updateSettings, resetAll } = useApp()
   const { choice, setChoice } = useTheme()
@@ -97,6 +113,7 @@ export default function Settings() {
             <label className="small-label">Start date</label>
             <input
               type="date"
+              className="fill"
               value={s.semesterStart ?? ''}
               onChange={(e) => updateSettings({ semesterStart: e.target.value || null })}
             />
@@ -105,6 +122,7 @@ export default function Settings() {
             <label className="small-label">Tentative end</label>
             <input
               type="date"
+              className="fill"
               value={s.semesterEnd ?? ''}
               min={s.semesterStart ?? undefined}
               onChange={(e) => updateSettings({ semesterEnd: e.target.value || null })}
@@ -112,6 +130,47 @@ export default function Settings() {
           </div>
         </div>
         <div className="msg">Classes only appear inside this range; the monthly plan needs both.</div>
+      </div>
+
+      {/* Batch rule (doc T8 + user requirement): div A has batches A1/A2/A3.
+          The app shows only slots tagged with my batch or untagged (whole class). */}
+      <SectionTitle>CLASS &amp; BATCH</SectionTitle>
+      <div className="card">
+        <label className="small-label">Division</label>
+        <select
+          className="fill"
+          value={divisionOf(s.myBatch)}
+          onChange={(e) => updateSettings({ myBatch: joinBatch(e.target.value, batchNumberOf(s.myBatch)) })}
+        >
+          <option value="">Not set</option>
+          {['A', 'B', 'C', 'D', 'E'].map((d) => (
+            <option key={d} value={d}>Division {d}</option>
+          ))}
+        </select>
+        <label className="small-label" style={{ marginTop: 8 }}>Batch</label>
+        <div className="batch-grid" role="radiogroup" aria-label="Batch">
+          {(['', '1', '2', '3'] as const).map((b) => {
+            const division = divisionOf(s.myBatch)
+            const on = division !== '' && batchNumberOf(s.myBatch) === b
+            return (
+              <button
+                key={b || 'all'}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                disabled={division === ''}
+                className={`batch-opt ${on ? 'on' : ''}`}
+                onClick={() => updateSettings({ myBatch: `${division}${b}` })}
+              >
+                {b === '' ? 'Whole division' : `Batch ${division}${b}`}
+              </button>
+            )
+          })}
+        </div>
+        <div className="msg" style={{ marginTop: 8 }}>
+          Your timetable is filtered by this: classes marked for other batches are hidden;
+          classes with no batch tag (like a plain “A SDC (L)”) belong to everyone.
+        </div>
       </div>
 
       <SectionTitle>REMINDERS</SectionTitle>
@@ -124,6 +183,54 @@ export default function Settings() {
         onChange={(n) => updateSettings({ reminderLeadDays: n })}
         hint="Notifications arrive this many days early (Step 5 fires them)."
       />
+
+      {/* F4: evening "mark your attendance" nudge (B11) */}
+      <div className="card row spread">
+        <div>
+          <b>Evening mark reminder</b>
+          <div className="msg">Nudges you if today’s classes aren’t all marked.</div>
+        </div>
+        <Toggle
+          checked={s.eveningReminderOn}
+          onChange={(v) => updateSettings({ eveningReminderOn: v })}
+          label="Evening mark reminder"
+        />
+      </div>
+      {s.eveningReminderOn && (
+        <div className="field-row">
+          <label className="small-label">At time</label>
+          <input
+            type="time"
+            value={s.eveningReminderTime}
+            onChange={(e) => updateSettings({ eveningReminderTime: e.target.value || '20:00' })}
+          />
+        </div>
+      )}
+
+      {/* F13 / F14 display toggles */}
+      <div className="card row spread">
+        <div>
+          <b>Show room &amp; teacher</b>
+          <div className="msg">On subject cards and class lists.</div>
+        </div>
+        <Toggle
+          checked={s.showRoomTeacher}
+          onChange={(v) => updateSettings({ showRoomTeacher: v })}
+          label="Show room and teacher"
+        />
+      </div>
+      <div className="card row spread">
+        <div>
+          <b>Quick actions</b>
+          <div className="msg">Mark-all and add-deadline buttons on the day screen.</div>
+        </div>
+        <Toggle
+          checked={s.showQuickActions}
+          onChange={(v) => updateSettings({ showQuickActions: v })}
+          label="Quick actions"
+        />
+      </div>
+
       <div className="card row spread">
         <div>
           <b>Sunday classes</b>

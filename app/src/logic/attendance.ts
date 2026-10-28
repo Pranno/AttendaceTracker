@@ -11,10 +11,12 @@
 // ============================================================
 
 import type { AppData, DateStr, MarkStatus, Slot, Subject } from '../data/model'
+import { slotMatchesBatch } from '../data/model'
 import { addDays, weekdayOf } from './dates'
 
-/** Slots that were scheduled on a given date, honouring validFrom/validUntil (A8)
- *  and Sunday off unless enabled (A13). */
+/** Slots that were scheduled on a given date, honouring validFrom/validUntil (A8),
+ *  Sunday off unless enabled (A13), and the user's batch selection (batch rule:
+ *  untagged slots are whole-class; other batches of the division are hidden). */
 export function slotsForDate(data: AppData, date: DateStr): Slot[] {
   const wd = weekdayOf(date)
   if (wd === 7 && !data.settings.sundayClasses) return []
@@ -22,7 +24,8 @@ export function slotsForDate(data: AppData, date: DateStr): Slot[] {
     (s) =>
       s.weekday === wd &&
       date >= s.validFrom &&
-      (s.validUntil === null || date <= s.validUntil),
+      (s.validUntil === null || date <= s.validUntil) &&
+      slotMatchesBatch(s.batch, data.settings.myBatch),
   )
 }
 
@@ -87,7 +90,7 @@ export function computeSubjectTotals(
     for (const slot of slotsForDate(data, date)) {
       if (slot.subjectId !== subjectId) continue
       const status = markFor(data, date, slot.id)
-      if (status === 'noclass') continue // B2: counts in neither
+      if (status === 'noclass' || status === 'cancelled') continue // B2: counts in neither
       held += 1
       if (status === 'present') attended += 1
       else if (status === 'absent') {
@@ -155,7 +158,7 @@ export function summarizeSubject(
   let markedCount = 0
   for (const m of data.marks) {
     const slot = data.slots.find((sl) => sl.id === m.slotId)
-    if (slot && slot.subjectId === subjectId && m.status !== 'noclass') markedCount += 1
+    if (slot && slot.subjectId === subjectId && m.status !== 'noclass' && m.status !== 'cancelled') markedCount += 1
   }
   const enoughMarks = totals.usesTypedTotals || markedCount >= 5
 

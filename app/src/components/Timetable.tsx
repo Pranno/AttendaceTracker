@@ -1,17 +1,67 @@
-// Timetable tab — step 1: add lectures by hand (A10), subjects created from them (A6),
-// weekly repeat (A7), edit/remove from today onward (A8). File upload & rules come in Step 3.
+// Timetable tab — hand entry (A10), subjects created from them (A6),
+// weekly repeat (A7), edit/remove from today onward (A8).
+// Batch rule: each class can be tagged with a batch (A1/A2/A3…); untagged = whole class.
+// The weekly grid shows only your batch's classes + whole-class ones (Settings → Class & batch).
 
 import { useState } from 'react'
 import { useApp } from '../data/store'
 import type { ClassType } from '../data/model'
-import { newId } from '../data/model'
+import { newId, slotMatchesBatch } from '../data/model'
 import { formatShort, todayStr, weekdayName } from '../logic/dates'
+import { parseTimetableText, filterByBatch, entriesToSlots } from '../logic/timetableImport'
+import type { ParsedEntry } from '../logic/timetableImport'
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
 
 export default function Timetable() {
-  const { data, addSubject, removeSubject, addSlot, updateSlot, removeSlotFromToday } = useApp()
+  const { data, setData, addSubject, removeSubject, addSlot, updateSlot, removeSlotFromToday } = useApp()
   const today = todayStr()
+  const myBatch = data.settings.myBatch
+
+  // ---- import flow (A1–A5) ----
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [parsed, setParsed] = useState<ParsedEntry[] | null>(null)
+  const [parseWarn, setParseWarn] = useState<string[]>([])
+  const [hiddenOther, setHiddenOther] = useState(0)
+
+  function runParse(text: string) {
+    const res = parseTimetableText(text)
+    const mine = filterByBatch(res.entries, myBatch)
+    setHiddenOther(res.entries.length - mine.length)
+    setParseWarn(res.warnings)
+    setParsed(mine.length > 0 ? mine : res.entries)
+  }
+
+  async function onFilePicked(f: File | undefined) {
+    if (!f) return
+    const text = await f.text()
+    setImportText(text)
+    runParse(text)
+  }
+
+  function confirmImport() {
+    if (!parsed) return
+    setData((d) => {
+      // A6: subjects are created from the confirmed timetable.
+      const subjects = [...d.subjects]
+      const byShort = new Map(subjects.map((s) => [s.shortName.toUpperCase(), s.id]))
+      for (const e of parsed) {
+        const key = e.subjectShort.toUpperCase()
+        if (!byShort.has(key)) {
+          const subj = { id: newId('subj'), shortName: key, fullName: key, nicknames: [] }
+          subjects.push(subj)
+          byShort.set(key, subj.id)
+        }
+      }
+      const { slots, unmatched } = entriesToSlots(parsed, byShort, today)
+      void unmatched // flagged ones simply aren't saved; user fixes them by hand (T9/A4)
+      return { ...d, subjects, slots: [...d.slots, ...slots.map((s) => ({ ...s, id: newId('slot') }))] }
+    })
+    setParsed(null)
+    setImportText('')
+    setImportOpen(false)
+  }
 
   // ---- new subject form ----
   const [shortName, setShortName] = useState('')
@@ -25,6 +75,7 @@ export default function Timetable() {
   const [type, setType] = useState<ClassType>('lecture')
   const [room, setRoom] = useState('')
   const [teacher, setTeacher] = useState('')
+  const [batch, setBatch] = useState('')
   const [copyDays, setCopyDays] = useState<number[]>([])
 
   function submitSubject() {
@@ -47,6 +98,7 @@ export default function Timetable() {
         type,
         room: room.trim(),
         teacher: teacher.trim(),
+        batch: batch.trim().toUpperCase() || undefined,
         validFrom: today,
         validUntil: null,
       })
@@ -58,15 +110,98 @@ export default function Timetable() {
     setCopyDays((c) => (c.includes(wd) ? c.filter((x) => x !== wd) : [...c, wd]))
   }
 
-  const activeSlots = data.slots.filter((s) => s.validUntil === null || s.validUntil >= today)
+  const allActiveSlots = data.slots.filter((s) => s.validUntil === null || s.validUntil >= today)
+  const activeSlots = allActiveSlots.filter((s) => slotMatchesBatch(s.batch, myBatch))
+  const hiddenCount = allActiveSlots.length - activeSlots.length
 
   return (
     <div>
       <h1>Timetable</h1>
       <div className="card msg">
-        Step 1 builds hand entry (A10). Uploading a PDF/spreadsheet with rule-based reading is
-        Step 3. Every class repeats weekly until you change it.
+        Hand entry below. Every class repeats weekly until you change it.
+        {myBatch && (
+          <>
+            {' '}Showing batch <b>{myBatch}</b> + whole-class items
+            {hiddenCount > 0 ? ` · ${hiddenCount} other-batch class${hiddenCount === 1 ? '' : 'es'} hidden` : ''}.
+          </>
+        )}
       </div>
+
+      {/* ---- Import timetable (A1–A5) ---- */}
+      {!importOpen ? (
+        <button className="primary" style={{ marginBottom: 12 }} onClick={() => setImportOpen(true)}>
+          Import from file / paste
+        </button>
+      ) : (
+        <div className="card">
+          <b>Import your timetable</b>
+          <div className="msg" style={{ margin: '6px 0' }}>
+            Upload a .txt/.csv export, or open the PDF, press Ctrl/Cmd+A → Copy, and paste below.
+            {myBatch ? ` Only batch ${myBatch} + whole-class rows will be kept.` : ' Set your batch in Settings to filter batches.'}
+          </div>
+          <input
+            type="file"
+            accept=".txt,.csv,text/plain,text/csv"
+            onChange={(e) => onFilePicked(e.target.files?.[0])}
+          />
+          <textarea
+            rows={6}
+            style={{ width: '100%', marginTop: 8 }}
+            placeholder={'Monday\t08:00-09:00\tA1 FE (P) PS 2408 …\nor CSV: Monday,08:00,09:00,A1,FE,P,PS,2408'}
+            value={importText}
+            onChange={(e) => { setImportText(e.target.value); runParse(e.target.value) }}
+          />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button onClick={() => { setParsed(null); setImportOpen(false) }}>Cancel</button>
+            <button className="secondary" onClick={() => runParse(importText)}>Preview</button>
+          </div>
+
+          {parseWarn.map((w, i) => (
+            <div key={i} className="msg" style={{ marginTop: 8, color: 'var(--danger)' }}>{w}</div>
+          ))}
+
+          {parsed && parsed.length > 0 && (
+            <>
+              <h3 style={{ marginTop: 12 }}>Review before saving (nothing saved yet)</h3>
+              {hiddenOther > 0 && (
+                <div className="msg">{hiddenOther} class entries from other batches were hidden.</div>
+              )}
+              {WEEKDAYS.filter((w) => w !== 7).map((w) => {
+                const dayEntries = parsed
+                  .filter((e) => e.weekday === w)
+                  .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                if (dayEntries.length === 0) return null
+                return (
+                  <div key={w} className="card" style={{ marginTop: 6 }}>
+                    <b>{weekdayName(w)}</b>
+                    {dayEntries.map((e) => (
+                      <div className="row spread" key={`${e.weekday}_${e.startTime}_${e.batch ?? ''}_${e.subjectShort}`} style={{ marginTop: 4 }}>
+                        <span className="msg">
+                          {e.startTime || '--:--'} {e.batch ? `${e.batch} ` : ''}
+                          <b style={{ color: 'var(--text)' }}>{e.subjectShort}</b> ({e.type}){' '}
+                          {e.teacher}{e.room ? ` · ${e.room}` : ''}
+                          {e.needsReview ? ' ⚠️' : ''}
+                        </span>
+                        <button
+                          onClick={() => setParsed(parsed.filter((x) => x !== e))}
+                          aria-label="Remove this entry"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+              <div className="row" style={{ marginTop: 10 }}>
+                <button className="primary grow" onClick={confirmImport}>
+                  Confirm &amp; save {parsed.length} classes
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <h2>Subjects</h2>
       {data.subjects.map((s) => (
@@ -149,6 +284,13 @@ export default function Timetable() {
           </div>
         </div>
 
+        <label>Batch (leave empty = whole class)</label>
+        <input
+          value={batch}
+          onChange={(e) => setBatch(e.target.value)}
+          placeholder={data.settings.myBatch || 'A1'}
+        />
+
         <label>Also copy to other days</label>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           {WEEKDAYS.filter((w) => w !== weekday && (w !== 7 || data.settings.sundayClasses)).map(
@@ -189,6 +331,7 @@ export default function Timetable() {
                     {s.startTime}–{s.endTime} <b>{subj?.shortName}</b>{' '}
                     <span className="msg">
                       {s.type}
+                      {s.batch ? ` · ${s.batch}` : ''}
                       {s.room ? ` · ${s.room}` : ''}
                       {s.validUntil && s.validUntil !== null && s.validUntil <= today
                         ? ` · ends ${formatShort(s.validUntil)}`

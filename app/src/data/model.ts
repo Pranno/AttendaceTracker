@@ -8,7 +8,9 @@
 export type DateStr = string
 
 export type ClassType = 'lecture' | 'lab' | 'tutorial' | 'online'
-export type MarkStatus = 'present' | 'absent' | 'noclass'
+/** `cancelled` is C4: a future class marked off in advance — it does not
+ *  count as held (same maths as noclass). */
+export type MarkStatus = 'present' | 'absent' | 'noclass' | 'cancelled'
 
 /** Settings — created at first launch. */
 export interface AppSettings {
@@ -21,6 +23,10 @@ export interface AppSettings {
   /** F4: evening "mark your attendance" reminder on/off and its time. */
   eveningReminderOn: boolean
   eveningReminderTime: string
+  /** F13: subject cards on Today show the next class room & teacher. */
+  showRoomTeacher: boolean
+  /** F14: quick actions (Mark / Add deadline) shown in the day sheet. */
+  showQuickActions: boolean
   /** F5: semester name, start date (first day of college), tentative end date. */
   semesterName: string
   semesterStart: DateStr | null
@@ -35,6 +41,11 @@ export interface AppSettings {
   sundayClasses: boolean
   /** B14: unmarked classes — leave blank (default) or count as present. */
   unmarkedAsPresent: boolean
+  /** F15 / T8 (batch rule): the user's batch inside their division, e.g. "A1".
+   *  Format: division letter + optional batch number ("A", "A1", "B2").
+   *  Slots tagged with a different batch of the same division are hidden;
+   *  slots tagged with no batch belong to the whole class. */
+  myBatch: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -43,6 +54,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationTime: '18:00',
   eveningReminderOn: false,
   eveningReminderTime: '20:00',
+  showRoomTeacher: true,
+  showQuickActions: true,
   semesterName: '',
   semesterStart: null,
   semesterEnd: null,
@@ -51,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   commuteMinutes: 30,
   sundayClasses: false,
   unmarkedAsPresent: false,
+  myBatch: '',
 }
 
 /** Subject — created when the timetable is confirmed (A6) or added by hand. */
@@ -94,10 +108,41 @@ export interface Slot {
   type: ClassType
   room: string
   teacher: string
+  /** Batch tag from the timetable, e.g. "A1", "B3". Empty/undefined = the
+   *  whole division sees this class (e.g. a plain "A SDC (L)" lecture). */
+  batch?: string
   /** A8: edits apply from this day onward; past days keep what they had. */
   validFrom: DateStr
   /** null = until replaced or the semester ends. */
   validUntil: DateStr | null
+}
+
+// ---------------- Batch rules (user requirement + doc T8) ----------------
+// Div A has batches A1/A2/A3. A slot tagged "A1" belongs only to batch A1;
+// a slot with no batch tag belongs to the whole class/division.
+
+/** Split "A1" -> { div: "A", num: 1 }; "A" -> { div: "A" }; "" -> null. */
+export function parseBatchTag(tag: string | undefined | null): { div: string; num: number | null } | null {
+  if (!tag) return null
+  const m = /^([A-Za-z])\s*[-_ ]?(\d+)?$/.exec(tag.trim())
+  if (!m) return null
+  return { div: m[1].toUpperCase(), num: m[2] ? Number(m[2]) : null }
+}
+
+/** True when `slotBatch` is the user's class given their chosen `myBatch`.
+ *  - No tag on the slot → everyone attends (whole class / division-wide).
+ *  - Same exact tag → mine.
+ *  - Different batch of the same division → not mine.
+ *  - User picked only a division ("A") → show everything in division A.
+ *  - Different division letter → not mine. */
+export function slotMatchesBatch(slotBatch: string | undefined | null, myBatch: string): boolean {
+  const s = parseBatchTag(slotBatch)
+  if (!s) return true // untagged: whole class
+  const me = parseBatchTag(myBatch)
+  if (!me) return true // user hasn't chosen a batch yet: show everything
+  if (s.div !== me.div) return false
+  if (me.num === null) return true // "A" sees all of A1/A2/A3
+  return s.num === me.num || s.num === null
 }
 
 /** Mark — the user's attendance choice for one slot on one date. */

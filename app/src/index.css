@@ -196,6 +196,18 @@ button:active { transform: scale(0.97); }
   cursor: pointer; min-height: 40px; white-space: nowrap;
 }
 .chip.on { background: var(--text); color: var(--bg); }
+.chip:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- batch picker grid (Settings) ---------- */
+.batch-grid { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.batch-opt {
+  border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 700;
+  background: var(--card); color: var(--soft); border: 1.5px solid transparent;
+  box-shadow: 0 2px 8px rgba(30, 27, 46, 0.08);
+  cursor: pointer; min-height: 40px; white-space: nowrap;
+}
+.batch-opt.on { background: var(--primary); color: #fff; }
+.batch-opt:disabled { opacity: 0.45; cursor: default; }
 
 /* ---------- class cards ---------- */
 .class-card { padding: 14px 16px; }
@@ -457,3 +469,21 @@ input[type="date"]:focus-visible, input[type="time"]:focus-visible { outline: 2p
 /* ---------- misc ---------- */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--soft) 18%, transparent); }
+
+/* ---- Step 5: calendar day sheet additions ---- */
+.status-chip {
+  display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 99px;
+  font-size: 13px; font-weight: 700; color: #fff;
+}
+.status-chip.present { background: var(--safe); }
+.status-chip.absent { background: var(--danger); }
+.status-chip.noclass, .status-chip.cancelled { background: var(--soft); }
+.link-btn {
+  background: none; border: none; padding: 4px 6px; cursor: pointer;
+  color: var(--accent); font-weight: 700; font-size: 13px; text-decoration: underline;
+}
+.small-btn {
+  border: none; border-radius: 99px; padding: 6px 14px; cursor: pointer;
+  font-weight: 700; font-size: 13px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent);
+}

@@ -1,20 +1,20 @@
-// Calendar screen (Step 2 look, full day-editing arrives Step 4): a large
-// rounded month card. Today is a gradient circle; subject-coloured dots mark
-// classes, highlight dots mark deadlines. Tapping a date opens a bottom sheet
-// with that day's classes (markable) and deadlines.
+// Calendar screen (Step 5): month view (C1), day sheet with classes & marks
+// (C2, B9), unmarked-past dot (C3), future cancel in advance (C4), deadline
+// add/edit/delete from the day (C5), Today jump (C6), mark-all-present (B10)
+// and quick actions (F14).
 
-import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight, CheckCheck, Pencil, Trash2, Plus } from 'lucide-react'
 import { useApp } from '../data/store'
-import type { DateStr, MarkStatus } from '../data/model'
+import type { DateStr, Deadline, MarkStatus } from '../data/model'
 import { slotsForDate, isHoliday, markFor } from '../logic/attendance'
-import { toDate, todayStr, pad2 } from '../logic/dates'
+import { toDate, todayStr, pad2, formatShort } from '../logic/dates'
 import { Sheet, SectionTitle } from './ui/parts'
 import { subjectPalette } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 
 export default function Calendar() {
-  const { data, setMark } = useApp()
+  const { data, setMark, updateDeadline, toggleDeadlineDone, deleteDeadline, addDeadline } = useApp()
   const { active } = useTheme()
   const today = todayStr()
   const [monthAnchor, setMonthAnchor] = useState(() => {
@@ -22,6 +22,15 @@ export default function Calendar() {
     return { y: d.getFullYear(), m: d.getMonth() } // m: 0-11
   })
   const [openDate, setOpenDate] = useState<DateStr | null>(null)
+  /** null = closed; 'new' = adding; otherwise editing that deadline id. */
+  const [dlEditorId, setDlEditorId] = useState<string | 'new' | null>(null)
+
+  useEffect(() => {
+    // Keep the visible month in sync with "today" on first mount after a date change.
+    const d = toDate(today)
+    setMonthAnchor((a) => (a.y === d.getFullYear() && a.m === d.getMonth() ? a : { y: d.getFullYear(), m: d.getMonth() }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const cells = useMemo(() => {
     const first = new Date(monthAnchor.y, monthAnchor.m, 1)
@@ -44,23 +53,32 @@ export default function Calendar() {
     })
   }
 
+  function jumpToday() {
+    const d = toDate(today)
+    setMonthAnchor({ y: d.getFullYear(), m: d.getMonth() })
+    setOpenDate(today)
+  }
+
   const subjIndex = (id: string) => Math.max(0, data.subjects.findIndex((s) => s.id === id))
 
   function dotsFor(date: DateStr): string[] {
     const colors: string[] = []
     if (!isHoliday(data, date)) {
+      let unmarked = false
       for (const slot of slotsForDate(data, date)) {
         const pal = subjectPalette(subjIndex(slot.subjectId))
-        const c = active === 'midnight' ? pal.strong : pal.strong
-        if (!colors.includes(c)) colors.push(c)
+        colors.push(pal.strong)
+        if (date < today && !markFor(data, date, slot.id)) unmarked = true // C3
       }
+      if (unmarked) colors.push('var(--limit)') // C3: past day not fully marked
     } else {
       colors.push('var(--soft)')
     }
     for (const dl of data.deadlines) {
       if (dl.dueDate === date && !dl.done) colors.push('var(--highlight)')
     }
-    return colors.slice(0, 4)
+    const seen = new Set<string>()
+    return colors.filter((c) => (seen.has(c) ? false : (seen.add(c), true))).slice(0, 4)
   }
 
   const monthName = new Date(monthAnchor.y, monthAnchor.m, 1).toLocaleString('en', { month: 'long', year: 'numeric' })
@@ -71,6 +89,8 @@ export default function Calendar() {
       : slotsForDate(data, openDate).sort((a, b) => a.startTime.localeCompare(b.startTime))
     : []
   const dayDeadlines = openDate ? data.deadlines.filter((d) => d.dueDate === openDate) : []
+  const isPast = openDate !== null && openDate < today
+  const isFuture = openDate !== null && openDate > today
 
   function mark(slotId: string, status: MarkStatus | null) {
     if (!openDate) return
@@ -78,9 +98,36 @@ export default function Calendar() {
     navigator.vibrate?.(10)
   }
 
+  /** B10: mark every class on this day present. */
+  function markAllPresent() {
+    if (!openDate) return
+    for (const slot of daySlots) {
+      if (!markFor(data, openDate, slot.id)) setMark(openDate, slot.id, 'present')
+    }
+    navigator.vibrate?.(15)
+  }
+
+  const editing: Deadline | null =
+    dlEditorId === 'new'
+      ? {
+          id: 'new',
+          title: '',
+          dueDate: openDate ?? today,
+          tentative: false,
+          done: false,
+          reminderDates: [],
+        }
+      : dlEditorId
+        ? data.deadlines.find((x) => x.id === dlEditorId) ?? null
+        : null
+
   return (
     <div className="screen pad">
-      <h1 style={{ margin: '8px 0 12px' }}>Calendar</h1>
+      <div className="row spread" style={{ margin: '8px 0 12px' }}>
+        <h1 style={{ margin: 0 }}>Calendar</h1>
+        <button className="secondary small-btn" onClick={jumpToday}>Today</button>{/* C6 */}
+      </div>
+
       <div className="card cal-card">
         <div className="row spread" style={{ marginBottom: 8 }}>
           <button className="icon-btn" onClick={() => shiftMonth(-1)} aria-label="Previous month">
@@ -105,7 +152,7 @@ export default function Calendar() {
               <button
                 key={date}
                 className={`cal-day ${isToday ? 'today' : ''}`}
-                onClick={() => setOpenDate(date)}
+                onClick={() => { setOpenDate(date); setDlEditorId(null) }}
                 aria-label={date}
               >
                 <span className={`num ${isToday ? 'today-num' : ''}`}>{dayNum}</span>
@@ -132,21 +179,42 @@ export default function Calendar() {
           <i style={{ width: 10, height: 10, borderRadius: 99, background: 'var(--highlight)', display: 'inline-block' }} />
           <span className="msg">Deadline</span>
         </span>
+        <span className="row" style={{ gap: 4 }}>
+          <i style={{ width: 10, height: 10, borderRadius: 99, background: 'var(--limit)', display: 'inline-block' }} />
+          <span className="msg">Not marked yet</span>
+        </span>
       </div>
 
-      <Sheet open={openDate !== null} onClose={() => setOpenDate(null)} title={openDate ?? ''}>
-        {openDate && (
+      <Sheet open={openDate !== null} onClose={() => { setOpenDate(null); setDlEditorId(null) }}
+        title={openDate ? `${formatShort(openDate)}${openDate === today ? ' · today' : isPast ? ' · past' : ''}` : ''}>
+        {openDate && !editing && (
           <div>
             {isHoliday(data, openDate) && <div className="card empty-card">🎉 Holiday — no classes.</div>}
-            {openDate && daySlots.length === 0 && !isHoliday(data, openDate) && (
+            {daySlots.length === 0 && !isHoliday(data, openDate) && (
               <div className="card empty-card">No classes on this day.</div>
             )}
+
+            {/* B10 + F14 quick actions */}
+            {data.settings.showQuickActions && daySlots.length > 0 && (
+              <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+                {!isPast && (
+                  <button className="secondary big-btn grow" onClick={markAllPresent}>
+                    <CheckCheck size={16} /> Mark all present
+                  </button>
+                )}
+                <button className="secondary big-btn grow" onClick={() => setDlEditorId('new')}>
+                  <Plus size={16} /> Add deadline
+                </button>
+              </div>
+            )}
+
             {daySlots.map((slot) => {
               const subj = data.subjects.find((s) => s.id === slot.subjectId)
-              const status = openDate ? markFor(data, openDate, slot.id) : null
+              const status = markFor(data, openDate, slot.id)
               const idx = subjIndex(slot.subjectId)
               const dark = active === 'midnight'
               const pal = subjectPalette(idx)
+              const showRT = data.settings.showRoomTeacher && (slot.room || slot.teacher)
               return (
                 <div
                   className="class-card card-like"
@@ -156,24 +224,151 @@ export default function Calendar() {
                   <b style={{ color: pal.strong }}>{subj?.shortName}</b>
                   <div className="class-meta">
                     {slot.startTime}–{slot.endTime} · {slot.type}
+                    {showRT && <> · {slot.room}{slot.room && slot.teacher ? ', ' : ''}{slot.teacher}</>}
                   </div>
-                  <div className="row mark-row">
-                    <button className={`mark present ${status === 'present' ? 'on' : ''}`} onClick={() => mark(slot.id, status === 'present' ? null : 'present')}>Present</button>
-                    <button className={`mark absent ${status === 'absent' ? 'on' : ''}`} onClick={() => mark(slot.id, status === 'absent' ? null : 'absent')}>Absent</button>
-                    <button className={`mark noclass ${status === 'noclass' ? 'on' : ''}`} onClick={() => mark(slot.id, status === 'noclass' ? null : 'noclass')}>No class</button>
-                  </div>
+                  {status ? (
+                    <div className="row mark-row">
+                      <span className={`status-chip ${status}`}>
+                        {status === 'cancelled' ? 'Cancelled' : status === 'noclass' ? 'No class' : status === 'present' ? 'Present' : 'Absent'}
+                      </span>
+                      <button className="link-btn" onClick={() => mark(slot.id, null)}>Change</button>{/* B1 */}
+                    </div>
+                  ) : (
+                    <div className="row mark-row">
+                      <button className="mark present" onClick={() => mark(slot.id, 'present')}>Present</button>
+                      <button className="mark absent" onClick={() => mark(slot.id, 'absent')}>Absent</button>
+                      {isFuture ? (
+                        /* C4: cancel a future class in advance */
+                        <button className="mark noclass" onClick={() => mark(slot.id, 'cancelled')}>Cancel</button>
+                      ) : (
+                        <button className="mark noclass" onClick={() => mark(slot.id, 'noclass')}>No class</button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
+
+            {dayDeadlines.length > 0 && <SectionTitle>DEADLINES</SectionTitle>}
             {dayDeadlines.map((dl) => (
-              <div className="card row spread" key={dl.id}>
-                <span>⏰ <b>{dl.title}</b></span>
-                <span className="msg">{dl.done ? 'done' : 'due'}</span>
+              <div className="card row spread" key={dl.id} style={{ marginBottom: 8 }}>
+                <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={dl.done} onChange={() => toggleDeadlineDone(dl.id)} />
+                  <span><b style={dl.done ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>⏰ {dl.title}</b>
+                    <span className="msg" style={{ marginLeft: 8 }}>{dl.time ?? (dl.tentative ? 'tentative' : 'due')}</span></span>
+                </label>
+                <span className="row" style={{ gap: 4 }}>
+                  <button className="icon-btn" aria-label="Edit deadline" onClick={() => setDlEditorId(dl.id)}><Pencil size={15} /></button>
+                  <button className="icon-btn" aria-label="Delete deadline" onClick={() => deleteDeadline(dl.id)}><Trash2 size={15} /></button>
+                </span>
               </div>
             ))}
           </div>
         )}
+
+        {/* C5: add / edit a deadline right from the day */}
+        {openDate && editing && (
+          <DeadlineForm
+            initial={editing}
+            defaultDate={openDate}
+            subjects={data.subjects.map((s) => ({ id: s.id, name: s.shortName }))}
+            onCancel={() => setDlEditorId(null)}
+            onSave={(patch) => {
+              if (dlEditorId === 'new') {
+                addDeadline({
+                  title: patch.title,
+                  dueDate: patch.dueDate,
+                  time: patch.time,
+                  notes: patch.notes,
+                  subjectId: patch.subjectId,
+                })
+              } else if (dlEditorId) {
+                updateDeadline(dlEditorId, patch)
+              }
+              setDlEditorId(null)
+            }}
+          />
+        )}
       </Sheet>
+    </div>
+  )
+}
+
+interface DlDraft {
+  title: string
+  dueDate: DateStr
+  time?: string
+  notes?: string
+  subjectId?: string
+}
+
+function DeadlineForm({
+  initial,
+  defaultDate,
+  subjects,
+  onCancel,
+  onSave,
+}: {
+  initial: Deadline
+  defaultDate: DateStr
+  subjects: { id: string; name: string }[]
+  onCancel: () => void
+  onSave: (d: DlDraft) => void
+}) {
+  const [draft, setDraft] = useState<DlDraft>({
+    title: initial.title,
+    dueDate: initial.dueDate || defaultDate,
+    time: initial.time,
+    notes: initial.notes,
+    subjectId: initial.subjectId,
+  })
+  const valid = draft.title.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(draft.dueDate)
+  return (
+    <div className="card">
+      <b>{initial.id === 'new' ? 'New deadline' : 'Edit deadline'}</b>
+      <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+        <div>
+          <label className="small-label">Title</label>
+          <input
+            value={draft.title}
+            placeholder="e.g. Maths submission"
+            onChange={(e) => setDraft((x) => ({ ...x, title: e.target.value }))}
+          />
+        </div>
+        <div className="field-row">
+          <div className="grow">
+            <label className="small-label">Due date</label>
+            <input type="date" value={draft.dueDate} onChange={(e) => setDraft((x) => ({ ...x, dueDate: e.target.value }))} />
+          </div>
+          <div className="grow">
+            <label className="small-label">Time (optional)</label>
+            <input type="time" value={draft.time ?? ''} onChange={(e) => setDraft((x) => ({ ...x, time: e.target.value || undefined }))} />
+          </div>
+        </div>
+        {subjects.length > 0 && (
+          <div>
+            <label className="small-label">Subject (optional)</label>
+            <select
+              value={draft.subjectId ?? ''}
+              onChange={(e) => setDraft((x) => ({ ...x, subjectId: e.target.value || undefined }))}
+            >
+              <option value="">— none —</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div>
+          <label className="small-label">Notes (optional)</label>
+          <input value={draft.notes ?? ''} onChange={(e) => setDraft((x) => ({ ...x, notes: e.target.value || undefined }))} />
+        </div>
+        <div className="msg">Reminder fires per your Settings lead time.</div>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="secondary big-btn grow" onClick={onCancel}>Cancel</button>
+          <button className="primary big-btn grow" disabled={!valid} onClick={() => valid && onSave(draft)}>Save</button>
+        </div>
+      </div>
     </div>
   )
 }
