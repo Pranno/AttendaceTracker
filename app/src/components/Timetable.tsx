@@ -119,7 +119,7 @@ export default function Timetable() {
           ))}
         </select>
 
-        <div className="row">
+        <div className="field-row">
           <div className="grow">
             <label>Start</label>
             <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />

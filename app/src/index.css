@@ -49,6 +49,14 @@ h1 {
 .screen { max-width: 480px; margin: 0 auto; padding-bottom: 120px; } /* clear of floating bar */
 .screen.pad { padding: 0 16px 120px; }
 .row { display: flex; align-items: center; gap: 8px; }
+.row.wrap { flex-wrap: wrap; }
+.field-row { display: flex; gap: 12px; margin-top: 8px; }
+.field-row > .grow { min-width: 0; }
+/* On very narrow screens, stack date/time fields vertically so the native
+   pickers never overlap or collide. */
+@media (max-width: 360px) {
+  .field-row { flex-direction: column; gap: 4px; }
+}
 .spread { justify-content: space-between; }
 .grow { flex: 1; min-width: 0; }
 
@@ -305,6 +313,21 @@ input, select {
 input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
 label { font-size: 13px; color: var(--soft); display: block; margin: 8px 0 2px; }
 
+/* Native date/time fields: the calendar & clock icons must stay visible in
+   both themes (they default to black in Chrome, which vanishes on dark cards). */
+input[type="date"], input[type="time"] { position: relative; }
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 1; cursor: pointer; filter: invert(38%) sepia(9%) saturate(400%) hue-rotate(210deg);
+}
+[data-theme="midnight"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="midnight"] input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(85%);
+}
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit { color: var(--text); }
+input[type="date"]:focus-visible, input[type="time"]:focus-visible { outline: 2px solid var(--primary); }
+
 /* sliders */
 .slider { accent-color: var(--primary); padding: 0; border: none; min-height: 48px; background: transparent; }
 .slider-value { font-size: 22px; min-width: 74px; text-align: right; }
@@ -354,11 +377,15 @@ label { font-size: 13px; color: var(--soft); display: block; margin: 8px 0 2px; 
 .navitem.on { color: #fff; }
 .fab {
   width: 58px; height: 58px; border-radius: 50%; flex-shrink: 0;
-  background: linear-gradient(160deg, var(--header-from), var(--header-to));
+  background: var(--primary);
   color: #fff; display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 45%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 45%, transparent),
+              inset 0 -2px 6px rgba(0, 0, 0, 0.18);
   padding: 0; min-height: 58px;
 }
+/* Keep the + glyph high-contrast in both themes. */
+[data-theme='sunrise'] .fab { background: linear-gradient(160deg, #E04A3F, var(--primary)); }
+[data-theme='midnight'] .fab { background: linear-gradient(160deg, #FF7A5C, #D93A32); }
 
 /* ---------- sheet ---------- */
 .sheet-backdrop {

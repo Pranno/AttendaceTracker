@@ -92,7 +92,7 @@ export default function Settings() {
           onChange={(e) => updateSettings({ semesterName: e.target.value })}
           placeholder="Semester 1"
         />
-        <div className="row" style={{ marginTop: 8 }}>
+        <div className="field-row">
           <div className="grow">
             <label className="small-label">Start date</label>
             <input
@@ -106,6 +106,7 @@ export default function Settings() {
             <input
               type="date"
               value={s.semesterEnd ?? ''}
+              min={s.semesterStart ?? undefined}
               onChange={(e) => updateSettings({ semesterEnd: e.target.value || null })}
             />
           </div>
@@ -193,7 +194,7 @@ function ErpRow({ id, short, attended, held }: { id: string; short: string; atte
   return (
     <div className="card">
       <b>{short}</b>
-      <div className="row" style={{ marginTop: 6 }}>
+      <div className="row wrap" style={{ marginTop: 6 }}>
         <div className="grow">
           <label className="small-label">Attended</label>
           <input type="number" min={0} value={attended ?? ''} onChange={(e) => set(e.target.value, String(held ?? ''))} />

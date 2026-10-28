@@ -126,7 +126,7 @@ function QuickAddSheet({ open, onClose, goSettings }: { open: boolean; onClose: 
         <div>
           <label className="small-label">What is due?</label>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Maths worksheet" />
-          <div className="row" style={{ marginTop: 8 }}>
+          <div className="field-row">
             <div className="grow">
               <label className="small-label">Due date</label>
               <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
