@@ -1,82 +1,100 @@
-// Settings tab — step 1: the threshold (F1), semester dates (F5), assumed past
-// attendance (F10), Sunday classes (A13), ERP totals per subject (B8), delete all data (F8).
-// The theme picker, reminder times and export polish land in Step 2.
+// Settings — Step 2 design: soft grouped rounded lists; the threshold as a big
+// number with a slider and an emoji (F1); assumed past attendance the same way
+// (F10); semester dates as two rounded date fields (F5); the theme picker as
+// three preview tiles (F9); reminder lead time (F3); delete all data with a
+// second tap to confirm (F8).
 
 import { useState } from 'react'
 import { useApp } from '../data/store'
 import { exportData } from '../data/storage'
+import { SliderField, SectionTitle, Toggle } from './ui/parts'
+import { useTheme } from '../theme/ThemeProvider'
+import type { ThemeChoice } from '../theme/ThemeProvider'
+import { THEME_TOKENS } from '../theme/tokens'
+
+function thresholdEmoji(n: number): string {
+  if (n >= 90) return '🎯'
+  if (n >= 75) return '🙂'
+  if (n >= 60) return '😬'
+  return '😱'
+}
 
 export default function Settings() {
-  const { data, updateSettings, setData, resetAll } = useApp()
+  const { data, updateSettings, resetAll } = useApp()
+  const { choice, setChoice } = useTheme()
   const s = data.settings
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  function setTypedTotals(subjectId: string, attended: string, held: string) {
-    setData((d) => ({
-      ...d,
-      subjects: d.subjects.map((sub) => {
-        if (sub.id !== subjectId) return sub
-        const next = { ...sub }
-        if (held.trim() === '') {
-          delete next.typedHeld
-          delete next.typedAttended
-        } else {
-          next.typedHeld = Math.max(0, Number(held) || 0)
-          next.typedAttended = Math.max(0, Number(attended) || 0)
-        }
-        return next
-      }),
-    }))
-  }
+  const themes: { id: ThemeChoice; label: string; tokens: 'sunrise' | 'midnight' | null }[] = [
+    { id: 'sunrise', label: 'Sunrise', tokens: 'sunrise' },
+    { id: 'midnight', label: 'Midnight', tokens: 'midnight' },
+    { id: 'system', label: 'Follow the phone', tokens: null },
+  ]
 
   return (
-    <div>
-      <h1>Settings</h1>
+    <div className="screen pad">
+      <h1 style={{ margin: '8px 0 12px' }}>Settings</h1>
 
-      <div className="card">
-        <label>Minimum attendance to keep (%)</label>
-        <div className="row">
-          <input
-            type="range"
-            min={1}
-            max={100}
-            value={s.threshold}
-            onChange={(e) => updateSettings({ threshold: Number(e.target.value) })}
-            className="grow"
-          />
-          <b style={{ fontSize: 22, minWidth: 56, textAlign: 'right' }}>{s.threshold}%</b>
-        </div>
-        <div className="msg">Every warning and “can skip” number uses this.</div>
+      <SectionTitle>ATTENDANCE TARGET</SectionTitle>
+      <SliderField
+        label="Minimum attendance to keep"
+        value={s.threshold}
+        min={1}
+        max={100}
+        emojiFor={thresholdEmoji}
+        onChange={(n) => updateSettings({ threshold: n })}
+        hint="Every warning and “can skip” number uses this."
+      />
+
+      <SliderField
+        label="Assumed attendance for past unmarked classes"
+        value={s.assumedPastAttendance}
+        min={0}
+        max={100}
+        onChange={(n) => updateSettings({ assumedPastAttendance: n })}
+        hint="Used until you mark a day or type real ERP totals."
+      />
+
+      <SectionTitle>THEME</SectionTitle>
+      <div className="theme-tiles">
+        {themes.map((t) => (
+          <button
+            key={t.id}
+            className={`theme-tile ${choice === t.id ? 'on' : ''}`}
+            onClick={() => setChoice(t.id)}
+            aria-pressed={choice === t.id}
+          >
+            {t.tokens ? (
+              <span
+                className="theme-preview"
+                style={{
+                  background: THEME_TOKENS[t.tokens].bg,
+                  borderTop: `8px solid ${THEME_TOKENS[t.tokens].headerTo}`,
+                }}
+              >
+                <i style={{ background: THEME_TOKENS[t.tokens].card }} />
+                <i style={{ background: THEME_TOKENS[t.tokens].primary }} />
+                <i style={{ background: THEME_TOKENS[t.tokens].safe }} />
+              </span>
+            ) : (
+              <span className="theme-preview auto">🌗</span>
+            )}
+            <b>{t.label}</b>
+          </button>
+        ))}
       </div>
 
+      <SectionTitle>SEMESTER</SectionTitle>
       <div className="card">
-        <label>Assumed attendance for past unmarked classes (%)</label>
-        <div className="row">
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={s.assumedPastAttendance}
-            onChange={(e) => updateSettings({ assumedPastAttendance: Number(e.target.value) })}
-            className="grow"
-          />
-          <b style={{ fontSize: 22, minWidth: 56, textAlign: 'right' }}>
-            {s.assumedPastAttendance}%
-          </b>
-        </div>
-        <div className="msg">Used until you mark a day or type real ERP totals below.</div>
-      </div>
-
-      <div className="card">
-        <label>Semester name</label>
+        <label className="small-label">Semester name</label>
         <input
           value={s.semesterName}
           onChange={(e) => updateSettings({ semesterName: e.target.value })}
           placeholder="Semester 1"
         />
-        <div className="row">
+        <div className="row" style={{ marginTop: 8 }}>
           <div className="grow">
-            <label>Semester start</label>
+            <label className="small-label">Start date</label>
             <input
               type="date"
               value={s.semesterStart ?? ''}
@@ -84,7 +102,7 @@ export default function Settings() {
             />
           </div>
           <div className="grow">
-            <label>Tentative end</label>
+            <label className="small-label">Tentative end</label>
             <input
               type="date"
               value={s.semesterEnd ?? ''}
@@ -95,66 +113,97 @@ export default function Settings() {
         <div className="msg">Classes only appear inside this range; the monthly plan needs both.</div>
       </div>
 
+      <SectionTitle>REMINDERS</SectionTitle>
+      <SliderField
+        label="Remind me before a deadline by"
+        value={s.reminderLeadDays}
+        min={1}
+        max={14}
+        suffix=" days"
+        onChange={(n) => updateSettings({ reminderLeadDays: n })}
+        hint="Notifications arrive this many days early (Step 5 fires them)."
+      />
       <div className="card row spread">
         <div>
           <b>Sunday classes</b>
           <div className="msg">Sunday is off by default.</div>
         </div>
-        <input
-          type="checkbox"
+        <Toggle
           checked={s.sundayClasses}
-          onChange={(e) => updateSettings({ sundayClasses: e.target.checked })}
+          onChange={(v) => updateSettings({ sundayClasses: v })}
+          label="Sunday classes"
         />
       </div>
 
-      <h2>Real totals from the college ERP (per subject)</h2>
+      <SectionTitle>REAL TOTALS FROM THE COLLEGE ERP</SectionTitle>
       <div className="msg" style={{ marginBottom: 8 }}>
-        Typing totals here replaces the app’s calculated/assumed figures for that subject.
+        Typing totals replaces the app’s calculated figures for that subject.
       </div>
+      {data.subjects.length === 0 && <div className="card msg">No subjects yet.</div>}
       {data.subjects.map((sub) => (
-        <div className="card" key={sub.id}>
-          <b>{sub.shortName}</b>
-          <div className="row" style={{ marginTop: 6 }}>
-            <div className="grow">
-              <label>Attended</label>
-              <input
-                type="number"
-                min={0}
-                value={sub.typedAttended ?? ''}
-                onChange={(e) => setTypedTotals(sub.id, e.target.value, sub.typedHeld?.toString() ?? '')}
-              />
-            </div>
-            <div className="grow">
-              <label>Held</label>
-              <input
-                type="number"
-                min={0}
-                value={sub.typedHeld ?? ''}
-                onChange={(e) => setTypedTotals(sub.id, sub.typedAttended?.toString() ?? '', e.target.value)}
-              />
-            </div>
-            {(sub.typedHeld !== undefined || sub.typedAttended !== undefined) && (
-              <button onClick={() => setTypedTotals(sub.id, '', '')}>Clear</button>
-            )}
-          </div>
-        </div>
+        <ErpRow key={sub.id} id={sub.id} short={sub.shortName} attended={sub.typedAttended} held={sub.typedHeld} />
       ))}
 
-      <h2>Your data</h2>
+      <SectionTitle>YOUR DATA</SectionTitle>
       <div className="card row">
-        <button onClick={() => exportData(data)}>Export my data</button>
+        <button className="secondary big-btn grow" onClick={() => exportData(data)}>
+          Export my data
+        </button>
         {confirmDelete ? (
           <button
-            className="absent on"
+            className="danger big-btn grow"
             onClick={() => {
               resetAll()
               setConfirmDelete(false)
             }}
           >
-            Tap again to confirm delete-all
+            Tap again to confirm
           </button>
         ) : (
-          <button onClick={() => setConfirmDelete(true)}>Delete all my data</button>
+          <button className="danger-quiet big-btn grow" onClick={() => setConfirmDelete(true)}>
+            Delete all my data
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ErpRow({ id, short, attended, held }: { id: string; short: string; attended?: number; held?: number }) {
+  const { setData } = useApp()
+
+  function set(a: string, h: string) {
+    setData((d) => ({
+      ...d,
+      subjects: d.subjects.map((sub) => {
+        if (sub.id !== id) return sub
+        const next = { ...sub }
+        if (h.trim() === '') {
+          delete next.typedHeld
+          delete next.typedAttended
+        } else {
+          next.typedHeld = Math.max(0, Number(h) || 0)
+          next.typedAttended = Math.max(0, Number(a) || 0)
+        }
+        return next
+      }),
+    }))
+  }
+
+  return (
+    <div className="card">
+      <b>{short}</b>
+      <div className="row" style={{ marginTop: 6 }}>
+        <div className="grow">
+          <label className="small-label">Attended</label>
+          <input type="number" min={0} value={attended ?? ''} onChange={(e) => set(e.target.value, String(held ?? ''))} />
+        </div>
+        <div className="grow">
+          <label className="small-label">Held</label>
+          <input type="number" min={0} value={held ?? ''} onChange={(e) => set(String(attended ?? ''), e.target.value)} />
+        </div>
+        {(held !== undefined || attended !== undefined) && (
+          <button className="chip" onClick={() => set('', '')}>Clear</button>
         )}
       </div>
     </div>

@@ -54,11 +54,24 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 /** Subject — created when the timetable is confirmed (A6) or added by hand. */
+/** E5 marking-scheme component. `fromAttendance` = automatic attended÷held fraction. */
+export interface MarkingComponent {
+  id: string
+  label: string
+  weight: number // marks it is worth
+  outOf?: number // maximum for one entry
+  expectedEntries?: number
+  bestN?: number // only the N best scores (by percentage) count
+  fromAttendance?: boolean
+}
+
 export interface Subject {
   id: string
   shortName: string
   fullName: string
   credits?: number
+  /** E5: marking scheme built by hand. */
+  markingScheme?: MarkingComponent[]
   /** B8: totals typed by the user from the college ERP. When set, they replace
    * calculated/assumed figures for that subject (J6). */
   typedAttended?: number
@@ -119,6 +132,7 @@ export interface Deadline {
   notes?: string
   tentative: boolean
   done: boolean
+  /** E6: "done" tick for a unit-covering test may be separate; kept simple: done covers both. */
   /** The pasted message it came from (E6/D records). */
   sourceText?: string
   /** Scheduled reminder dates (kept so deleting cancels them, data rule). */
@@ -137,6 +151,20 @@ export interface Topic {
   group?: string
 }
 
+/** E10: a practice question held by a unit. Boxes 0–4; due after
+ * BOX_INTERVALS[box] days (0, 1, 3, 7, 14). */
+export interface PracticeQuestion {
+  id: string
+  text: string
+  code?: string
+  table?: string
+  answer: string
+  box: number
+  dueOn: DateStr | null
+  lastAnswerOn: DateStr | null
+  missedOnce?: boolean
+}
+
 /** Unit (E2, E3). Project subjects use stages ticked "done" instead. */
 export interface Unit {
   id: string
@@ -147,6 +175,8 @@ export interface Unit {
   revisedDate: DateStr | null
   refreshedDate?: DateStr
   kind: 'unit' | 'stage'
+  /** E10: practice questions with spaced repetition. */
+  questions?: PracticeQuestion[]
 }
 
 export interface Score {
@@ -155,6 +185,18 @@ export interface Score {
   name: string
   marksGot: number
   outOf: number
+  /** E5: the marking-scheme component this score belongs to. */
+  componentId?: string
+}
+
+/** E11: one entry in the CGPA planner. Either per-subject grades or a known SGPA. */
+export interface CgpaSemester {
+  id: string
+  label: string
+  mode: 'subjects' | 'sgpa'
+  subjects?: { name?: string; credits: number; grade: string }[]
+  sgpa?: number
+  credits?: number
 }
 
 export interface FocusSession {
@@ -220,6 +262,8 @@ export interface AppData {
   courseLinks: CourseLink[]
   suggestions: Suggestion[]
   events: CalendarEvent[]
+  /** E11: CGPA planner semesters (kept when a new semester starts, E14). */
+  cgpaSemesters?: CgpaSemester[]
 }
 
 export const EMPTY_DATA: AppData = {
