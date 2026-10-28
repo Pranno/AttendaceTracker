@@ -253,3 +253,28 @@ describe('buildMonthPlan / planMonths', () => {
     expect(plan.overallPercent).toBeCloseTo(100, 5)
   })
 })
+
+describe('planVerdict wording (J8/J9)', () => {
+  it('nodata never guesses', async () => {
+    const { planVerdict } = await import('./projection')
+    expect(planVerdict({ status: 'nodata', breachDate: null, canSkipRest: 0, remainingClasses: 0 })).toMatch(/No classes recorded/)
+  })
+  it('below → recovery message', async () => {
+    const { planVerdict } = await import('./projection')
+    expect(planVerdict({ status: 'below', breachDate: null, canSkipRest: 0, remainingClasses: 3 })).toMatch(/Below threshold now/)
+  })
+  it('breach date takes priority over headroom', async () => {
+    const { planVerdict } = await import('./projection')
+    const v = planVerdict({ status: 'safe', breachDate: '2026-11-20', canSkipRest: 2, remainingClasses: 5 })
+    expect(v).toMatch(/drop below on/)
+    expect(v).toContain('20 Nov')
+  })
+  it('headroom sentence when no breach', async () => {
+    const { planVerdict } = await import('./projection')
+    expect(planVerdict({ status: 'safe', breachDate: null, canSkipRest: 2, remainingClasses: 5 })).toMatch(/miss up to 2 of the 5/)
+  })
+  it('zero headroom warning', async () => {
+    const { planVerdict } = await import('./projection')
+    expect(planVerdict({ status: 'limit', breachDate: null, canSkipRest: 0, remainingClasses: 4 })).toMatch(/Zero headroom/)
+  })
+})

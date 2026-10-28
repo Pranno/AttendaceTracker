@@ -7,18 +7,19 @@
 // - Hides on scroll down, returns on scroll up; respects safe area
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarDays, LayoutGrid, Plus, Settings2, SunMedium } from 'lucide-react'
+import { CalendarDays, CalendarRange, LayoutGrid, Plus, Settings2, SunMedium } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Sheet } from './ui/parts'
 import { useApp } from '../data/store'
 import type { DateStr } from '../data/model'
 import { todayStr } from '../logic/dates'
 
-export type Tab = 'today' | 'calendar' | 'subjects' | 'settings'
+export type Tab = 'today' | 'calendar' | 'plan' | 'subjects' | 'settings'
 
 const ITEMS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: 'today', label: 'Today', icon: SunMedium },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { id: 'plan', label: 'Plan', icon: CalendarRange },
   { id: 'subjects', label: 'Subjects', icon: LayoutGrid },
   { id: 'settings', label: 'Settings', icon: Settings2 },
 ]

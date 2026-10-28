@@ -21,7 +21,7 @@
 import type { AppData, DateStr } from '../data/model'
 import { isHoliday, slotsForDate, type SubjectTotals } from './attendance'
 
-import { addDays, monthKey, weekdayOf } from './dates'
+import { addDays, formatShort, monthKey, weekdayOf } from './dates'
 
 /** Small local helper so we don't depend on export names elsewhere. */
 function eachDay(from: DateStr, to: DateStr): DateStr[] {
@@ -89,6 +89,20 @@ export interface MonthPlan {
 
 function pct(a: number, h: number): number {
   return h === 0 ? 0 : (a / h) * 100
+}
+
+/** J8/J9 one-line verdict wording for a projected subject (used by Plan & Today). */
+export function planVerdict(sp: {
+  status: string
+  breachDate: DateStr | null
+  canSkipRest: number
+  remainingClasses: number
+}): string {
+  if (sp.status === 'nodata') return 'No classes recorded yet — nothing projected.'
+  if (sp.status === 'below') return 'Below threshold now — attend the next classes to recover.'
+  if (sp.breachDate) return `If you skip everything left, you drop below on ${formatShort(sp.breachDate)}.`
+  if (sp.canSkipRest > 0) return `You can miss up to ${sp.canSkipRest} of the ${sp.remainingClasses} remaining classes and stay at or above target.`
+  return 'Zero headroom — attend every remaining class in this window.'
 }
 
 /** Project one subject from `start` (today) to `end` (semester end or month end). */

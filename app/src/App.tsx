@@ -9,18 +9,26 @@ import type { Tab } from './components/NavBar'
 import Today from './components/Today'
 import Calendar from './components/Calendar'
 import Subjects from './components/Subjects'
+import Plan from './components/Plan'
 import Settings from './components/Settings'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today')
+  const [focusSubjectId, setFocusSubjectId] = useState<string | null>(null)
+  // Navigation with optional subject deep-link (Today/Subjects → Plan).
+  const go = (t: Tab, subjectId?: string) => {
+    setFocusSubjectId(subjectId ?? null)
+    setTab(t)
+  }
   return (
     <ThemeProvider>
       <AppProvider>
-        {tab === 'today' && <Today go={setTab} />}
+        {tab === 'today' && <Today go={go} />}
         {tab === 'calendar' && <Calendar />}
-        {tab === 'subjects' && <Subjects go={setTab} />}
+        {tab === 'plan' && <Plan focusSubjectId={focusSubjectId} />}
+        {tab === 'subjects' && <Subjects go={go} />}
         {tab === 'settings' && <Settings />}
-        <NavBar tab={tab} onChange={setTab} />
+        <NavBar tab={tab} onChange={(t) => go(t)} />
       </AppProvider>
     </ThemeProvider>
   )

@@ -18,7 +18,7 @@ import Timetable from './Timetable'
 
 const SUBJECT_ICONS = ['📘', '🧪', '🧮', '💻', '📡', '🎨', '🛠️', '🌐']
 
-export default function Subjects(_props: { go: (t: Tab) => void }) {
+export default function Subjects({ go }: { go: (t: Tab, subjectId?: string) => void }) {
   const { data } = useApp()
   const { active } = useTheme()
   const [view, setView] = useState<'grid' | 'timetable'>('grid')
@@ -132,9 +132,10 @@ export default function Subjects(_props: { go: (t: Tab) => void }) {
         <>
           <SectionTitle>NEEDS ATTENTION</SectionTitle>
           {report.warnings.map((w) => (
-            <div className="card subject-card" key={w.subjectId} style={{ borderLeft: '6px solid var(--danger)' }}>
+            <button className="card subject-card subject-card-link" key={w.subjectId} style={{ borderLeft: '6px solid var(--danger)' }} onClick={() => go('plan', w.subjectId)}>
               <b>{w.shortName}</b> <span className="msg">{w.message}</span>
-            </div>
+              <span className="msg"> · see plan →</span>
+            </button>
           ))}
         </>
       )}

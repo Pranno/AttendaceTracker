@@ -21,7 +21,7 @@ interface AppApi {
   // ---- attendance marking (B1) ----
   setMark: (date: DateStr, slotId: string, status: MarkStatus | null) => void
   // ---- deadlines (C5 minimal for step 1) ----
-  addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'>) => void
+  addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }) => void
   updateDeadline: (id: string, patch: Partial<Deadline>) => void
   toggleDeadlineDone: (id: string) => void
   deleteDeadline: (id: string) => void
@@ -100,7 +100,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...d,
           deadlines: [
             ...d.deadlines,
-            { ...dl, id: newId('dl'), done: false, tentative: false, reminderDates: [] },
+            { reminderDates: [], tentative: false, ...dl, id: newId('dl'), done: false },
           ],
         }))
       },

@@ -11,6 +11,119 @@ import { SliderField, SectionTitle, Toggle } from './ui/parts'
 import { useTheme } from '../theme/ThemeProvider'
 import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
+import { extractDeadlines, type ExtractedDeadline } from '../logic/deadlines'
+import { todayStr, formatShort } from '../logic/dates'
+
+// ------------------------------------------------------------
+// Deadline paste extraction (D-series): paste a class-group message,
+// preview detected deadlines, edit/select, then save the chosen ones.
+// ------------------------------------------------------------
+function DeadlinePaste() {
+  const { data, addDeadline } = useApp()
+  const [text, setText] = useState('')
+  const [results, setResults] = useState<ExtractedDeadline[] | null>(null)
+  const [checked, setChecked] = useState<boolean[]>([])
+  const [savedMsg, setSavedMsg] = useState<string | null>(null)
+
+  function run() {
+    const r = extractDeadlines(text, todayStr())
+    setResults(r)
+    setChecked(r.map(() => true))
+    setSavedMsg(null)
+  }
+
+  function save() {
+    if (!results) return
+    let n = 0
+    results.forEach((d, i) => {
+      if (!checked[i]) return
+      // match subject hint to an existing subject id when possible
+      const sub = d.subjectHint
+        ? data.subjects.find(
+            (s) => s.shortName.toLowerCase() === d.subjectHint!.toLowerCase() ||
+                   s.fullName.toLowerCase().includes(d.subjectHint!.toLowerCase()),
+          )
+        : undefined
+      addDeadline({
+        title: d.title,
+        dueDate: d.dueDate,
+        subjectId: sub?.id,
+        tentative: d.tentative,
+        sourceText: text.slice(0, 500),
+      })
+      n++
+    })
+    setSavedMsg(n > 0 ? `Saved ${n} deadline${n === 1 ? '' : 's'} ✓` : 'Nothing selected.')
+    setResults(null)
+    setText('')
+  }
+
+  return (
+    <div className="paste-box" style={{ marginBottom: 16 }}>
+      <textarea
+        placeholder={'Paste the WhatsApp / notice message here…\ne.g. "DSA assignment submission on 5/11"'}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="row" style={{ marginTop: 8, gap: 8 }}>
+        <button className="secondary big-btn grow" disabled={text.trim().length < 4} onClick={run}>
+          Extract deadlines
+        </button>
+        {results && (
+          <button className="danger-quiet big-btn" onClick={() => { setResults(null); setText('') }}>
+            Clear
+          </button>
+        )}
+      </div>
+
+      {savedMsg && <div className="msg" style={{ marginTop: 8 }}>{savedMsg}</div>}
+
+      {results && (
+        <div style={{ marginTop: 12 }}>
+          {results.length === 0 && (
+            <div className="card msg">No deadlines detected — check the message has a date + words like "submission", "due", "test".</div>
+          )}
+          {results.map((d, i) => (
+            <div key={i} className="card extract-item">
+              <button
+                className={`extract-check${checked[i] ? ' on' : ''}`}
+                aria-label={checked[i] ? 'Skip this one' : 'Include this one'}
+                onClick={() => setChecked((c) => c.map((v, j) => (j === i ? !v : v)))}
+              >
+                {checked[i] ? '✓' : ''}
+              </button>
+              <div className="extract-main">
+                <input
+                  className="extract-title-input"
+                  value={d.title}
+                  onChange={(e) => setResults((rs) => rs!.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))}
+                />
+                <div className="extract-meta">
+                  Due {formatShort(d.dueDate)}
+                  {d.subjectHint ? ` · ${d.subjectHint}` : ''}
+                  {d.tentative ? ' · next year?' : ''}
+                </div>
+              </div>
+              <input
+                type="date"
+                className="extract-date"
+                value={d.dueDate}
+                onChange={(e) =>
+                  setResults((rs) => rs!.map((x, j) => (j === i ? { ...x, dueDate: e.target.value as ExtractedDeadline['dueDate'], tentative: false } : x)))
+                }
+              />
+            </div>
+          ))}
+          {results.length > 0 && (
+            <button className="primary big-btn grow" style={{ marginTop: 6 }} onClick={save}>
+              Save {checked.filter(Boolean).length} selected
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function thresholdEmoji(n: number): string {
   if (n >= 90) return '🎯'
@@ -242,6 +355,9 @@ export default function Settings() {
           label="Sunday classes"
         />
       </div>
+
+      <SectionTitle>PASTE A DEADLINE MESSAGE</SectionTitle>
+      <DeadlinePaste />
 
       <SectionTitle>REAL TOTALS FROM THE COLLEGE ERP</SectionTitle>
       <div className="msg" style={{ marginBottom: 8 }}>

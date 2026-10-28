@@ -17,8 +17,9 @@ import { PercentRing, SectionTitle, StatusPill, ChipRow } from './ui/parts'
 import { subjectPalette, subjectTileStyle, STATUS_VAR } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
+import { planVerdict, projectSubject } from '../logic/projection'
 
-export default function Today({ go }: { go: (t: Tab) => void }) {
+export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void }) {
   const { data, setMark } = useApp()
   const { active, choice, setChoice } = useTheme()
   const [undoMsg, setUndoMsg] = useState<string | null>(null)
@@ -67,22 +68,17 @@ export default function Today({ go }: { go: (t: Tab) => void }) {
           ? "At the limit. Don't miss the next class"
           : `Below ${data.settings.threshold}% — attend the next classes to get back on track`
 
-  // This-month rows per subject: count scheduled classes in the current month.
+  // This-month rows per subject: projection-engine numbers (J-series),
+  // horizon = rest of the current month (capped at semester end).
   const monthRows = useMemo(() => {
     const mk = monthKey(today)
+    const [y, m] = mk.split('-').map(Number)
+    const monthEnd = `${mk}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`
+    const semEnd = data.settings.semesterEnd ?? monthEnd
+    const horizonEnd = semEnd < monthEnd ? semEnd : monthEnd
     return report.bySubject.map((s, i) => {
-      let held = 0
-      const lastDay = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate()
-      for (let day = 1; day <= lastDay; day++) {
-        const d = `${mk}-${String(day).padStart(2, '0')}`
-        if (isHoliday(data, d)) continue
-        for (const slot of slotsForDate(data, d)) {
-          if (slot.subjectId !== s.subjectId) continue
-          if (markFor(data, d, slot.id) === 'noclass') continue
-          held += 1
-        }
-      }
-      return { summary: s, index: i, monthHeld: held }
+      const sp = projectSubject(data, s.subjectId, today > monthEnd ? monthEnd : today > horizonEnd ? horizonEnd : today, horizonEnd)
+      return { summary: s, index: i, proj: sp }
     })
   }, [report, data, today])
 
@@ -222,25 +218,25 @@ export default function Today({ go }: { go: (t: Tab) => void }) {
       {monthRows.length === 0 && (
         <div className="card msg">No subjects yet — add your timetable under Subjects.</div>
       )}
-      {monthRows.map(({ summary: s, index, monthHeld }) => (
+      {monthRows.map(({ summary: s, index, proj }) => (
         <button
           key={s.subjectId}
           className="month-row card-like"
           style={subjectTileStyle(index, active)}
-          onClick={() => go('subjects')}
+          onClick={() => go('plan', s.subjectId)}
         >
           <span className="subj-dot" style={{ background: 'var(--subj-strong)', color: 'var(--subj-on)' }}>
             {s.shortName.slice(0, 2)}
           </span>
           <span className="grow" style={{ textAlign: 'left' }}>
             <b>{s.shortName}</b>
+            <span className="msg month-row-verdict">{planVerdict(proj)}</span>
           </span>
-          <StatusPill tone="neutral">{monthHeld} cls</StatusPill>
-          <StatusPill tone="neutral">{Math.ceil((monthHeld * data.settings.threshold) / 100)} must</StatusPill>
+          <StatusPill tone="neutral">{proj.remainingClasses} left</StatusPill>
           <StatusPill
             tone={s.status === 'safe' ? 'safe' : s.status === 'limit' ? 'limit' : s.status === 'below' ? 'below' : 'neutral'}
           >
-            {s.status === 'below' ? 'short' : `skip ${s.canMiss}`}
+            {s.status === 'below' ? `recover ${proj.mustAttendNext}` : `skip ${proj.canSkipRest}`}
           </StatusPill>
         </button>
       ))}
