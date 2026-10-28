@@ -12,11 +12,19 @@ html, body { margin: 0; padding: 0; }
 
 /* Tell the browser (and native date/time pickers + autofill) which
    appearance matches our theme. ThemeProvider sets data-theme to
-   'sunrise' (light) or 'midnight' (dark). Without this, Chrome renders
-   <input type="date"> popups and icons with its own default scheme,
-   which made dates/options invisible in light mode. */
+   'sunrise' (light) or 'midnight' (dark).
+
+   IMPORTANT: we also honour prefers-color-scheme as a fallback, because
+   if data-theme is ever missing/stale (first paint, saved preference out
+   of sync), inputs previously inherited the OS's dark scheme and rendered
+   white text on our white cards — i.e. dates and options became invisible.
+   Now every input carries an explicit colour, so nothing can wash out. */
 html[data-theme='sunrise'] { color-scheme: light; }
 html[data-theme='midnight'] { color-scheme: dark; }
+html:not([data-theme='midnight']) { color-scheme: light only; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) { color-scheme: dark; }
+}
 
 body {
   font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
@@ -314,12 +322,34 @@ button.danger-quiet { background: color-mix(in srgb, var(--danger) 14%, var(--ca
 .big-btn { min-height: 48px; font-weight: 800; }
 
 input, select {
-  border: 1.5px solid color-mix(in srgb, var(--soft) 30%, transparent);
+  /* Explicit light-appearance defaults so nothing can ever render
+     white-on-white, regardless of OS/browser dark-mode settings. */
+  color-scheme: light;
+  border: 1.5px solid #CFC8DC; /* fallback */
+  border-color: color-mix(in srgb, var(--soft) 30%, transparent);
   border-radius: 16px; padding: 10px 12px; font-size: 15px; min-height: 48px;
-  background: var(--card); color: var(--text); width: 100%; font-family: inherit;
+  background: #FFFFFF; background: var(--card);
+  color: #1E1B2E; color: var(--text);
+  -webkit-text-fill-color: var(--text);
+  width: 100%; font-family: inherit;
+}
+[data-theme="midnight"] input, [data-theme="midnight"] select {
+  color-scheme: dark;
+  background: var(--card);
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
 }
 input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
-label { font-size: 13px; color: var(--soft); display: block; margin: 8px 0 2px; }
+/* labels must stay readable in BOTH themes — previously they used the same
+   muted colour as body text, which washed out on light cards */
+label {
+  font-size: 13px; display: block; margin: 8px 0 2px; font-weight: 700;
+  color: #3F3A52; /* fallback: dark-enough grey for sunrise cards */
+  color: color-mix(in srgb, var(--soft) 45%, var(--text));
+}
+[data-theme='midnight'] label {
+  color: var(--soft);
+}
 
 /* Native date/time fields: the calendar & clock icons must stay visible in
    both themes (they default to black in Chrome, which vanishes on dark cards). */
