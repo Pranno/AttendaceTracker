@@ -1,0 +1,76 @@
+:root {
+  /* Placeholder palette until the real design tokens arrive in Step 2. */
+  --bg: #fff8f2;
+  --card: #ffffff;
+  --text: #1e1b2e;
+  --soft: #6b6580;
+  --primary: #d93a32;
+  --safe: #1fa35b;
+  --limit: #f2a100;
+  --danger: #e5383b;
+  --radius: 20px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app { max-width: 480px; margin: 0 auto; padding: 16px 16px 96px; }
+
+h1 { font-size: 24px; }
+h2 { font-size: 17px; margin: 24px 0 8px; }
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 8px 24px rgba(217, 58, 50, 0.08);
+}
+
+.row { display: flex; align-items: center; gap: 8px; }
+.spread { justify-content: space-between; }
+.grow { flex: 1; }
+
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #eee6dd;
+  color: var(--text);
+  min-height: 40px;
+}
+button.primary { background: var(--primary); color: #fff; }
+button.present.on { background: var(--safe); color: #fff; }
+button.absent.on { background: var(--danger); color: #fff; }
+button.noclass.on { background: var(--soft); color: #fff; }
+
+input, select {
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 15px;
+  background: #fff;
+  min-height: 44px;
+}
+label { font-size: 13px; color: var(--soft); display: block; margin: 8px 0 2px; }
+
+.pct { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.safe { color: var(--safe); }
+.limit { color: var(--limit); }
+.below { color: var(--danger); }
+.msg { font-size: 13px; color: var(--soft); }
+
+.tabs { position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: center; gap: 8px;
+  padding: 12px; background: rgba(255,255,255,.8); backdrop-filter: blur(8px); }
+@media (min-width: 481px) { .tabs { max-width: 480px; margin: 0 auto; border-radius: 24px 24px 0 0; } }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid #f0e8e0; }
