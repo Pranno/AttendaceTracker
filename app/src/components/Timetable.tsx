@@ -437,9 +437,6 @@ export default function Timetable() {
           </div>
         )
       })}
-
-      {/* keep updateSlot referenced so future edits hook here in Step 3 */}
-      <span style={{ display: 'none' }}>{typeof updateSlot + newId('x').slice(0, 0)}</span>
     </div>
   )
 }
