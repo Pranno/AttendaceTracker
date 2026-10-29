@@ -15,6 +15,8 @@ export interface ExtractedDeadline {
   tentative: boolean
   /** the line the match came from (for the preview UI) */
   sourceLine: string
+  /** H4: http(s) links found on the same line (e.g. course/certificate URLs). */
+  urls?: string[]
 }
 
 export interface SubjectRef {

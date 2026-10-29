@@ -25,6 +25,7 @@ import {
   upcomingDeadlines,
 } from '../logic/study'
 import { SectionTitle, Sheet, StatusPill } from './ui/parts'
+import SpecialCourses from './SpecialCourses'
 
 // ---------------- Focus timer (E9) ----------------
 function FocusTimer() {
@@ -391,6 +392,9 @@ export default function Study() {
           Add unit
         </button>
       </div>
+
+      {/* Section H: special courses (links, status, certificates) */}
+      <SpecialCourses />
     </div>
   )
 }

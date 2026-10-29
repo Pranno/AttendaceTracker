@@ -7,15 +7,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, CheckCheck, Pencil, Trash2, Plus, ClipboardPaste } from 'lucide-react'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
 import { useApp } from '../data/store'
-import type { DateStr, Deadline, MarkStatus } from '../data/model'
+import type { CourseLink, DateStr, Deadline, MarkStatus } from '../data/model'
 import { slotsForDate, isHoliday, markFor } from '../logic/attendance'
+import { deadlineCourseProgress } from '../logic/courseLinks'
 import { toDate, todayStr, pad2, formatShort } from '../logic/dates'
 import { Sheet, SectionTitle } from './ui/parts'
 import { subjectPalette } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 
 export default function Calendar() {
-  const { data, setMark, updateDeadline, toggleDeadlineDone, deleteDeadline, addDeadline } = useApp()
+  const { data, setMark, updateDeadline, toggleDeadlineDone, deleteDeadline, addDeadline, setDeadlineCourseLinks } = useApp()
   const { active } = useTheme()
   const today = todayStr()
   const [monthAnchor, setMonthAnchor] = useState(() => {
@@ -257,8 +258,12 @@ export default function Calendar() {
             })}
 
             {dayDeadlines.length > 0 && <SectionTitle>DEADLINES</SectionTitle>}
-            {dayDeadlines.map((dl) => (
-              <div className="card row spread" key={dl.id} style={{ marginBottom: 8 }}>
+            {dayDeadlines.map((dl) => {
+              // H8: "6 of 10 done" when course links are attached to this deadline.
+              const cp = deadlineCourseProgress(dl, data.courseLinks)
+              return (
+              <div key={dl.id} style={{ marginBottom: 8 }}>
+              <div className="card row spread">
                 <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
                   <input type="checkbox" checked={dl.done} onChange={() => toggleDeadlineDone(dl.id)} />
                   <span><b style={dl.done ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>⏰ {dl.title}</b>
@@ -269,7 +274,14 @@ export default function Calendar() {
                   <button className="icon-btn" aria-label="Delete deadline" onClick={() => deleteDeadline(dl.id)}><Trash2 size={15} /></button>
                 </span>
               </div>
-            ))}
+              {cp && (
+                <div className="msg" style={{ marginTop: 4, paddingLeft: 4 }}>
+                  🎓 {cp.label}{cp.done === cp.total ? ' ✓' : ''}
+                </div>
+              )}
+              </div>
+              )
+            })}
           </div>
         )}
 
@@ -279,18 +291,23 @@ export default function Calendar() {
             initial={editing}
             defaultDate={openDate}
             subjects={data.subjects.map((s) => ({ id: s.id, name: s.shortName }))}
+            courseLinks={data.courseLinks.filter((c) => !editing.subjectId || c.subjectId === editing.subjectId)}
             onCancel={() => setDlEditorId(null)}
-            onSave={(patch) => {
+            onSave={(patch, linkIds) => {
               if (dlEditorId === 'new') {
+                const id = `dl-${crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)}`
                 addDeadline({
                   title: patch.title,
                   dueDate: patch.dueDate,
                   time: patch.time,
                   notes: patch.notes,
                   subjectId: patch.subjectId,
-                })
+                }, id)
+                // H8: attach chosen course links to the new deadline.
+                if (linkIds && linkIds.length > 0) setDeadlineCourseLinks(id, linkIds)
               } else if (dlEditorId) {
                 updateDeadline(dlEditorId, patch)
+                if (linkIds !== undefined) setDeadlineCourseLinks(dlEditorId, linkIds)
               }
               setDlEditorId(null)
             }}
@@ -314,14 +331,18 @@ function DeadlineForm({
   initial,
   defaultDate,
   subjects,
+  courseLinks = [],
   onCancel,
   onSave,
 }: {
   initial: Deadline
   defaultDate: DateStr
   subjects: { id: string; name: string }[]
+  /** H8: this subject's special-course links, to attach to the deadline. */
+  courseLinks?: CourseLink[]
   onCancel: () => void
-  onSave: (d: DlDraft) => void
+  /** linkIds is undefined when the form can't manage links (no courses offered). */
+  onSave: (d: DlDraft, linkIds?: string[]) => void
 }) {
   const [draft, setDraft] = useState<DlDraft>({
     title: initial.title,
@@ -330,6 +351,8 @@ function DeadlineForm({
     notes: initial.notes,
     subjectId: initial.subjectId,
   })
+  // H8: checkboxes for attaching course links ("WAD certificates: 6 of 10 done").
+  const [linkSel, setLinkSel] = useState<string[]>(initial.courseLinkIds ?? [])
   const valid = draft.title.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(draft.dueDate)
   return (
     <div className="card">
@@ -371,10 +394,30 @@ function DeadlineForm({
           <label className="small-label">Notes (optional)</label>
           <input value={draft.notes ?? ''} onChange={(e) => setDraft((x) => ({ ...x, notes: e.target.value || undefined }))} />
         </div>
+        {/* H8: attach this subject's special courses so the deadline shows "N of M done". */}
+        {courseLinks.length > 0 && (
+          <div>
+            <label className="small-label">Linked special courses ({linkSel.length} selected)</label>
+            <div style={{ display: 'grid', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
+              {courseLinks.map((c) => (
+                <label key={c.id} className="row" style={{ gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={linkSel.includes(c.id)}
+                    onChange={() =>
+                      setLinkSel((sel) => (sel.includes(c.id) ? sel.filter((x) => x !== c.id) : [...sel, c.id]))
+                    }
+                  />
+                  <span>{c.name} <span className="msg">· {c.status}</span></span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="msg">Reminder fires per your Settings lead time.</div>
         <div className="row" style={{ gap: 8 }}>
           <button className="secondary big-btn grow" onClick={onCancel}>Cancel</button>
-          <button className="primary big-btn grow" disabled={!valid} onClick={() => valid && onSave(draft)}>Save</button>
+          <button className="primary big-btn grow" disabled={!valid} onClick={() => valid && onSave(draft, courseLinks.length > 0 ? linkSel : undefined)}>Save</button>
         </div>
       </div>
     </div>

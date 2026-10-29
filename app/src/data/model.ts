@@ -184,6 +184,9 @@ export interface Deadline {
   reminderDates: DateStr[]
   /** E6: units this deadline covers. */
   unitIds?: string[]
+  /** H8: course links this deadline is about (e.g. "WAD certificates").
+   *  The deadline row shows their progress, e.g. "6 of 10 done". */
+  courseLinkIds?: string[]
 }
 
 // ---- Study records (defined now so later steps import from this same file) ----
@@ -255,15 +258,41 @@ export interface FocusSession {
 export interface CourseLink {
   id: string
   subjectId: string
+  /** Unit heading text this course sits under (H1 grouping), e.g. "Unit 1: Introduction & HTML". */
+  unitTitle?: string
   unitNumber?: number
   name: string
   platform: string
+  /** Empty until the user adds one — allowed for no-link syllabus entries (H9). */
   url: string
   coNumber?: string
   status: 'not started' | 'started' | 'completed'
   completedDate?: DateStr
+  /** H8: ticked "certificate submitted" with a date. */
   certificateSubmittedDate?: DateStr
+  /** H4: marked "check link" when the reader could not read it cleanly. */
   needsChecking: boolean
+}
+
+/** H11: merge next semester's imported links into the existing list —
+ *  new ones are added, links that are still there keep their status/dates.
+ *  Matching is by subject + normalized name (+ unit when both have one). */
+const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+export function mergeCourseLinks(existing: CourseLink[], incoming: CourseLink[]): CourseLink[] {
+  const out = [...existing]
+  let added = 0
+  for (const inc of incoming) {
+    const match = out.find(
+      (x) =>
+        x.subjectId === inc.subjectId &&
+        normName(x.name) === normName(inc.name) &&
+        (x.unitNumber == null || inc.unitNumber == null || x.unitNumber === inc.unitNumber),
+    )
+    if (match) continue // still there → keep its status/dates (H11)
+    out.push({ ...inc, id: `${inc.id}_n${added}` })
+    added += 1
+  }
+  return out
 }
 
 /** Suggestion (record, section I). */

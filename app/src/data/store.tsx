@@ -3,8 +3,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Unit, Topic, PracticeQuestion } from '../data/model'
-import { newId } from '../data/model'
+import type { AppData, CourseLink, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Unit, Topic, PracticeQuestion } from '../data/model'
+import { mergeCourseLinks, newId } from '../data/model'
 import { loadData, saveData, clearData } from '../data/storage'
 import { markFor } from '../logic/attendance'
 import { scheduleDeadlineNotification, cancelDeadlineNotification, resyncAllNotifications } from '../logic/reminders'
@@ -22,7 +22,7 @@ interface AppApi {
   // ---- attendance marking (B1) ----
   setMark: (date: DateStr, slotId: string, status: MarkStatus | null) => void
   // ---- deadlines (C5 minimal for step 1) ----
-  addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }) => void
+  addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }, id?: string) => void
   updateDeadline: (id: string, patch: Partial<Deadline>) => void
   toggleDeadlineDone: (id: string) => void
   deleteDeadline: (id: string) => void
@@ -30,6 +30,18 @@ interface AppApi {
   addHoliday: (h: Omit<Holiday, 'id'>) => void
   updateHoliday: (id: string, patch: Partial<Holiday>) => void
   deleteHoliday: (id: string) => void
+  // ---- special course links (H-series) ----
+  addCourseLink: (c: Omit<CourseLink, 'id'>) => CourseLink
+  updateCourseLink: (id: string, patch: Partial<CourseLink>) => void
+  deleteCourseLink: (id: string) => void
+  /** H6: mark status with the date; completed sets completedDate too. */
+  setCourseStatus: (id: string, status: CourseLink['status'], date: DateStr) => void
+  /** H8: tick/untick "certificate submitted" with a date. */
+  setCertificateSubmitted: (id: string, date: DateStr | null) => void
+  /** H8: attach/detach course links to a deadline for progress display. */
+  setDeadlineCourseLinks: (deadlineId: string, linkIds: string[]) => void
+  /** H11: merge an imported batch of links, keeping status of existing ones. */
+  importCourseLinks: (links: Omit<CourseLink, 'id'>[]) => void
   // ---- study units & topics (E-series) ----
   addUnit: (u: Omit<Unit, 'id' | 'topics'> & { topics?: Topic[] }) => void
   updateUnit: (id: string, patch: Partial<Unit>) => void
@@ -114,10 +126,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
       },
 
-      addDeadline(dl) {
+      addDeadline(dl, id) {
         let created: Deadline | null = null
         setRaw((d) => {
-          const item: Deadline = { reminderDates: [], tentative: false, ...dl, id: newId('dl'), done: false }
+          const item: Deadline = { reminderDates: [], tentative: false, ...dl, id: id ?? newId('dl'), done: false }
           created = item
           return { ...d, deadlines: [...d.deadlines, item] }
         })
@@ -165,6 +177,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       deleteHoliday(id) {
         setRaw((d) => ({ ...d, holidays: d.holidays.filter((x) => x.id !== id) }))
+      },
+
+      addCourseLink(c) {
+        const link: CourseLink = { ...c, id: newId('course') }
+        setRaw((d) => ({ ...d, courseLinks: [...d.courseLinks, link] }))
+        return link
+      },
+
+      updateCourseLink(id, patch) {
+        setRaw((d) => ({
+          ...d,
+          courseLinks: d.courseLinks.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        }))
+      },
+
+      deleteCourseLink(id) {
+        // H8: also un-link the course from any deadline that referenced it.
+        setRaw((d) => ({
+          ...d,
+          courseLinks: d.courseLinks.filter((x) => x.id !== id),
+          deadlines: d.deadlines.map((dl) =>
+            dl.courseLinkIds?.includes(id)
+              ? { ...dl, courseLinkIds: dl.courseLinkIds.filter((x) => x !== id) }
+              : dl,
+          ),
+        }))
+      },
+
+      setCourseStatus(id, status, date) {
+        setRaw((d) => ({
+          ...d,
+          courseLinks: d.courseLinks.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  status,
+                  completedDate: status === 'completed' ? x.completedDate ?? date : undefined,
+                }
+              : x,
+          ),
+        }))
+      },
+
+      setCertificateSubmitted(id, date) {
+        setRaw((d) => ({
+          ...d,
+          courseLinks: d.courseLinks.map((x) =>
+            x.id === id ? { ...x, certificateSubmittedDate: date ?? undefined } : x,
+          ),
+        }))
+      },
+
+      // H8: attach/detach course links to a deadline ("WAD certificates: 6 of 10 done").
+      setDeadlineCourseLinks(deadlineId, linkIds) {
+        setRaw((d) => ({
+          ...d,
+          deadlines: d.deadlines.map((dl) =>
+            dl.id === deadlineId
+              ? { ...dl, courseLinkIds: linkIds.length > 0 ? linkIds : undefined }
+              : dl,
+          ),
+        }))
+      },
+
+      importCourseLinks(links) {
+        setRaw((d) => ({
+          ...d,
+          courseLinks: mergeCourseLinks(
+            d.courseLinks,
+            links.map((l) => ({ ...l, id: newId('course') })),
+          ),
+        }))
       },
 
       addUnit(u) {
