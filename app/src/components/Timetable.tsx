@@ -172,12 +172,12 @@ export default function Timetable() {
         <div className="card">
           <b>Import your timetable</b>
           <div className="msg" style={{ margin: '6px 0' }}>
-            Upload a .txt/.csv export, or open the PDF, press Ctrl/Cmd+A → Copy, and paste below.
+            Upload a .txt/.csv/PDF export, or open the PDF, press Ctrl/Cmd+A → Copy, and paste below.
             {myBatch ? ` Only batch ${myBatch} + whole-class rows will be kept.` : ' Set your batch in Settings to filter batches.'}
           </div>
           <input
             type="file"
-            accept=".txt,.csv,text/plain,text/csv"
+            accept=".txt,.csv,application/pdf,.pdf,text/plain,text/csv"
             onChange={(e) => onFilePicked(e.target.files?.[0])}
           />
           <textarea
