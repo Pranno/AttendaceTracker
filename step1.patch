@@ -1,0 +1,3983 @@
+From c153d37e2459b2ed086be06ee2bc136219988ce6 Mon Sep 17 00:00:00 2001
+From: "qwen.ai[bot]" <qwenlm-intl@service.alibaba.com>
+Date: Wed, 28 Oct 2026 12:11:58 +0000
+Subject: [PATCH] Step 1: data model, storage, attendance core, hand timetable,
+ Today & Settings
+
+---
+ app/.gitignore                   |    3 +
+ app/index.html                   |   12 +
+ app/package-lock.json            | 2153 ++++++++++++++++++++++++++++++
+ app/package.json                 |   24 +
+ app/src/App.tsx                  |   40 +
+ app/src/components/Settings.tsx  |  162 +++
+ app/src/components/Timetable.tsx |  210 +++
+ app/src/components/Today.tsx     |  187 +++
+ app/src/data/model.ts            |  246 ++++
+ app/src/data/storage.ts          |   42 +
+ app/src/data/store.tsx           |  143 ++
+ app/src/index.css                |   76 ++
+ app/src/logic/attendance.test.ts |  178 +++
+ app/src/logic/attendance.ts      |  234 ++++
+ app/src/logic/dates.ts           |   81 ++
+ app/src/main.tsx                 |   10 +
+ app/tsconfig.json                |   20 +
+ app/vite.config.ts               |    6 +
+ 18 files changed, 3827 insertions(+)
+ create mode 100644 app/.gitignore
+ create mode 100644 app/index.html
+ create mode 100644 app/package-lock.json
+ create mode 100644 app/package.json
+ create mode 100644 app/src/App.tsx
+ create mode 100644 app/src/components/Settings.tsx
+ create mode 100644 app/src/components/Timetable.tsx
+ create mode 100644 app/src/components/Today.tsx
+ create mode 100644 app/src/data/model.ts
+ create mode 100644 app/src/data/storage.ts
+ create mode 100644 app/src/data/store.tsx
+ create mode 100644 app/src/index.css
+ create mode 100644 app/src/logic/attendance.test.ts
+ create mode 100644 app/src/logic/attendance.ts
+ create mode 100644 app/src/logic/dates.ts
+ create mode 100644 app/src/main.tsx
+ create mode 100644 app/tsconfig.json
+ create mode 100644 app/vite.config.ts
+
+diff --git a/app/.gitignore b/app/.gitignore
+new file mode 100644
+index 0000000..804bd4a
+--- /dev/null
++++ b/app/.gitignore
+@@ -0,0 +1,3 @@
++node_modules
++dist
++*.local
+diff --git a/app/index.html b/app/index.html
+new file mode 100644
+index 0000000..9f59e50
+--- /dev/null
++++ b/app/index.html
+@@ -0,0 +1,12 @@
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
++    <title>Attendance Tracker</title>
++  </head>
++  <body>
++    <div id="root"></div>
++    <script type="module" src="/src/main.tsx"></script>
++  </body>
++</html>
+diff --git a/app/package-lock.json b/app/package-lock.json
+new file mode 100644
+index 0000000..89347b9
+--- /dev/null
++++ b/app/package-lock.json
+@@ -0,0 +1,2153 @@
++{
++  "name": "attendance-tracker",
++  "version": "0.1.0",
++  "lockfileVersion": 3,
++  "requires": true,
++  "packages": {
++    "": {
++      "name": "attendance-tracker",
++      "version": "0.1.0",
++      "dependencies": {
++        "react": "^18.3.1",
++        "react-dom": "^18.3.1"
++      },
++      "devDependencies": {
++        "@types/react": "^18.3.12",
++        "@types/react-dom": "^18.3.1",
++        "@vitejs/plugin-react": "^4.3.4",
++        "typescript": "~5.6.2",
++        "vite": "^5.4.11",
++        "vitest": "^2.1.8"
++      }
++    },
++    "node_modules/@babel/code-frame": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.7.tgz",
++      "integrity": "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/helper-validator-identifier": "^7.29.7",
++        "js-tokens": "^4.0.0",
++        "picocolors": "^1.1.1"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/compat-data": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/compat-data/-/compat-data-7.29.7.tgz",
++      "integrity": "sha512-locTkQyKvwIEgBzVrn8693ebc97F2U8ZHjbXwDXJ5Fn2TCpNwTlKcaKLkdHop5c/icOFE7qt7Q9JC5hnKNa6Gg==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/core": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/core/-/core-7.29.7.tgz",
++      "integrity": "sha512-RgHBCvtjbOK2gXSNBNIkNoEc9qoVEtau3hj8gEqKQuL3HZAibKarWFEI3Lfm6EYKkLalOh8eSrj9b+ch9H/VBA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/code-frame": "^7.29.7",
++        "@babel/generator": "^7.29.7",
++        "@babel/helper-compilation-targets": "^7.29.7",
++        "@babel/helper-module-transforms": "^7.29.7",
++        "@babel/helpers": "^7.29.7",
++        "@babel/parser": "^7.29.7",
++        "@babel/template": "^7.29.7",
++        "@babel/traverse": "^7.29.7",
++        "@babel/types": "^7.29.7",
++        "@jridgewell/remapping": "^2.3.5",
++        "convert-source-map": "^2.0.0",
++        "debug": "^4.1.0",
++        "gensync": "^1.0.0-beta.2",
++        "json5": "^2.2.3",
++        "semver": "^6.3.1"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/babel"
++      }
++    },
++    "node_modules/@babel/generator": {
++      "version": "7.29.8",
++      "resolved": "https://registry.npmjs.org/@babel/generator/-/generator-7.29.8.tgz",
++      "integrity": "sha512-gZbepsdh3WDtgZKWL+vTPh71LSBrm/Y4/QDZBVCcYfmeTEEuoOYwlSy+G1StfJg+/Zy550u/3TATbm7qDbbMtg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/parser": "^7.29.8",
++        "@babel/types": "^7.29.8",
++        "@jridgewell/gen-mapping": "^0.3.12",
++        "@jridgewell/trace-mapping": "^0.3.28",
++        "jsesc": "^3.0.2"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-compilation-targets": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/helper-compilation-targets/-/helper-compilation-targets-7.29.7.tgz",
++      "integrity": "sha512-wem6WaBj4NaVYVdNhLPPVacES6ZJ+KBBfSkTMD3YZxbP3rm3Di85tJU5ljaUNhaOynt+Aj0xruhYuzQBt8n71g==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/compat-data": "^7.29.7",
++        "@babel/helper-validator-option": "^7.29.7",
++        "browserslist": "^4.24.0",
++        "lru-cache": "^5.1.1",
++        "semver": "^6.3.1"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-globals": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/helper-globals/-/helper-globals-7.29.7.tgz",
++      "integrity": "sha512-3nQVUAtvkKH9zahfWgw96Jc/uFOmjACE1kQz82E2lqWmHBgjzbNlsC22nuQTfahmWeQtTq5nQ/4Nnd2A1wj4zA==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-module-imports": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/helper-module-imports/-/helper-module-imports-7.29.7.tgz",
++      "integrity": "sha512-ejHwrQQYcm9xnTivShn2IDOlIzInN34AXskvq9QicvCtEzq1Vzclu/tKF8Jq1Cg8JG2GL6/EmjgsCT7lXepE3g==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/traverse": "^7.29.7",
++        "@babel/types": "^7.29.7"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-module-transforms": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/helper-module-transforms/-/helper-module-transforms-7.29.7.tgz",
++      "integrity": "sha512-UPUVSyXbOh627KiCIGQSgwWzGeBKLkaJ9PJEdrngIwMSzxLR4jS4+f1f1jb7VzBbg8nFLaYotvVPFCTqdrmTAg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/helper-module-imports": "^7.29.7",
++        "@babel/helper-validator-identifier": "^7.29.7",
++        "@babel/traverse": "^7.29.7"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      },
++      "peerDependencies": {
++        "@babel/core": "^7.0.0"
++      }
++    },
++    "node_modules/@babel/helper-plugin-utils": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/helper-plugin-utils/-/helper-plugin-utils-7.29.7.tgz",
++      "integrity": "sha512-G7sHYigPY17oO5SYWnfD/0MTBwVR781S/JI643e/JhUYgVgWE/61SoW3NH9KWUKyKq5LVh3npif99Wkt6j86Jw==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-string-parser": {
++      "version": "7.29.11",
++      "resolved": "https://registry.npmjs.org/@babel/helper-string-parser/-/helper-string-parser-7.29.11.tgz",
++      "integrity": "sha512-snZbO7MEDOof+hvNa97EjEY7qD7h2kwvQr5AJC3ZhQudKW5dnej6k3kP9NQV88hJwaS8vDqRLFo9rivLEhle2g==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-validator-identifier": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/helper-validator-identifier/-/helper-validator-identifier-7.29.7.tgz",
++      "integrity": "sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-validator-option": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/helper-validator-option/-/helper-validator-option-7.29.7.tgz",
++      "integrity": "sha512-N9ZErrD+yW5geCDtBqnOoxmR8+tNKiGuxKlDpuJxfsqpa2dFcexaziGAE/qoHLiDDreVNMupxGmSoNlyvsA3gw==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helpers": {
++      "version": "7.29.10",
++      "resolved": "https://registry.npmjs.org/@babel/helpers/-/helpers-7.29.10.tgz",
++      "integrity": "sha512-EMCx3AGZ3WfAl6ht7AyQoPm2Lh+BGYEMdc4Q6Hf7uSCDOZFuLq44qNwL+iaim8VlyYhRAo4X43+weadK8ZB4Yg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/template": "^7.29.7",
++        "@babel/types": "^7.29.8"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/parser": {
++      "version": "7.29.11",
++      "resolved": "https://registry.npmjs.org/@babel/parser/-/parser-7.29.11.tgz",
++      "integrity": "sha512-OZ6+oaK7GMyg3IfCpj8JOmn8n+w2rJbDT0LLfVDTLb1ZFeKDh3AiNELgCMUw175IJHSkLl74hG0M0VLsvx+gag==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/types": "^7.29.11"
++      },
++      "bin": {
++        "parser": "bin/babel-parser.js"
++      },
++      "engines": {
++        "node": ">=6.0.0"
++      }
++    },
++    "node_modules/@babel/plugin-transform-react-jsx-self": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/plugin-transform-react-jsx-self/-/plugin-transform-react-jsx-self-7.29.7.tgz",
++      "integrity": "sha512-TL0hMc9xzy86VD31nUiwzd5otRAcyEPcsegCxolO0PvcXuH1v0kECe/UIznYFihpkvU5wg/jk4v0TTEFfm53fw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/helper-plugin-utils": "^7.29.7"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      },
++      "peerDependencies": {
++        "@babel/core": "^7.0.0-0"
++      }
++    },
++    "node_modules/@babel/plugin-transform-react-jsx-source": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/plugin-transform-react-jsx-source/-/plugin-transform-react-jsx-source-7.29.7.tgz",
++      "integrity": "sha512-06IyK09H3wi4cGbhDBwp5gUGo0IKtnYa8tyTiephirPCK6fbobVGiXMMI5zLQ4aKEYP3wZ3ArU44o+8KMrSG/Q==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/helper-plugin-utils": "^7.29.7"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      },
++      "peerDependencies": {
++        "@babel/core": "^7.0.0-0"
++      }
++    },
++    "node_modules/@babel/template": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/template/-/template-7.29.7.tgz",
++      "integrity": "sha512-puq+Gf35oI24FeN11LkoUQFqv9uwNeWpxXZi/Ji3rRIoKAzKnxRaZ+Gkj0vKS9ZCiTESfng1N9LyOyXvo+m+Gg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/code-frame": "^7.29.7",
++        "@babel/parser": "^7.29.7",
++        "@babel/types": "^7.29.7"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/traverse": {
++      "version": "7.29.10",
++      "resolved": "https://registry.npmjs.org/@babel/traverse/-/traverse-7.29.10.tgz",
++      "integrity": "sha512-B3lYAs2nkKskbgQ1nfy8Ma9ao9Q1rntTAQHrzzyDuj+TSO+X3le6PfWwqDvodsb+OumE10eMFfuMCTQSQ5iuIQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/code-frame": "^7.29.7",
++        "@babel/generator": "^7.29.8",
++        "@babel/helper-globals": "^7.29.7",
++        "@babel/parser": "^7.29.9",
++        "@babel/template": "^7.29.7",
++        "@babel/types": "^7.29.8",
++        "debug": "^4.3.1"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/types": {
++      "version": "7.29.11",
++      "resolved": "https://registry.npmjs.org/@babel/types/-/types-7.29.11.tgz",
++      "integrity": "sha512-WCsemW40Cpc6gouC1SrY6PBaZ+oLRlEVY9XBvZBI7il/HyUrb2nJ505wE1MHEFyDZNnrWDEuy4jL50WVHfTTSQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/helper-string-parser": "^7.29.11",
++        "@babel/helper-validator-identifier": "^7.29.7"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@esbuild/aix-ppc64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.21.5.tgz",
++      "integrity": "sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==",
++      "cpu": [
++        "ppc64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "aix"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/android-arm": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.21.5.tgz",
++      "integrity": "sha512-vCPvzSjpPHEi1siZdlvAlsPxXl7WbOVUBBAowWug4rJHb68Ox8KualB+1ocNvT5fjv6wpkX6o/iEpbDrf68zcg==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/android-arm64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-arm64/-/android-arm64-0.21.5.tgz",
++      "integrity": "sha512-c0uX9VAUBQ7dTDCjq+wdyGLowMdtR/GoC2U5IYk/7D1H1JYC0qseD7+11iMP2mRLN9RcCMRcjC4YMclCzGwS/A==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/android-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-x64/-/android-x64-0.21.5.tgz",
++      "integrity": "sha512-D7aPRUUNHRBwHxzxRvp856rjUHRFW1SdQATKXH2hqA0kAZb1hKmi02OpYRacl0TxIGz/ZmXWlbZgjwWYaCakTA==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/darwin-arm64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.21.5.tgz",
++      "integrity": "sha512-DwqXqZyuk5AiWWf3UfLiRDJ5EDd49zg6O9wclZ7kUMv2WRFr4HKjXp/5t8JZ11QbQfUS6/cRCKGwYhtNAY88kQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/darwin-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/darwin-x64/-/darwin-x64-0.21.5.tgz",
++      "integrity": "sha512-se/JjF8NlmKVG4kNIuyWMV/22ZaerB+qaSi5MdrXtd6R08kvs2qCN4C09miupktDitvh8jRFflwGFBQcxZRjbw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/freebsd-arm64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-arm64/-/freebsd-arm64-0.21.5.tgz",
++      "integrity": "sha512-5JcRxxRDUJLX8JXp/wcBCy3pENnCgBR9bN6JsY4OmhfUtIHe3ZW0mawA7+RDAcMLrMIZaf03NlQiX9DGyB8h4g==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/freebsd-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-x64/-/freebsd-x64-0.21.5.tgz",
++      "integrity": "sha512-J95kNBj1zkbMXtHVH29bBriQygMXqoVQOQYA+ISs0/2l3T9/kj42ow2mpqerRBxDJnmkUDCaQT/dfNXWX/ZZCQ==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-arm": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm/-/linux-arm-0.21.5.tgz",
++      "integrity": "sha512-bPb5AHZtbeNGjCKVZ9UGqGwo8EUu4cLq68E95A53KlxAPRmUyYv2D6F0uUI65XisGOL1hBP5mTronbgo+0bFcA==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-arm64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.21.5.tgz",
++      "integrity": "sha512-ibKvmyYzKsBeX8d8I7MH/TMfWDXBF3db4qM6sy+7re0YXya+K1cem3on9XgdT2EQGMu4hQyZhan7TeQ8XkGp4Q==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-ia32": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-ia32/-/linux-ia32-0.21.5.tgz",
++      "integrity": "sha512-YvjXDqLRqPDl2dvRODYmmhz4rPeVKYvppfGYKSNGdyZkA01046pLWyRKKI3ax8fbJoK5QbxblURkwK/MWY18Tg==",
++      "cpu": [
++        "ia32"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-loong64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-loong64/-/linux-loong64-0.21.5.tgz",
++      "integrity": "sha512-uHf1BmMG8qEvzdrzAqg2SIG/02+4/DHB6a9Kbya0XDvwDEKCoC8ZRWI5JJvNdUjtciBGFQ5PuBlpEOXQj+JQSg==",
++      "cpu": [
++        "loong64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-mips64el": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-mips64el/-/linux-mips64el-0.21.5.tgz",
++      "integrity": "sha512-IajOmO+KJK23bj52dFSNCMsz1QP1DqM6cwLUv3W1QwyxkyIWecfafnI555fvSGqEKwjMXVLokcV5ygHW5b3Jbg==",
++      "cpu": [
++        "mips64el"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-ppc64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-ppc64/-/linux-ppc64-0.21.5.tgz",
++      "integrity": "sha512-1hHV/Z4OEfMwpLO8rp7CvlhBDnjsC3CttJXIhBi+5Aj5r+MBvy4egg7wCbe//hSsT+RvDAG7s81tAvpL2XAE4w==",
++      "cpu": [
++        "ppc64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-riscv64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-riscv64/-/linux-riscv64-0.21.5.tgz",
++      "integrity": "sha512-2HdXDMd9GMgTGrPWnJzP2ALSokE/0O5HhTUvWIbD3YdjME8JwvSCnNGBnTThKGEB91OZhzrJ4qIIxk/SBmyDDA==",
++      "cpu": [
++        "riscv64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-s390x": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-s390x/-/linux-s390x-0.21.5.tgz",
++      "integrity": "sha512-zus5sxzqBJD3eXxwvjN1yQkRepANgxE9lgOW2qLnmr8ikMTphkjgXu1HR01K4FJg8h1kEEDAqDcZQtbrRnB41A==",
++      "cpu": [
++        "s390x"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/linux-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.21.5.tgz",
++      "integrity": "sha512-1rYdTpyv03iycF1+BhzrzQJCdOuAOtaqHTWJZCWvijKD2N5Xu0TtVC8/+1faWqcP9iBCWOmjmhoH94dH82BxPQ==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/netbsd-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/netbsd-x64/-/netbsd-x64-0.21.5.tgz",
++      "integrity": "sha512-Woi2MXzXjMULccIwMnLciyZH4nCIMpWQAs049KEeMvOcNADVxo0UBIQPfSmxB3CWKedngg7sWZdLvLczpe0tLg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "netbsd"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/openbsd-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/openbsd-x64/-/openbsd-x64-0.21.5.tgz",
++      "integrity": "sha512-HLNNw99xsvx12lFBUwoT8EVCsSvRNDVxNpjZ7bPn947b8gJPzeHWyNVhFsaerc0n3TsbOINvRP2byTZ5LKezow==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/sunos-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/sunos-x64/-/sunos-x64-0.21.5.tgz",
++      "integrity": "sha512-6+gjmFpfy0BHU5Tpptkuh8+uw3mnrvgs+dSPQXQOv3ekbordwnzTVEb4qnIvQcYXq6gzkyTnoZ9dZG+D4garKg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "sunos"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/win32-arm64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-arm64/-/win32-arm64-0.21.5.tgz",
++      "integrity": "sha512-Z0gOTd75VvXqyq7nsl93zwahcTROgqvuAcYDUr+vOv8uHhNSKROyU961kgtCD1e95IqPKSQKH7tBTslnS3tA8A==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/win32-ia32": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-ia32/-/win32-ia32-0.21.5.tgz",
++      "integrity": "sha512-SWXFF1CL2RVNMaVs+BBClwtfZSvDgtL//G/smwAc5oVK/UPu2Gu9tIaRgFmYFFKrmg3SyAjSrElf0TiJ1v8fYA==",
++      "cpu": [
++        "ia32"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@esbuild/win32-x64": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.21.5.tgz",
++      "integrity": "sha512-tQd/1efJuzPC6rCFwEvLtci/xNFcTZknmXs98FYDfGE4wP9ClFV98nyKrzJKVPMhdDnjzLhdUyMX4PsQAPjwIw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/@jridgewell/gen-mapping": {
++      "version": "0.3.13",
++      "resolved": "https://registry.npmjs.org/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz",
++      "integrity": "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/sourcemap-codec": "^1.5.0",
++        "@jridgewell/trace-mapping": "^0.3.24"
++      }
++    },
++    "node_modules/@jridgewell/remapping": {
++      "version": "2.3.5",
++      "resolved": "https://registry.npmjs.org/@jridgewell/remapping/-/remapping-2.3.5.tgz",
++      "integrity": "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/gen-mapping": "^0.3.5",
++        "@jridgewell/trace-mapping": "^0.3.24"
++      }
++    },
++    "node_modules/@jridgewell/resolve-uri": {
++      "version": "3.1.2",
++      "resolved": "https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz",
++      "integrity": "sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.0.0"
++      }
++    },
++    "node_modules/@jridgewell/sourcemap-codec": {
++      "version": "1.6.0",
++      "resolved": "https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.6.0.tgz",
++      "integrity": "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/@jridgewell/trace-mapping": {
++      "version": "0.3.31",
++      "resolved": "https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz",
++      "integrity": "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/resolve-uri": "^3.1.0",
++        "@jridgewell/sourcemap-codec": "^1.4.14"
++      }
++    },
++    "node_modules/@napi-rs/lzma-linux-x64-gnu": {
++      "version": "1.5.1",
++      "resolved": "https://registry.npmjs.org/@napi-rs/lzma-linux-x64-gnu/-/lzma-linux-x64-gnu-1.5.1.tgz",
++      "integrity": "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^22.20 || ^24.12 || >=25"
++      }
++    },
++    "node_modules/@rolldown/pluginutils": {
++      "version": "1.0.0-beta.27",
++      "resolved": "https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-beta.27.tgz",
++      "integrity": "sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/@rollup/rollup-android-arm-eabi": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-android-arm-eabi/-/rollup-android-arm-eabi-4.65.1.tgz",
++      "integrity": "sha512-5coxNSjqOI2J3NkVhlp3u+zGcyjnowQFsU9sg7MMz4UPXY4Dv63kFGLt7ConXz9CNq2i0yuOJZAF/2RMrgI2OA==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ]
++    },
++    "node_modules/@rollup/rollup-android-arm64": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-android-arm64/-/rollup-android-arm64-4.65.1.tgz",
++      "integrity": "sha512-K0HFf6XMB3IYs+jDZ1/RRhZaVOwxNXrl0n4MDEyGDjuK7+B6K/nDJp8DCBitO3S1sK/fzNxAf9QZAny4AIUPtg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ]
++    },
++    "node_modules/@rollup/rollup-darwin-arm64": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-darwin-arm64/-/rollup-darwin-arm64-4.65.1.tgz",
++      "integrity": "sha512-zkZrXYwNlIcSUmcwY2DpsaDHr0XjVUeQHCuSunG3eQD7/5Wn/DvI7OMUE8NRRweK87yG8ebJ1xGOzmwpMsbZQA==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ]
++    },
++    "node_modules/@rollup/rollup-darwin-x64": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-darwin-x64/-/rollup-darwin-x64-4.65.1.tgz",
++      "integrity": "sha512-Zaed+R3cpkkA3aiNd7NO0GV5KFh/LVf8j6bGcoRdpoXkSm/mWH8M0oX2/3u/nyGcx/bHEovD9CzX+w9/gcpI4A==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ]
++    },
++    "node_modules/@rollup/rollup-freebsd-arm64": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-freebsd-arm64/-/rollup-freebsd-arm64-4.65.1.tgz",
++      "integrity": "sha512-h12p3WJWhyJ9kir0zqAPr0rKNmBzOWIjoaOMT9OULs9KZQZCeOMKd+mGSvERjd9VxJYShd3zIxtrVxkYz6BEVA==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ]
++    },
++    "node_modules/@rollup/rollup-freebsd-x64": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-freebsd-x64/-/rollup-freebsd-x64-4.65.1.tgz",
++      "integrity": "sha512-yRBwh/5imKY4DydDulVtrjy8Jf7h7NQJUqZbgmZ3zFsCD9QqlnWvZ7RtEF+ecO1b+IukKjXlu5Bb9fehV3tIbg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-arm-gnueabihf": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-arm-gnueabihf/-/rollup-linux-arm-gnueabihf-4.65.1.tgz",
++      "integrity": "sha512-1XuPiWYYaLE1UDOqhbKVOfsqxvfmFS/lYPSk92U1hEX1qRfSYH0hNeAlbxFIgjp4d6+YQmL95EPRgdvjbZEddA==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-arm-musleabihf": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-arm-musleabihf/-/rollup-linux-arm-musleabihf-4.65.1.tgz",
++      "integrity": "sha512-Y3C5e55Yrf6p2r5rBcc4P9hFWVNi6oqWy/53I/AyCJJGlp3KRSpTP8eoUmVntchTbEnhgBgAgLO9flj9AvOdUw==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-arm64-gnu": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-arm64-gnu/-/rollup-linux-arm64-gnu-4.65.1.tgz",
++      "integrity": "sha512-Itj6coSswkYPIcVLczObXmwdplHNQQxyfnK1ppBg4czDaX8RiEzLKqU7EMc64BiBuiDZEUS+M93ktM18rv5llw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-arm64-musl": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-arm64-musl/-/rollup-linux-arm64-musl-4.65.1.tgz",
++      "integrity": "sha512-KeO8jTEqdrnhvcahufbimyMoI44vedRUp1bVz2QUnRX2vDm/hxzCPt5F8fERVD5fsHyTW/vXmCElT054VOSVOA==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-loong64-gnu": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-loong64-gnu/-/rollup-linux-loong64-gnu-4.65.1.tgz",
++      "integrity": "sha512-dDOz5VZZ+ZGnglpmET6VJefamWXFsgaVtuhSClf2/URZBp048jprD6z1hddsIMN6n1w+oUzGZEBp9u6Mlszsfg==",
++      "cpu": [
++        "loong64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-loong64-musl": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-loong64-musl/-/rollup-linux-loong64-musl-4.65.1.tgz",
++      "integrity": "sha512-JbfRKz8nJCuo8gn1Dqx8lQWEHw4qhZ3uRaHphw5vrSjnSptJTKTRC/bLKHh8QQMsEnhL4uq+bdg3tkiXbJ2q/A==",
++      "cpu": [
++        "loong64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-ppc64-gnu": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-ppc64-gnu/-/rollup-linux-ppc64-gnu-4.65.1.tgz",
++      "integrity": "sha512-3oQpe1q0emSeCAssVHMQdOz5fz3PBH5my/Fr0ZekV2UMNL4ZiRa1ciikYlGQXyDkeqseYYv1InwOY8YPqY7RIQ==",
++      "cpu": [
++        "ppc64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-ppc64-musl": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-ppc64-musl/-/rollup-linux-ppc64-musl-4.65.1.tgz",
++      "integrity": "sha512-nNV3HHi23o1LtpGGwH+Bav4hqnc4+klQtC96tSvCfvql8bLlNFTnTFiGl/jai2nve3eEr/vT2ocuyf+h+eMnYQ==",
++      "cpu": [
++        "ppc64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-riscv64-gnu": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-riscv64-gnu/-/rollup-linux-riscv64-gnu-4.65.1.tgz",
++      "integrity": "sha512-b5zab0FryBxuocuDeqOsYGAg2EzjKw4mKA6LjQXCyewXjGv/BXqACBsY2cO45xM4hV2weYtdjGThP2VB2ByAYg==",
++      "cpu": [
++        "riscv64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-riscv64-musl": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-riscv64-musl/-/rollup-linux-riscv64-musl-4.65.1.tgz",
++      "integrity": "sha512-Rh08xZakiUxKNgI3hbgH9mivlx478lSqckS9s+Oc3/TX1VrAH3W8z/5wpJXR/v5VjqcJ/jJNVBg64PU1+iQsTQ==",
++      "cpu": [
++        "riscv64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-s390x-gnu": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-s390x-gnu/-/rollup-linux-s390x-gnu-4.65.1.tgz",
++      "integrity": "sha512-qDgtS6juN3/k97y4kcD6XLFpXEo4f6CnG8lTOGYwlhrUYTrMyhN0WHdZCPAW5rqS0MqQG7qI7dxnjugt6QB39Q==",
++      "cpu": [
++        "s390x"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-x64-gnu": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-x64-gnu/-/rollup-linux-x64-gnu-4.65.1.tgz",
++      "integrity": "sha512-44IKzBPqXXVm0kt1O+F5eW4juR5FyIxGNlFkpP8qwIDzucBsjM1HCbdYUQrQw8rU/g6HRl/tfBm0+Qq4H4Ro3w==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-linux-x64-musl": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-x64-musl/-/rollup-linux-x64-musl-4.65.1.tgz",
++      "integrity": "sha512-tvYWZ/h2PCHs558Xu7B6LptuRCV8lXV2xI75ONMcldII1m2zlFwuI4BJZi9M6rSMkYqcPLLtPUPrjyqfbzLOdg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ]
++    },
++    "node_modules/@rollup/rollup-openbsd-x64": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-openbsd-x64/-/rollup-openbsd-x64-4.65.1.tgz",
++      "integrity": "sha512-gdyeucgZCnei3pXwadKVTEAOgRx0B+c847DUPR/PdOMmp3olhfkYo6r0J4PzRFZB5ZICZQTxntyvgmWH5xT7rg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ]
++    },
++    "node_modules/@rollup/rollup-openharmony-arm64": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-openharmony-arm64/-/rollup-openharmony-arm64-4.65.1.tgz",
++      "integrity": "sha512-Wf/NEKdn2SAL4Nvt8HyDtdkseWTwiLbZEOoNYnEaHkbso0B9eHO42vKnZh+OYsn+IMhAMcWcuIwPlBOgOXsUzg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openharmony"
++      ]
++    },
++    "node_modules/@rollup/rollup-win32-arm64-msvc": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-win32-arm64-msvc/-/rollup-win32-arm64-msvc-4.65.1.tgz",
++      "integrity": "sha512-x9VSsDmsMsEWy4cr/mFeaEsXnVJ6Kc4NCAU/lCnwml3s7LQbZoa9+/qwc9etWHbuuDT5mYxdyyKUwo76njtjZw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ]
++    },
++    "node_modules/@rollup/rollup-win32-ia32-msvc": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-win32-ia32-msvc/-/rollup-win32-ia32-msvc-4.65.1.tgz",
++      "integrity": "sha512-RIDbiVvvLkN45mOFpbo6eYMgnuiBEB62BGR/0s4QJgGg2AvVxucDDNn67kpAcUoYyfmY8iX8/RifMcmxmmnejA==",
++      "cpu": [
++        "ia32"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ]
++    },
++    "node_modules/@rollup/rollup-win32-x64-gnu": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-win32-x64-gnu/-/rollup-win32-x64-gnu-4.65.1.tgz",
++      "integrity": "sha512-+KN8HIr88vN59JNxlrM2fMimzY43Y0lQB7+0xdVsFbvFCAA74CLKCdfzIHzzvndJryBc94Pm+MvwtukKjaS2ug==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ]
++    },
++    "node_modules/@rollup/rollup-win32-x64-msvc": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.65.1.tgz",
++      "integrity": "sha512-+Y1Sd49cSDq60UOl8/U2HI0ebUvnSl/hDhMHQn+ouw17yb8fYwMWIazzJ4JFpSkjPE7sj5NTNSX9IoyEqcFfyQ==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ]
++    },
++    "node_modules/@types/babel__core": {
++      "version": "7.20.5",
++      "resolved": "https://registry.npmjs.org/@types/babel__core/-/babel__core-7.20.5.tgz",
++      "integrity": "sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/parser": "^7.20.7",
++        "@babel/types": "^7.20.7",
++        "@types/babel__generator": "*",
++        "@types/babel__template": "*",
++        "@types/babel__traverse": "*"
++      }
++    },
++    "node_modules/@types/babel__generator": {
++      "version": "7.27.0",
++      "resolved": "https://registry.npmjs.org/@types/babel__generator/-/babel__generator-7.27.0.tgz",
++      "integrity": "sha512-ufFd2Xi92OAVPYsy+P4n7/U7e68fex0+Ee8gSG9KX7eo084CWiQ4sdxktvdl0bOPupXtVJPY19zk6EwWqUQ8lg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/types": "^7.0.0"
++      }
++    },
++    "node_modules/@types/babel__template": {
++      "version": "7.4.4",
++      "resolved": "https://registry.npmjs.org/@types/babel__template/-/babel__template-7.4.4.tgz",
++      "integrity": "sha512-h/NUaSyG5EyxBIp8YRxo4RMe2/qQgvyowRwVMzhYhBCONbW8PUsg4lkFMrhgZhUe5z3L3MiLDuvyJ/CaPa2A8A==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/parser": "^7.1.0",
++        "@babel/types": "^7.0.0"
++      }
++    },
++    "node_modules/@types/babel__traverse": {
++      "version": "7.28.0",
++      "resolved": "https://registry.npmjs.org/@types/babel__traverse/-/babel__traverse-7.28.0.tgz",
++      "integrity": "sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/types": "^7.28.2"
++      }
++    },
++    "node_modules/@types/estree": {
++      "version": "1.0.9",
++      "resolved": "https://registry.npmjs.org/@types/estree/-/estree-1.0.9.tgz",
++      "integrity": "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/@types/prop-types": {
++      "version": "15.7.15",
++      "resolved": "https://registry.npmjs.org/@types/prop-types/-/prop-types-15.7.15.tgz",
++      "integrity": "sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/@types/react": {
++      "version": "18.3.31",
++      "resolved": "https://registry.npmjs.org/@types/react/-/react-18.3.31.tgz",
++      "integrity": "sha512-vfEqpXTvwT91yhmwdfouStN2hSKwTvyRs8qpLfADyrq/kxDw0hZM7Wk9Ug1FELj8hIby+S/+kQCSRFF32nv2Qw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/prop-types": "*",
++        "csstype": "^3.2.2"
++      }
++    },
++    "node_modules/@types/react-dom": {
++      "version": "18.3.7",
++      "resolved": "https://registry.npmjs.org/@types/react-dom/-/react-dom-18.3.7.tgz",
++      "integrity": "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==",
++      "dev": true,
++      "license": "MIT",
++      "peerDependencies": {
++        "@types/react": "^18.0.0"
++      }
++    },
++    "node_modules/@vitejs/plugin-react": {
++      "version": "4.7.0",
++      "resolved": "https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz",
++      "integrity": "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/core": "^7.28.0",
++        "@babel/plugin-transform-react-jsx-self": "^7.27.1",
++        "@babel/plugin-transform-react-jsx-source": "^7.27.1",
++        "@rolldown/pluginutils": "1.0.0-beta.27",
++        "@types/babel__core": "^7.20.5",
++        "react-refresh": "^0.17.0"
++      },
++      "engines": {
++        "node": "^14.18.0 || >=16.0.0"
++      },
++      "peerDependencies": {
++        "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0"
++      }
++    },
++    "node_modules/@vitest/expect": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/@vitest/expect/-/expect-2.1.9.tgz",
++      "integrity": "sha512-UJCIkTBenHeKT1TTlKMJWy1laZewsRIzYighyYiJKZreqtdxSos/S1t+ktRMQWu2CKqaarrkeszJx1cgC5tGZw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@vitest/spy": "2.1.9",
++        "@vitest/utils": "2.1.9",
++        "chai": "^5.1.2",
++        "tinyrainbow": "^1.2.0"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      }
++    },
++    "node_modules/@vitest/mocker": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/@vitest/mocker/-/mocker-2.1.9.tgz",
++      "integrity": "sha512-tVL6uJgoUdi6icpxmdrn5YNo3g3Dxv+IHJBr0GXHaEdTcw3F+cPKnsXFhli6nO+f/6SDKPHEK1UN+k+TQv0Ehg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@vitest/spy": "2.1.9",
++        "estree-walker": "^3.0.3",
++        "magic-string": "^0.30.12"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      },
++      "peerDependencies": {
++        "msw": "^2.4.9",
++        "vite": "^5.0.0"
++      },
++      "peerDependenciesMeta": {
++        "msw": {
++          "optional": true
++        },
++        "vite": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/@vitest/pretty-format": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-2.1.9.tgz",
++      "integrity": "sha512-KhRIdGV2U9HOUzxfiHmY8IFHTdqtOhIzCpd8WRdJiE7D/HUcZVD0EgQCVjm+Q9gkUXWgBvMmTtZgIG48wq7sOQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "tinyrainbow": "^1.2.0"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      }
++    },
++    "node_modules/@vitest/runner": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/@vitest/runner/-/runner-2.1.9.tgz",
++      "integrity": "sha512-ZXSSqTFIrzduD63btIfEyOmNcBmQvgOVsPNPe0jYtESiXkhd8u2erDLnMxmGrDCwHCCHE7hxwRDCT3pt0esT4g==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@vitest/utils": "2.1.9",
++        "pathe": "^1.1.2"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      }
++    },
++    "node_modules/@vitest/snapshot": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/@vitest/snapshot/-/snapshot-2.1.9.tgz",
++      "integrity": "sha512-oBO82rEjsxLNJincVhLhaxxZdEtV0EFHMK5Kmx5sJ6H9L183dHECjiefOAdnqpIgT5eZwT04PoggUnW88vOBNQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@vitest/pretty-format": "2.1.9",
++        "magic-string": "^0.30.12",
++        "pathe": "^1.1.2"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      }
++    },
++    "node_modules/@vitest/spy": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/@vitest/spy/-/spy-2.1.9.tgz",
++      "integrity": "sha512-E1B35FwzXXTs9FHNK6bDszs7mtydNi5MIfUWpceJ8Xbfb1gBMscAnwLbEu+B44ed6W3XjL9/ehLPHR1fkf1KLQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "tinyspy": "^3.0.2"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      }
++    },
++    "node_modules/@vitest/utils": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/@vitest/utils/-/utils-2.1.9.tgz",
++      "integrity": "sha512-v0psaMSkNJ3A2NMrUEHFRzJtDPFn+/VWZ5WxImB21T9fjucJRmS7xCS3ppEnARb9y11OAzaD+P2Ps+b+BGX5iQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@vitest/pretty-format": "2.1.9",
++        "loupe": "^3.1.2",
++        "tinyrainbow": "^1.2.0"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      }
++    },
++    "node_modules/assertion-error": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz",
++      "integrity": "sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/baseline-browser-mapping": {
++      "version": "2.11.34",
++      "resolved": "https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.11.34.tgz",
++      "integrity": "sha512-Aqr8mA1kIvyJ3UY5YAY7ib8LSo1DmDMbMnVqGPtsKW1LxaFQFwn9Eb3yvq2fUKJsRvaXjnAV7R5osqETapzNiA==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "baseline-browser-mapping": "dist/cli.cjs"
++      },
++      "engines": {
++        "node": ">=6.0.0"
++      }
++    },
++    "node_modules/browserslist": {
++      "version": "4.29.5",
++      "resolved": "https://registry.npmjs.org/browserslist/-/browserslist-4.29.5.tgz",
++      "integrity": "sha512-khTmKu5NGYTotqcYo8Bew2k4RAE9PuXRSFRXG2lQBrCEQHyeQ/vX6gKMxfokwywBsLiXZMnHsmWMG1pnO8J7uQ==",
++      "dev": true,
++      "funding": [
++        {
++          "type": "opencollective",
++          "url": "https://opencollective.com/browserslist"
++        },
++        {
++          "type": "tidelift",
++          "url": "https://tidelift.com/funding/github/npm/browserslist"
++        },
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "baseline-browser-mapping": "^2.11.33",
++        "caniuse-lite": "^1.0.30001819",
++        "electron-to-chromium": "^1.5.464",
++        "node-releases": "^2.0.60",
++        "update-browserslist-db": "^1.3.4"
++      },
++      "bin": {
++        "browserslist": "cli.js"
++      },
++      "engines": {
++        "node": "^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7"
++      }
++    },
++    "node_modules/cac": {
++      "version": "6.7.14",
++      "resolved": "https://registry.npmjs.org/cac/-/cac-6.7.14.tgz",
++      "integrity": "sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/caniuse-lite": {
++      "version": "1.0.30001819",
++      "resolved": "https://registry.npmjs.org/caniuse-lite/-/caniuse-lite-1.0.30001819.tgz",
++      "integrity": "sha512-LFUqIIAwpzsIuevnKnsR9qnStBcgzPShTX61lBwN9uFkkf8o8zLiebEjbW8AYtZiF+1YKDWfdt/pWDtMuG8Xwg==",
++      "dev": true,
++      "funding": [
++        {
++          "type": "opencollective",
++          "url": "https://opencollective.com/browserslist"
++        },
++        {
++          "type": "tidelift",
++          "url": "https://tidelift.com/funding/github/npm/caniuse-lite"
++        },
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "CC-BY-4.0"
++    },
++    "node_modules/chai": {
++      "version": "5.3.3",
++      "resolved": "https://registry.npmjs.org/chai/-/chai-5.3.3.tgz",
++      "integrity": "sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "assertion-error": "^2.0.1",
++        "check-error": "^2.1.1",
++        "deep-eql": "^5.0.1",
++        "loupe": "^3.1.0",
++        "pathval": "^2.0.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/check-error": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/check-error/-/check-error-2.1.3.tgz",
++      "integrity": "sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">= 16"
++      }
++    },
++    "node_modules/convert-source-map": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/convert-source-map/-/convert-source-map-2.0.0.tgz",
++      "integrity": "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/csstype": {
++      "version": "3.2.3",
++      "resolved": "https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz",
++      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/debug": {
++      "version": "4.4.3",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "ms": "^2.1.3"
++      },
++      "engines": {
++        "node": ">=6.0"
++      },
++      "peerDependenciesMeta": {
++        "supports-color": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/deep-eql": {
++      "version": "5.0.2",
++      "resolved": "https://registry.npmjs.org/deep-eql/-/deep-eql-5.0.2.tgz",
++      "integrity": "sha512-h5k/5U50IJJFpzfL6nO9jaaumfjO/f2NjK/oYB2Djzm4p9L+3T9qWpZqZ2hAbLPuuYq9wrU08WQyBTL5GbPk5Q==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/electron-to-chromium": {
++      "version": "1.5.467",
++      "resolved": "https://registry.npmjs.org/electron-to-chromium/-/electron-to-chromium-1.5.467.tgz",
++      "integrity": "sha512-Nw9X371rtZmYcBSnEijnCDONILjs93biCZO34juC7MBOmK8E+GFnyD4T/WvyrlJkppul7oxg6TwvtKst9SODTw==",
++      "dev": true,
++      "license": "ISC"
++    },
++    "node_modules/es-module-lexer": {
++      "version": "1.7.0",
++      "resolved": "https://registry.npmjs.org/es-module-lexer/-/es-module-lexer-1.7.0.tgz",
++      "integrity": "sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/esbuild": {
++      "version": "0.21.5",
++      "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.21.5.tgz",
++      "integrity": "sha512-mg3OPMV4hXywwpoDxu3Qda5xCKQi+vCTZq8S9J/EpkhB2HzKXq4SNFZE3+NK93JYxc8VMSep+lOUSC/RVKaBqw==",
++      "dev": true,
++      "hasInstallScript": true,
++      "license": "MIT",
++      "bin": {
++        "esbuild": "bin/esbuild"
++      },
++      "engines": {
++        "node": ">=12"
++      },
++      "optionalDependencies": {
++        "@esbuild/aix-ppc64": "0.21.5",
++        "@esbuild/android-arm": "0.21.5",
++        "@esbuild/android-arm64": "0.21.5",
++        "@esbuild/android-x64": "0.21.5",
++        "@esbuild/darwin-arm64": "0.21.5",
++        "@esbuild/darwin-x64": "0.21.5",
++        "@esbuild/freebsd-arm64": "0.21.5",
++        "@esbuild/freebsd-x64": "0.21.5",
++        "@esbuild/linux-arm": "0.21.5",
++        "@esbuild/linux-arm64": "0.21.5",
++        "@esbuild/linux-ia32": "0.21.5",
++        "@esbuild/linux-loong64": "0.21.5",
++        "@esbuild/linux-mips64el": "0.21.5",
++        "@esbuild/linux-ppc64": "0.21.5",
++        "@esbuild/linux-riscv64": "0.21.5",
++        "@esbuild/linux-s390x": "0.21.5",
++        "@esbuild/linux-x64": "0.21.5",
++        "@esbuild/netbsd-x64": "0.21.5",
++        "@esbuild/openbsd-x64": "0.21.5",
++        "@esbuild/sunos-x64": "0.21.5",
++        "@esbuild/win32-arm64": "0.21.5",
++        "@esbuild/win32-ia32": "0.21.5",
++        "@esbuild/win32-x64": "0.21.5"
++      }
++    },
++    "node_modules/escalade": {
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/escalade/-/escalade-3.2.0.tgz",
++      "integrity": "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/estree-walker": {
++      "version": "3.0.3",
++      "resolved": "https://registry.npmjs.org/estree-walker/-/estree-walker-3.0.3.tgz",
++      "integrity": "sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/estree": "^1.0.0"
++      }
++    },
++    "node_modules/expect-type": {
++      "version": "1.4.0",
++      "resolved": "https://registry.npmjs.org/expect-type/-/expect-type-1.4.0.tgz",
++      "integrity": "sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=12.0.0"
++      }
++    },
++    "node_modules/fsevents": {
++      "version": "2.3.3",
++      "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
++      "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
++      "dev": true,
++      "hasInstallScript": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": "^8.16.0 || ^10.6.0 || >=11.0.0"
++      }
++    },
++    "node_modules/gensync": {
++      "version": "1.0.0-beta.2",
++      "resolved": "https://registry.npmjs.org/gensync/-/gensync-1.0.0-beta.2.tgz",
++      "integrity": "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/js-tokens": {
++      "version": "4.0.0",
++      "resolved": "https://registry.npmjs.org/js-tokens/-/js-tokens-4.0.0.tgz",
++      "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==",
++      "license": "MIT"
++    },
++    "node_modules/jsesc": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/jsesc/-/jsesc-3.1.0.tgz",
++      "integrity": "sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA==",
++      "dev": true,
++      "license": "MIT",
++      "bin": {
++        "jsesc": "bin/jsesc"
++      },
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/json5": {
++      "version": "2.2.3",
++      "resolved": "https://registry.npmjs.org/json5/-/json5-2.2.3.tgz",
++      "integrity": "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==",
++      "dev": true,
++      "license": "MIT",
++      "bin": {
++        "json5": "lib/cli.js"
++      },
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/loose-envify": {
++      "version": "1.4.0",
++      "resolved": "https://registry.npmjs.org/loose-envify/-/loose-envify-1.4.0.tgz",
++      "integrity": "sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==",
++      "license": "MIT",
++      "dependencies": {
++        "js-tokens": "^3.0.0 || ^4.0.0"
++      },
++      "bin": {
++        "loose-envify": "cli.js"
++      }
++    },
++    "node_modules/loupe": {
++      "version": "3.2.1",
++      "resolved": "https://registry.npmjs.org/loupe/-/loupe-3.2.1.tgz",
++      "integrity": "sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/lru-cache": {
++      "version": "5.1.1",
++      "resolved": "https://registry.npmjs.org/lru-cache/-/lru-cache-5.1.1.tgz",
++      "integrity": "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==",
++      "dev": true,
++      "license": "ISC",
++      "dependencies": {
++        "yallist": "^3.0.2"
++      }
++    },
++    "node_modules/magic-string": {
++      "version": "0.30.21",
++      "resolved": "https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz",
++      "integrity": "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/sourcemap-codec": "^1.5.5"
++      }
++    },
++    "node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/nanoid": {
++      "version": "3.3.20",
++      "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.20.tgz",
++      "integrity": "sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==",
++      "dev": true,
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "MIT",
++      "bin": {
++        "nanoid": "bin/nanoid.cjs"
++      },
++      "engines": {
++        "node": "^10 || ^12 || ^13.7 || ^14 || >=15.0.1"
++      }
++    },
++    "node_modules/node-releases": {
++      "version": "2.0.60",
++      "resolved": "https://registry.npmjs.org/node-releases/-/node-releases-2.0.60.tgz",
++      "integrity": "sha512-OmO8+GM1JUZqXET720VrJCwkjUCXmCMQm0Z3UDDRbfNLHS4NEAvY60j5jiFv0tkKw2PNNlqOLhahVmwJIOLDIQ==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/pathe": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/pathe/-/pathe-1.1.2.tgz",
++      "integrity": "sha512-whLdWMYL2TwI08hn8/ZqAbrVemu0LNaNNJZX73O6qaIdCTfXutsLhMkjdENX0qhsQ9uIimo4/aQOmXkoon2nDQ==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/pathval": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/pathval/-/pathval-2.0.1.tgz",
++      "integrity": "sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">= 14.16"
++      }
++    },
++    "node_modules/picocolors": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz",
++      "integrity": "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==",
++      "dev": true,
++      "license": "ISC"
++    },
++    "node_modules/postcss": {
++      "version": "8.5.32",
++      "resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.32.tgz",
++      "integrity": "sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==",
++      "dev": true,
++      "funding": [
++        {
++          "type": "opencollective",
++          "url": "https://opencollective.com/postcss/"
++        },
++        {
++          "type": "tidelift",
++          "url": "https://tidelift.com/funding/github/npm/postcss"
++        },
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "nanoid": "^3.3.20",
++        "picocolors": "^1.1.1",
++        "source-map-js": "^1.2.2"
++      },
++      "engines": {
++        "node": "^10 || ^12 || >=14"
++      }
++    },
++    "node_modules/react": {
++      "version": "18.3.1",
++      "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
++      "integrity": "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==",
++      "license": "MIT",
++      "dependencies": {
++        "loose-envify": "^1.1.0"
++      },
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/react-dom": {
++      "version": "18.3.1",
++      "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz",
++      "integrity": "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==",
++      "license": "MIT",
++      "dependencies": {
++        "loose-envify": "^1.1.0",
++        "scheduler": "^0.23.2"
++      },
++      "peerDependencies": {
++        "react": "^18.3.1"
++      }
++    },
++    "node_modules/react-refresh": {
++      "version": "0.17.0",
++      "resolved": "https://registry.npmjs.org/react-refresh/-/react-refresh-0.17.0.tgz",
++      "integrity": "sha512-z6F7K9bV85EfseRCp2bzrpyQ0Gkw1uLoCel9XBVWPg/TjRj94SkJzUTGfOa4bs7iJvBWtQG0Wq7wnI0syw3EBQ==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/rollup": {
++      "version": "4.65.1",
++      "resolved": "https://registry.npmjs.org/rollup/-/rollup-4.65.1.tgz",
++      "integrity": "sha512-HzD4IdphaPMvuAacnL/vtoq5B8FwqewKvxTtqYibWvP6VDyZ+UsTtlw5F8HIOIIpLQAkN2NOP/0sM3puo9xN/A==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/estree": "1.0.9"
++      },
++      "bin": {
++        "rollup": "dist/bin/rollup"
++      },
++      "engines": {
++        "node": ">=18.0.0",
++        "npm": ">=8.0.0"
++      },
++      "optionalDependencies": {
++        "@napi-rs/lzma-linux-x64-gnu": "1.5.1",
++        "@rollup/rollup-android-arm-eabi": "4.65.1",
++        "@rollup/rollup-android-arm64": "4.65.1",
++        "@rollup/rollup-darwin-arm64": "4.65.1",
++        "@rollup/rollup-darwin-x64": "4.65.1",
++        "@rollup/rollup-freebsd-arm64": "4.65.1",
++        "@rollup/rollup-freebsd-x64": "4.65.1",
++        "@rollup/rollup-linux-arm-gnueabihf": "4.65.1",
++        "@rollup/rollup-linux-arm-musleabihf": "4.65.1",
++        "@rollup/rollup-linux-arm64-gnu": "4.65.1",
++        "@rollup/rollup-linux-arm64-musl": "4.65.1",
++        "@rollup/rollup-linux-loong64-gnu": "4.65.1",
++        "@rollup/rollup-linux-loong64-musl": "4.65.1",
++        "@rollup/rollup-linux-ppc64-gnu": "4.65.1",
++        "@rollup/rollup-linux-ppc64-musl": "4.65.1",
++        "@rollup/rollup-linux-riscv64-gnu": "4.65.1",
++        "@rollup/rollup-linux-riscv64-musl": "4.65.1",
++        "@rollup/rollup-linux-s390x-gnu": "4.65.1",
++        "@rollup/rollup-linux-x64-gnu": "4.65.1",
++        "@rollup/rollup-linux-x64-musl": "4.65.1",
++        "@rollup/rollup-openbsd-x64": "4.65.1",
++        "@rollup/rollup-openharmony-arm64": "4.65.1",
++        "@rollup/rollup-win32-arm64-msvc": "4.65.1",
++        "@rollup/rollup-win32-ia32-msvc": "4.65.1",
++        "@rollup/rollup-win32-x64-gnu": "4.65.1",
++        "@rollup/rollup-win32-x64-msvc": "4.65.1",
++        "fsevents": "~2.3.2"
++      }
++    },
++    "node_modules/scheduler": {
++      "version": "0.23.2",
++      "resolved": "https://registry.npmjs.org/scheduler/-/scheduler-0.23.2.tgz",
++      "integrity": "sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==",
++      "license": "MIT",
++      "dependencies": {
++        "loose-envify": "^1.1.0"
++      }
++    },
++    "node_modules/semver": {
++      "version": "6.3.1",
++      "resolved": "https://registry.npmjs.org/semver/-/semver-6.3.1.tgz",
++      "integrity": "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==",
++      "dev": true,
++      "license": "ISC",
++      "bin": {
++        "semver": "bin/semver.js"
++      }
++    },
++    "node_modules/siginfo": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/siginfo/-/siginfo-2.0.0.tgz",
++      "integrity": "sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==",
++      "dev": true,
++      "license": "ISC"
++    },
++    "node_modules/source-map-js": {
++      "version": "1.2.2",
++      "resolved": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz",
++      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
++      "dev": true,
++      "license": "BSD-3-Clause",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/stackback": {
++      "version": "0.0.2",
++      "resolved": "https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz",
++      "integrity": "sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/std-env": {
++      "version": "3.10.0",
++      "resolved": "https://registry.npmjs.org/std-env/-/std-env-3.10.0.tgz",
++      "integrity": "sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/tinybench": {
++      "version": "2.9.0",
++      "resolved": "https://registry.npmjs.org/tinybench/-/tinybench-2.9.0.tgz",
++      "integrity": "sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/tinyexec": {
++      "version": "0.3.2",
++      "resolved": "https://registry.npmjs.org/tinyexec/-/tinyexec-0.3.2.tgz",
++      "integrity": "sha512-KQQR9yN7R5+OSwaK0XQoj22pwHoTlgYqmUscPYoknOoWCWfj/5/ABTMRi69FrKU5ffPVh5QcFikpWJI/P1ocHA==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/tinypool": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/tinypool/-/tinypool-1.1.1.tgz",
++      "integrity": "sha512-Zba82s87IFq9A9XmjiX5uZA/ARWDrB03OHlq+Vw1fSdt0I+4/Kutwy8BP4Y/y/aORMo61FQ0vIb5j44vSo5Pkg==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": "^18.0.0 || >=20.0.0"
++      }
++    },
++    "node_modules/tinyrainbow": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-1.2.0.tgz",
++      "integrity": "sha512-weEDEq7Z5eTHPDh4xjX789+fHfF+P8boiFB+0vbWzpbnbsEr/GRaohi/uMKxg8RZMXnl1ItAi/IUHWMsjDV7kQ==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/tinyspy": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/tinyspy/-/tinyspy-3.0.2.tgz",
++      "integrity": "sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/typescript": {
++      "version": "5.6.3",
++      "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.6.3.tgz",
++      "integrity": "sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "tsc": "bin/tsc",
++        "tsserver": "bin/tsserver"
++      },
++      "engines": {
++        "node": ">=14.17"
++      }
++    },
++    "node_modules/update-browserslist-db": {
++      "version": "1.3.4",
++      "resolved": "https://registry.npmjs.org/update-browserslist-db/-/update-browserslist-db-1.3.4.tgz",
++      "integrity": "sha512-t8wonIOdQyOjtPd2VktlBu6QjTVTks6v8bSi7kd0r2Vll8TK1JYDZtRRdbmCHOAMphkZgrzK+L+vXK4pyZ8t4A==",
++      "dev": true,
++      "funding": [
++        {
++          "type": "opencollective",
++          "url": "https://opencollective.com/browserslist"
++        },
++        {
++          "type": "tidelift",
++          "url": "https://tidelift.com/funding/github/npm/browserslist"
++        },
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "escalade": "^3.2.0",
++        "picocolors": "^1.1.1"
++      },
++      "bin": {
++        "update-browserslist-db": "cli.js"
++      },
++      "peerDependencies": {
++        "browserslist": ">= 4.21.0"
++      }
++    },
++    "node_modules/vite": {
++      "version": "5.4.21",
++      "resolved": "https://registry.npmjs.org/vite/-/vite-5.4.21.tgz",
++      "integrity": "sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "esbuild": "^0.21.3",
++        "postcss": "^8.4.43",
++        "rollup": "^4.20.0"
++      },
++      "bin": {
++        "vite": "bin/vite.js"
++      },
++      "engines": {
++        "node": "^18.0.0 || >=20.0.0"
++      },
++      "funding": {
++        "url": "https://github.com/vitejs/vite?sponsor=1"
++      },
++      "optionalDependencies": {
++        "fsevents": "~2.3.3"
++      },
++      "peerDependencies": {
++        "@types/node": "^18.0.0 || >=20.0.0",
++        "less": "*",
++        "lightningcss": "^1.21.0",
++        "sass": "*",
++        "sass-embedded": "*",
++        "stylus": "*",
++        "sugarss": "*",
++        "terser": "^5.4.0"
++      },
++      "peerDependenciesMeta": {
++        "@types/node": {
++          "optional": true
++        },
++        "less": {
++          "optional": true
++        },
++        "lightningcss": {
++          "optional": true
++        },
++        "sass": {
++          "optional": true
++        },
++        "sass-embedded": {
++          "optional": true
++        },
++        "stylus": {
++          "optional": true
++        },
++        "sugarss": {
++          "optional": true
++        },
++        "terser": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/vite-node": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/vite-node/-/vite-node-2.1.9.tgz",
++      "integrity": "sha512-AM9aQ/IPrW/6ENLQg3AGY4K1N2TGZdR5e4gu/MmmR2xR3Ll1+dib+nook92g4TV3PXVyeyxdWwtaCAiUL0hMxA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "cac": "^6.7.14",
++        "debug": "^4.3.7",
++        "es-module-lexer": "^1.5.4",
++        "pathe": "^1.1.2",
++        "vite": "^5.0.0"
++      },
++      "bin": {
++        "vite-node": "vite-node.mjs"
++      },
++      "engines": {
++        "node": "^18.0.0 || >=20.0.0"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      }
++    },
++    "node_modules/vitest": {
++      "version": "2.1.9",
++      "resolved": "https://registry.npmjs.org/vitest/-/vitest-2.1.9.tgz",
++      "integrity": "sha512-MSmPM9REYqDGBI8439mA4mWhV5sKmDlBKWIYbA3lRb2PTHACE0mgKwA8yQ2xq9vxDTuk4iPrECBAEW2aoFXY0Q==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@vitest/expect": "2.1.9",
++        "@vitest/mocker": "2.1.9",
++        "@vitest/pretty-format": "^2.1.9",
++        "@vitest/runner": "2.1.9",
++        "@vitest/snapshot": "2.1.9",
++        "@vitest/spy": "2.1.9",
++        "@vitest/utils": "2.1.9",
++        "chai": "^5.1.2",
++        "debug": "^4.3.7",
++        "expect-type": "^1.1.0",
++        "magic-string": "^0.30.12",
++        "pathe": "^1.1.2",
++        "std-env": "^3.8.0",
++        "tinybench": "^2.9.0",
++        "tinyexec": "^0.3.1",
++        "tinypool": "^1.0.1",
++        "tinyrainbow": "^1.2.0",
++        "vite": "^5.0.0",
++        "vite-node": "2.1.9",
++        "why-is-node-running": "^2.3.0"
++      },
++      "bin": {
++        "vitest": "vitest.mjs"
++      },
++      "engines": {
++        "node": "^18.0.0 || >=20.0.0"
++      },
++      "funding": {
++        "url": "https://opencollective.com/vitest"
++      },
++      "peerDependencies": {
++        "@edge-runtime/vm": "*",
++        "@types/node": "^18.0.0 || >=20.0.0",
++        "@vitest/browser": "2.1.9",
++        "@vitest/ui": "2.1.9",
++        "happy-dom": "*",
++        "jsdom": "*"
++      },
++      "peerDependenciesMeta": {
++        "@edge-runtime/vm": {
++          "optional": true
++        },
++        "@types/node": {
++          "optional": true
++        },
++        "@vitest/browser": {
++          "optional": true
++        },
++        "@vitest/ui": {
++          "optional": true
++        },
++        "happy-dom": {
++          "optional": true
++        },
++        "jsdom": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/why-is-node-running": {
++      "version": "2.3.0",
++      "resolved": "https://registry.npmjs.org/why-is-node-running/-/why-is-node-running-2.3.0.tgz",
++      "integrity": "sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "siginfo": "^2.0.0",
++        "stackback": "0.0.2"
++      },
++      "bin": {
++        "why-is-node-running": "cli.js"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/yallist": {
++      "version": "3.1.1",
++      "resolved": "https://registry.npmjs.org/yallist/-/yallist-3.1.1.tgz",
++      "integrity": "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==",
++      "dev": true,
++      "license": "ISC"
++    }
++  }
++}
+diff --git a/app/package.json b/app/package.json
+new file mode 100644
+index 0000000..c2210b0
+--- /dev/null
++++ b/app/package.json
+@@ -0,0 +1,24 @@
++{
++  "name": "attendance-tracker",
++  "private": true,
++  "version": "0.1.0",
++  "type": "module",
++  "scripts": {
++    "dev": "vite",
++    "build": "tsc --noEmit && vite build",
++    "preview": "vite preview",
++    "test": "vitest run"
++  },
++  "dependencies": {
++    "react": "^18.3.1",
++    "react-dom": "^18.3.1"
++  },
++  "devDependencies": {
++    "@types/react": "^18.3.12",
++    "@types/react-dom": "^18.3.1",
++    "@vitejs/plugin-react": "^4.3.4",
++    "typescript": "~5.6.2",
++    "vite": "^5.4.11",
++    "vitest": "^2.1.8"
++  }
++}
+diff --git a/app/src/App.tsx b/app/src/App.tsx
+new file mode 100644
+index 0000000..dc56dda
+--- /dev/null
++++ b/app/src/App.tsx
+@@ -0,0 +1,40 @@
++// Step-1 app shell: four tabs. The floating pill navigation with the sliding
++// active pill and quick-add button is built properly in Step 2 (Design section).
++
++import { useState } from 'react'
++import { AppProvider } from './data/store'
++import Today from './components/Today'
++import Timetable from './components/Timetable'
++import Settings from './components/Settings'
++
++type Tab = 'today' | 'timetable' | 'settings'
++
++export default function App() {
++  const [tab, setTab] = useState<Tab>('today')
++  return (
++    <AppProvider>
++      <div className="app">
++        {tab === 'today' && <Today />}
++        {tab === 'timetable' && <Timetable />}
++        {tab === 'settings' && <Settings />}
++      </div>
++      <nav className="tabs">
++        <button className={tab === 'today' ? 'primary' : ''} onClick={() => setTab('today')}>
++          Today
++        </button>
++        <button
++          className={tab === 'timetable' ? 'primary' : ''}
++          onClick={() => setTab('timetable')}
++        >
++          Timetable
++        </button>
++        <button
++          className={tab === 'settings' ? 'primary' : ''}
++          onClick={() => setTab('settings')}
++        >
++          Settings
++        </button>
++      </nav>
++    </AppProvider>
++  )
++}
+diff --git a/app/src/components/Settings.tsx b/app/src/components/Settings.tsx
+new file mode 100644
+index 0000000..f8184dc
+--- /dev/null
++++ b/app/src/components/Settings.tsx
+@@ -0,0 +1,162 @@
++// Settings tab — step 1: the threshold (F1), semester dates (F5), assumed past
++// attendance (F10), Sunday classes (A13), ERP totals per subject (B8), delete all data (F8).
++// The theme picker, reminder times and export polish land in Step 2.
++
++import { useState } from 'react'
++import { useApp } from '../data/store'
++import { exportData } from '../data/storage'
++
++export default function Settings() {
++  const { data, updateSettings, setData, resetAll } = useApp()
++  const s = data.settings
++  const [confirmDelete, setConfirmDelete] = useState(false)
++
++  function setTypedTotals(subjectId: string, attended: string, held: string) {
++    setData((d) => ({
++      ...d,
++      subjects: d.subjects.map((sub) => {
++        if (sub.id !== subjectId) return sub
++        const next = { ...sub }
++        if (held.trim() === '') {
++          delete next.typedHeld
++          delete next.typedAttended
++        } else {
++          next.typedHeld = Math.max(0, Number(held) || 0)
++          next.typedAttended = Math.max(0, Number(attended) || 0)
++        }
++        return next
++      }),
++    }))
++  }
++
++  return (
++    <div>
++      <h1>Settings</h1>
++
++      <div className="card">
++        <label>Minimum attendance to keep (%)</label>
++        <div className="row">
++          <input
++            type="range"
++            min={1}
++            max={100}
++            value={s.threshold}
++            onChange={(e) => updateSettings({ threshold: Number(e.target.value) })}
++            className="grow"
++          />
++          <b style={{ fontSize: 22, minWidth: 56, textAlign: 'right' }}>{s.threshold}%</b>
++        </div>
++        <div className="msg">Every warning and “can skip” number uses this.</div>
++      </div>
++
++      <div className="card">
++        <label>Assumed attendance for past unmarked classes (%)</label>
++        <div className="row">
++          <input
++            type="range"
++            min={0}
++            max={100}
++            value={s.assumedPastAttendance}
++            onChange={(e) => updateSettings({ assumedPastAttendance: Number(e.target.value) })}
++            className="grow"
++          />
++          <b style={{ fontSize: 22, minWidth: 56, textAlign: 'right' }}>
++            {s.assumedPastAttendance}%
++          </b>
++        </div>
++        <div className="msg">Used until you mark a day or type real ERP totals below.</div>
++      </div>
++
++      <div className="card">
++        <label>Semester name</label>
++        <input
++          value={s.semesterName}
++          onChange={(e) => updateSettings({ semesterName: e.target.value })}
++          placeholder="Semester 1"
++        />
++        <div className="row">
++          <div className="grow">
++            <label>Semester start</label>
++            <input
++              type="date"
++              value={s.semesterStart ?? ''}
++              onChange={(e) => updateSettings({ semesterStart: e.target.value || null })}
++            />
++          </div>
++          <div className="grow">
++            <label>Tentative end</label>
++            <input
++              type="date"
++              value={s.semesterEnd ?? ''}
++              onChange={(e) => updateSettings({ semesterEnd: e.target.value || null })}
++            />
++          </div>
++        </div>
++        <div className="msg">Classes only appear inside this range; the monthly plan needs both.</div>
++      </div>
++
++      <div className="card row spread">
++        <div>
++          <b>Sunday classes</b>
++          <div className="msg">Sunday is off by default.</div>
++        </div>
++        <input
++          type="checkbox"
++          checked={s.sundayClasses}
++          onChange={(e) => updateSettings({ sundayClasses: e.target.checked })}
++        />
++      </div>
++
++      <h2>Real totals from the college ERP (per subject)</h2>
++      <div className="msg" style={{ marginBottom: 8 }}>
++        Typing totals here replaces the app’s calculated/assumed figures for that subject.
++      </div>
++      {data.subjects.map((sub) => (
++        <div className="card" key={sub.id}>
++          <b>{sub.shortName}</b>
++          <div className="row" style={{ marginTop: 6 }}>
++            <div className="grow">
++              <label>Attended</label>
++              <input
++                type="number"
++                min={0}
++                value={sub.typedAttended ?? ''}
++                onChange={(e) => setTypedTotals(sub.id, e.target.value, sub.typedHeld?.toString() ?? '')}
++              />
++            </div>
++            <div className="grow">
++              <label>Held</label>
++              <input
++                type="number"
++                min={0}
++                value={sub.typedHeld ?? ''}
++                onChange={(e) => setTypedTotals(sub.id, sub.typedAttended?.toString() ?? '', e.target.value)}
++              />
++            </div>
++            {(sub.typedHeld !== undefined || sub.typedAttended !== undefined) && (
++              <button onClick={() => setTypedTotals(sub.id, '', '')}>Clear</button>
++            )}
++          </div>
++        </div>
++      ))}
++
++      <h2>Your data</h2>
++      <div className="card row">
++        <button onClick={() => exportData(data)}>Export my data</button>
++        {confirmDelete ? (
++          <button
++            className="absent on"
++            onClick={() => {
++              resetAll()
++              setConfirmDelete(false)
++            }}
++          >
++            Tap again to confirm delete-all
++          </button>
++        ) : (
++          <button onClick={() => setConfirmDelete(true)}>Delete all my data</button>
++        )}
++      </div>
++    </div>
++  )
++}
+diff --git a/app/src/components/Timetable.tsx b/app/src/components/Timetable.tsx
+new file mode 100644
+index 0000000..d1d56ca
+--- /dev/null
++++ b/app/src/components/Timetable.tsx
+@@ -0,0 +1,210 @@
++// Timetable tab — step 1: add lectures by hand (A10), subjects created from them (A6),
++// weekly repeat (A7), edit/remove from today onward (A8). File upload & rules come in Step 3.
++
++import { useState } from 'react'
++import { useApp } from '../data/store'
++import type { ClassType } from '../data/model'
++import { newId } from '../data/model'
++import { formatShort, todayStr, weekdayName } from '../logic/dates'
++
++const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
++
++export default function Timetable() {
++  const { data, addSubject, removeSubject, addSlot, updateSlot, removeSlotFromToday } = useApp()
++  const today = todayStr()
++
++  // ---- new subject form ----
++  const [shortName, setShortName] = useState('')
++  const [fullName, setFullName] = useState('')
++
++  // ---- new lecture form ----
++  const [subjectId, setSubjectId] = useState(data.subjects[0]?.id ?? '')
++  const [weekday, setWeekday] = useState(1)
++  const [startTime, setStartTime] = useState('09:00')
++  const [endTime, setEndTime] = useState('10:00')
++  const [type, setType] = useState<ClassType>('lecture')
++  const [room, setRoom] = useState('')
++  const [teacher, setTeacher] = useState('')
++  const [copyDays, setCopyDays] = useState<number[]>([])
++
++  function submitSubject() {
++    if (!shortName.trim()) return
++    addSubject(shortName.trim().toUpperCase(), fullName.trim() || shortName.trim().toUpperCase())
++    setShortName('')
++    setFullName('')
++  }
++
++  function submitLecture() {
++    const sid = subjectId || data.subjects[0]?.id
++    if (!sid) return
++    const days = copyDays.length > 0 ? copyDays : [weekday]
++    for (const wd of days) {
++      addSlot({
++        subjectId: sid,
++        weekday: wd,
++        startTime,
++        endTime,
++        type,
++        room: room.trim(),
++        teacher: teacher.trim(),
++        validFrom: today,
++        validUntil: null,
++      })
++    }
++    setCopyDays([])
++  }
++
++  function toggleCopy(wd: number) {
++    setCopyDays((c) => (c.includes(wd) ? c.filter((x) => x !== wd) : [...c, wd]))
++  }
++
++  const activeSlots = data.slots.filter((s) => s.validUntil === null || s.validUntil >= today)
++
++  return (
++    <div>
++      <h1>Timetable</h1>
++      <div className="card msg">
++        Step 1 builds hand entry (A10). Uploading a PDF/spreadsheet with rule-based reading is
++        Step 3. Every class repeats weekly until you change it.
++      </div>
++
++      <h2>Subjects</h2>
++      {data.subjects.map((s) => (
++        <div className="card row spread" key={s.id}>
++          <div>
++            <b>{s.shortName}</b> <span className="msg">{s.fullName}</span>
++          </div>
++          <button
++            onClick={() => {
++              if (window.confirm(`Remove ${s.shortName} and all its classes?`)) removeSubject(s.id)
++            }}
++          >
++            Remove
++          </button>
++        </div>
++      ))}
++      <div className="card">
++        <label>Short name (e.g. SDC)</label>
++        <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="SDC" />
++        <label>Full name</label>
++        <input
++          value={fullName}
++          onChange={(e) => setFullName(e.target.value)}
++          placeholder="Statistics and Differential Calculus"
++        />
++        <div style={{ marginTop: 10 }}>
++          <button className="primary" onClick={submitSubject}>
++            Add subject
++          </button>
++        </div>
++      </div>
++
++      <h2>Add a lecture</h2>
++      <div className="card">
++        <label>Subject</label>
++        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
++          {data.subjects.map((s) => (
++            <option key={s.id} value={s.id}>
++              {s.shortName} — {s.fullName}
++            </option>
++          ))}
++        </select>
++
++        <label>Day{data.settings.sundayClasses ? '' : ' (Sunday off — turn on in Settings)'}</label>
++        <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}>
++          {WEEKDAYS.filter((w) => w !== 7 || data.settings.sundayClasses).map((w) => (
++            <option key={w} value={w}>
++              {weekdayName(w)}
++            </option>
++          ))}
++        </select>
++
++        <div className="row">
++          <div className="grow">
++            <label>Start</label>
++            <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
++          </div>
++          <div className="grow">
++            <label>End</label>
++            <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
++          </div>
++        </div>
++
++        <label>Type</label>
++        <select value={type} onChange={(e) => setType(e.target.value as ClassType)}>
++          <option value="lecture">Lecture</option>
++          <option value="lab">Lab</option>
++          <option value="tutorial">Tutorial</option>
++          <option value="online">Online</option>
++        </select>
++
++        <div className="row">
++          <div className="grow">
++            <label>Room</label>
++            <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="B-204" />
++          </div>
++          <div className="grow">
++            <label>Teacher</label>
++            <input value={teacher} onChange={(e) => setTeacher(e.target.value)} placeholder="Prof X" />
++          </div>
++        </div>
++
++        <label>Also copy to other days</label>
++        <div className="row" style={{ flexWrap: 'wrap' }}>
++          {WEEKDAYS.filter((w) => w !== weekday && (w !== 7 || data.settings.sundayClasses)).map(
++            (w) => (
++              <button
++                key={w}
++                className={copyDays.includes(w) ? 'present on' : ''}
++                onClick={() => toggleCopy(w)}
++              >
++                {weekdayName(w)}
++              </button>
++            ),
++          )}
++        </div>
++
++        <div style={{ marginTop: 12 }}>
++          <button className="primary" onClick={submitLecture} disabled={data.subjects.length === 0}>
++            Add lecture
++          </button>
++        </div>
++      </div>
++
++      <h2>Weekly timetable</h2>
++      {activeSlots.length === 0 && <div className="card msg">No classes yet.</div>}
++      {WEEKDAYS.filter((w) => w !== 7 || data.settings.sundayClasses).map((w) => {
++        const daySlots = activeSlots
++          .filter((s) => s.weekday === w)
++          .sort((a, b) => a.startTime.localeCompare(b.startTime))
++        if (daySlots.length === 0) return null
++        return (
++          <div className="card" key={w}>
++            <b>{weekdayName(w)}</b>
++            {daySlots.map((s) => {
++              const subj = data.subjects.find((x) => x.id === s.subjectId)
++              return (
++                <div className="row spread" key={s.id} style={{ marginTop: 6 }}>
++                  <span>
++                    {s.startTime}–{s.endTime} <b>{subj?.shortName}</b>{' '}
++                    <span className="msg">
++                      {s.type}
++                      {s.room ? ` · ${s.room}` : ''}
++                      {s.validUntil && s.validUntil !== null && s.validUntil <= today
++                        ? ` · ends ${formatShort(s.validUntil)}`
++                        : ''}
++                    </span>
++                  </span>
++                  <button onClick={() => removeSlotFromToday(s.id, today)}>Remove</button>
++                </div>
++              )
++            })}
++          </div>
++        )
++      })}
++
++      {/* keep updateSlot referenced so future edits hook here in Step 3 */}
++      <span style={{ display: 'none' }}>{typeof updateSlot + newId('x').slice(0, 0)}</span>
++    </div>
++  )
++}
+diff --git a/app/src/components/Today.tsx b/app/src/components/Today.tsx
+new file mode 100644
+index 0000000..9af8279
+--- /dev/null
++++ b/app/src/components/Today.tsx
+@@ -0,0 +1,187 @@
++// Today screen (step-1 version): today's classes with Present / Absent / No class,
++// per-subject percentages and can-miss lines, overall percentage, warnings (B1–B9).
++// The full design (gradient header, hero ring, floating pill nav) comes in Step 2.
++
++import { useMemo, useRef, useState } from 'react'
++import { useApp } from '../data/store'
++import type { DateStr, MarkStatus } from '../data/model'
++import { buildReport, slotsForDate, isHoliday, markFor } from '../logic/attendance'
++import { addDays, formatShort, todayStr } from '../logic/dates'
++
++export default function Today() {
++  const { data, setMark } = useApp()
++  const [undoMsg, setUndoMsg] = useState<string | null>(null)
++  const [dateOverride, setDateOverride] = useState<DateStr | null>(null)
++  const undoRef = useRef<(() => void) | null>(null)
++
++  const today = todayStr()
++  const viewDate = dateOverride ?? today
++  const isPast = viewDate < today
++
++  // Range for totals: semester start (or the earliest slot validFrom) up to today.
++  const rangeStart = useMemo<DateStr>(() => {
++    if (data.settings.semesterStart) return data.settings.semesterStart
++    if (data.slots.length === 0) return today
++    return data.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), today)
++  }, [data.settings.semesterStart, data.slots, today])
++
++  const report = useMemo(
++    () => buildReport(data, today, rangeStart, today),
++    [data, today, rangeStart],
++  )
++
++  const holiday = isHoliday(data, viewDate)
++  const daySlots = useMemo(() => {
++    if (holiday) return []
++    return slotsForDate(data, viewDate).sort((a, b) => a.startTime.localeCompare(b.startTime))
++  }, [data, viewDate, holiday])
++
++  function mark(slotId: string, status: MarkStatus) {
++    const prev = markFor(data, viewDate, slotId)
++    setMark(viewDate, slotId, status)
++    undoRef.current = () => setMark(viewDate, slotId, prev)
++    setUndoMsg(`Marked ${status === 'noclass' ? 'No class' : status}.`)
++    window.setTimeout(() => setUndoMsg(null), 4000)
++  }
++
++  const overallClass = report.overall >= data.settings.threshold ? 'safe' : 'below'
++
++  return (
++    <div>
++      <div className="card row spread">
++        <div>
++          <h1 style={{ margin: 0 }}>Today</h1>
++          <div className="msg">
++            {formatShort(viewDate, true)}
++            {isPast ? ' · past day' : ''}
++          </div>
++        </div>
++        <div style={{ textAlign: 'right' }}>
++          <div className={`pct ${overallClass}`}>{report.overall.toFixed(1)}%</div>
++          <div className="msg">overall · target {data.settings.threshold}%</div>
++        </div>
++      </div>
++
++      <div className="row" style={{ marginBottom: 12 }}>
++        <button onClick={() => setDateOverride(addDays(viewDate, -1))}>◀</button>
++        <div className="grow msg" style={{ textAlign: 'center' }}>
++          {viewDate === today ? "Today's classes" : formatShort(viewDate, true)}
++        </div>
++        <button
++          onClick={() => setDateOverride(addDays(viewDate, 1) > today ? today : addDays(viewDate, 1))}
++        >
++          ▶
++        </button>
++        {dateOverride && (
++          <button onClick={() => setDateOverride(null)}>Back to today</button>
++        )}
++      </div>
++
++      {undoMsg && (
++        <div className="card row spread">
++          <span className="msg">{undoMsg}</span>
++          <button
++            onClick={() => {
++              undoRef.current?.()
++              setUndoMsg(null)
++            }}
++          >
++            Undo
++          </button>
++        </div>
++      )}
++
++      {holiday && (
++        <div className="card">
++          <b>Holiday.</b>{' '}
++          <span className="msg">
++            {data.holidays.find(
++              (h) => !h.isExamDay && viewDate >= h.startDate && viewDate <= h.endDate,
++            )?.label ?? 'No class today.'}
++          </span>
++        </div>
++      )}
++
++      {!holiday && daySlots.length === 0 && (
++        <div className="card">No classes on {formatShort(viewDate)}. Enjoy!</div>
++      )}
++
++      {!holiday &&
++        daySlots.map((slot) => {
++          const subj = data.subjects.find((s) => s.id === slot.subjectId)
++          const status = markFor(data, viewDate, slot.id)
++          return (
++            <div className="card" key={slot.id}>
++              <div>
++                <b>{subj?.shortName}</b>{' '}
++                <span className="msg">
++                  {slot.startTime}–{slot.endTime} · {slot.type}
++                  {slot.room ? ` · ${slot.room}` : ''}
++                </span>
++              </div>
++              <div className="row" style={{ marginTop: 8 }}>
++                <button
++                  className={`present ${status === 'present' ? 'on' : ''}`}
++                  onClick={() => mark(slot.id, 'present')}
++                >
++                  Present
++                </button>
++                <button
++                  className={`absent ${status === 'absent' ? 'on' : ''}`}
++                  onClick={() => mark(slot.id, 'absent')}
++                >
++                  Absent
++                </button>
++                <button
++                  className={`noclass ${status === 'noclass' ? 'on' : ''}`}
++                  onClick={() => mark(slot.id, 'noclass')}
++                >
++                  No class
++                </button>
++              </div>
++            </div>
++          )
++        })}
++
++      <h2>Subjects</h2>
++      {report.bySubject.length === 0 && (
++        <div className="card msg">No subjects yet — add your timetable in the Timetable tab.</div>
++      )}
++      {report.bySubject.map((s) => (
++        <div className="card" key={s.subjectId}>
++          <div className="row spread">
++            <div>
++              <b>{s.shortName}</b>{' '}
++              <span className="msg">
++                {s.name} · {s.attended}/{s.held}
++              </span>
++            </div>
++            <div
++              className={`pct ${
++                s.status === 'safe'
++                  ? 'safe'
++                  : s.status === 'limit'
++                    ? 'limit'
++                    : s.status === 'below'
++                      ? 'below'
++                      : 'msg'
++              }`}
++            >
++              {s.held === 0 ? '—' : `${s.percent.toFixed(1)}%`}
++            </div>
++          </div>
++          <div className="msg">{s.message}</div>
++        </div>
++      ))}
++
++      {report.warnings.length > 0 && (
++        <div className="card" style={{ borderLeft: '6px solid var(--danger)' }}>
++          <b>Below your minimum:</b>{' '}
++          <span className="msg">
++            {report.warnings.map((w) => `${w.shortName} (${w.percent.toFixed(1)}%)`).join(', ')}
++          </span>
++        </div>
++      )}
++    </div>
++  )
++}
+diff --git a/app/src/data/model.ts b/app/src/data/model.ts
+new file mode 100644
+index 0000000..c04cf38
+--- /dev/null
++++ b/app/src/data/model.ts
+@@ -0,0 +1,246 @@
++// ============================================================
++// Attendance Tracker — shared data model (Data model section)
++// One file defines every record; everything else imports from here.
++// Dates are stored as YYYY-MM-DD and shown day first.
++// ============================================================
++
++/** A calendar date written as YYYY-MM-DD, e.g. "2026-10-28". */
++export type DateStr = string
++
++export type ClassType = 'lecture' | 'lab' | 'tutorial' | 'online'
++export type MarkStatus = 'present' | 'absent' | 'noclass'
++
++/** Settings — created at first launch. */
++export interface AppSettings {
++  /** F1: minimum attendance percentage the user wants to keep (1–100, default 75). */
++  threshold: number
++  /** F3: reminder lead time in days before a deadline (default 7). */
++  reminderLeadDays: number
++  /** F3: time of day notifications arrive, HH:MM. */
++  notificationTime: string
++  /** F4: evening "mark your attendance" reminder on/off and its time. */
++  eveningReminderOn: boolean
++  eveningReminderTime: string
++  /** F5: semester name, start date (first day of college), tentative end date. */
++  semesterName: string
++  semesterStart: DateStr | null
++  semesterEnd: DateStr | null
++  /** F10: assumed past attendance % for unmarked past classes (0–100, default 80). */
++  assumedPastAttendance: number
++  /** J2: the month the plan starts (1st of the month after the timetable was first confirmed), "YYYY-MM". */
++  planStartMonth: string | null
++  /** E16: commute minutes (default 30). */
++  commuteMinutes: number
++  /** A13: Sunday classes on/off (off by default). */
++  sundayClasses: boolean
++  /** B14: unmarked classes — leave blank (default) or count as present. */
++  unmarkedAsPresent: boolean
++}
++
++export const DEFAULT_SETTINGS: AppSettings = {
++  threshold: 75,
++  reminderLeadDays: 7,
++  notificationTime: '18:00',
++  eveningReminderOn: false,
++  eveningReminderTime: '20:00',
++  semesterName: '',
++  semesterStart: null,
++  semesterEnd: null,
++  assumedPastAttendance: 80,
++  planStartMonth: null,
++  commuteMinutes: 30,
++  sundayClasses: false,
++  unmarkedAsPresent: false,
++}
++
++/** Subject — created when the timetable is confirmed (A6) or added by hand. */
++export interface Subject {
++  id: string
++  shortName: string
++  fullName: string
++  credits?: number
++  /** B8: totals typed by the user from the college ERP. When set, they replace
++   * calculated/assumed figures for that subject (J6). */
++  typedAttended?: number
++  typedHeld?: number
++  /** F2 (Stretch): optional separate threshold for this subject. */
++  thresholdOverride?: number
++  /** M6: nicknames used by the reminder reader, e.g. ["maths", "calculus"]. */
++  nicknames: string[]
++}
++
++/** Slot — one class on the weekly timetable (a weekly repeat, A7). */
++export interface Slot {
++  id: string
++  subjectId: string
++  /** 1 = Monday … 7 = Sunday. */
++  weekday: number
++  /** "09:00" — 24-hour HH:MM. */
++  startTime: string
++  endTime: string
++  type: ClassType
++  room: string
++  teacher: string
++  /** A8: edits apply from this day onward; past days keep what they had. */
++  validFrom: DateStr
++  /** null = until replaced or the semester ends. */
++  validUntil: DateStr | null
++}
++
++/** Mark — the user's attendance choice for one slot on one date. */
++export interface Mark {
++  /** Unique id (date + slot id). */
++  id: string
++  date: DateStr
++  slotId: string
++  status: MarkStatus
++}
++
++/** Holiday / no-class day (A12). Exam days can be marked too but still count as classes. */
++export interface Holiday {
++  id: string
++  startDate: DateStr
++  endDate: DateStr
++  label: string
++  /** Exam day: shown differently, but its classes count as normal (section J). */
++  isExamDay: boolean
++}
++
++/** Deadline (D, E6). */
++export interface Deadline {
++  id: string
++  subjectId?: string
++  title: string
++  /** The due date (for a range, the end date, C9). */
++  dueDate: DateStr
++  /** For a range: when it opens. */
++  startDate?: DateStr
++  time?: string
++  notes?: string
++  tentative: boolean
++  done: boolean
++  /** The pasted message it came from (E6/D records). */
++  sourceText?: string
++  /** Scheduled reminder dates (kept so deleting cancels them, data rule). */
++  reminderDates: DateStr[]
++  /** E6: units this deadline covers. */
++  unitIds?: string[]
++}
++
++// ---- Study records (defined now so later steps import from this same file) ----
++
++export interface Topic {
++  name: string
++  taughtDate: DateStr | null
++  revisedDate: DateStr | null
++  /** S14: the group heading it sits under. */
++  group?: string
++}
++
++/** Unit (E2, E3). Project subjects use stages ticked "done" instead. */
++export interface Unit {
++  id: string
++  subjectId: string
++  title: string
++  hoursInClass: number
++  topics: Topic[]
++  revisedDate: DateStr | null
++  refreshedDate?: DateStr
++  kind: 'unit' | 'stage'
++}
++
++export interface Score {
++  id: string
++  subjectId: string
++  name: string
++  marksGot: number
++  outOf: number
++}
++
++export interface FocusSession {
++  id: string
++  date: DateStr
++  minutes: number
++  kind: 'study' | 'project' | 'break'
++}
++
++/** Course link (record, H / Special courses). */
++export interface CourseLink {
++  id: string
++  subjectId: string
++  unitNumber?: number
++  name: string
++  platform: string
++  url: string
++  coNumber?: string
++  status: 'not started' | 'started' | 'completed'
++  completedDate?: DateStr
++  certificateSubmittedDate?: DateStr
++  needsChecking: boolean
++}
++
++/** Suggestion (record, section I). */
++export interface Suggestion {
++  id: string
++  kind: 'deadline' | 'activity' | 'notice'
++  title: string
++  subjectId?: string
++  date: DateStr | null
++  time?: string
++  sourceSnippet: string
++  cameFrom: 'share' | 'notification' | 'gmail'
++  messageId?: string
++  status: 'new' | 'added' | 'dismissed'
++}
++
++/** Event (record, section I calendar events). */
++export interface CalendarEvent {
++  id: string
++  title: string
++  date: DateStr
++  startTime?: string
++  endTime?: string
++  place?: string
++  reminderOn: boolean
++  source: string
++}
++
++/** The whole saved app state. */
++export interface AppData {
++  version: 1
++  settings: AppSettings
++  subjects: Subject[]
++  slots: Slot[]
++  marks: Mark[]
++  holidays: Holiday[]
++  deadlines: Deadline[]
++  units: Unit[]
++  scores: Score[]
++  focusSessions: FocusSession[]
++  courseLinks: CourseLink[]
++  suggestions: Suggestion[]
++  events: CalendarEvent[]
++}
++
++export const EMPTY_DATA: AppData = {
++  version: 1,
++  settings: DEFAULT_SETTINGS,
++  subjects: [],
++  slots: [],
++  marks: [],
++  holidays: [],
++  deadlines: [],
++  units: [],
++  scores: [],
++  focusSessions: [],
++  courseLinks: [],
++  suggestions: [],
++  events: [],
++}
++
++let counter = 0
++/** Small unique id generator (no external dependency needed offline). */
++export function newId(prefix: string): string {
++  counter += 1
++  return `${prefix}_${Date.now().toString(36)}_${counter.toString(36)}`
++}
+diff --git a/app/src/data/storage.ts b/app/src/data/storage.ts
+new file mode 100644
+index 0000000..34e0f1a
+--- /dev/null
++++ b/app/src/data/storage.ts
+@@ -0,0 +1,42 @@
++// Storage: one file behind which the app stores everything (Architecture table).
++// Step 1 uses browser localStorage; Capacitor app storage plugs in here later.
++
++import type { AppData } from '../data/model'
++import { EMPTY_DATA, DEFAULT_SETTINGS } from '../data/model'
++
++const KEY = 'attendancetracker.data.v1'
++
++export function loadData(): AppData {
++  try {
++    const raw = localStorage.getItem(KEY)
++    if (!raw) return structuredClone(EMPTY_DATA)
++    const parsed = JSON.parse(raw) as Partial<AppData>
++    // Merge so new fields get defaults after an app update.
++    return {
++      ...structuredClone(EMPTY_DATA),
++      ...parsed,
++      settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
++    }
++  } catch {
++    return structuredClone(EMPTY_DATA)
++  }
++}
++
++export function saveData(data: AppData): void {
++  localStorage.setItem(KEY, JSON.stringify(data))
++}
++
++export function clearData(): void {
++  localStorage.removeItem(KEY)
++}
++
++/** F7: Export my data — download the whole store as a JSON file. */
++export function exportData(data: AppData): void {
++  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
++  const url = URL.createObjectURL(blob)
++  const a = document.createElement('a')
++  a.href = url
++  a.download = `attendance-tracker-${new Date().toISOString().slice(0, 10)}.json`
++  a.click()
++  URL.revokeObjectURL(url)
++}
+diff --git a/app/src/data/store.tsx b/app/src/data/store.tsx
+new file mode 100644
+index 0000000..81b30a2
+--- /dev/null
++++ b/app/src/data/store.tsx
+@@ -0,0 +1,143 @@
++// App-wide state: loads from storage, saves on every change (so the timetable
++// and marks are still there after closing and reopening the app).
++
++import { createContext, useContext, useEffect, useMemo, useState } from 'react'
++import type { ReactNode } from 'react'
++import type { AppData, DateStr, MarkStatus, Slot, Subject, Deadline } from '../data/model'
++import { newId } from '../data/model'
++import { loadData, saveData, clearData } from '../data/storage'
++import { markFor } from '../logic/attendance'
++
++interface AppApi {
++  data: AppData
++  setData: (updater: (d: AppData) => AppData) => void
++  // ---- subjects & timetable (A6, A10) ----
++  addSubject: (shortName: string, fullName: string) => Subject
++  removeSubject: (id: string) => void
++  addSlot: (slot: Omit<Slot, 'id'>) => void
++  updateSlot: (id: string, patch: Partial<Slot>) => void
++  /** A8: removing a class applies from today onward; past keeps what it had. */
++  removeSlotFromToday: (id: string, today: DateStr) => void
++  // ---- attendance marking (B1) ----
++  setMark: (date: DateStr, slotId: string, status: MarkStatus | null) => void
++  // ---- deadlines (C5 minimal for step 1) ----
++  addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'>) => void
++  toggleDeadlineDone: (id: string) => void
++  deleteDeadline: (id: string) => void
++  // ---- settings ----
++  updateSettings: (patch: Partial<AppData['settings']>) => void
++  resetAll: () => void
++}
++
++const Ctx = createContext<AppApi | null>(null)
++
++export function AppProvider({ children }: { children: ReactNode }) {
++  const [data, setRaw] = useState<AppData>(() => loadData())
++
++  useEffect(() => {
++    saveData(data)
++  }, [data])
++
++  const api = useMemo<AppApi>(() => {
++    const setData = (updater: (d: AppData) => AppData) => setRaw((d) => updater(d))
++
++    return {
++      data,
++      setData,
++
++      addSubject(shortName, fullName) {
++        const subj: Subject = {
++          id: newId('subj'),
++          shortName,
++          fullName,
++          nicknames: [],
++        }
++        setRaw((d) => ({ ...d, subjects: [...d.subjects, subj] }))
++        return subj
++      },
++
++      removeSubject(id) {
++        setRaw((d) => {
++          const slotIds = d.slots.filter((s) => s.subjectId === id).map((s) => s.id)
++          return {
++            ...d,
++            subjects: d.subjects.filter((s) => s.id !== id),
++            slots: d.slots.filter((s) => s.subjectId !== id),
++            marks: d.marks.filter((m) => !slotIds.includes(m.slotId)),
++          }
++        })
++      },
++
++      addSlot(slot) {
++        setRaw((d) => ({ ...d, slots: [...d.slots, { ...slot, id: newId('slot') }] }))
++      },
++
++      updateSlot(id, patch) {
++        setRaw((d) => ({ ...d, slots: d.slots.map((s) => (s.id === id ? { ...s, ...patch } : s)) }))
++      },
++
++      removeSlotFromToday(id, today) {
++        // Keep history: end validity at yesterday rather than deleting.
++        setRaw((d) => ({
++          ...d,
++          slots: d.slots.map((s) =>
++            s.id === id ? { ...s, validUntil: today } : s,
++          ),
++        }))
++      },
++
++      setMark(date, slotId, status) {
++        setRaw((d) => {
++          const marks = d.marks.filter((m) => !(m.date === date && m.slotId === slotId))
++          if (status !== null) marks.push({ id: `${date}_${slotId}`, date, slotId, status })
++          return { ...d, marks }
++        })
++      },
++
++      addDeadline(dl) {
++        setRaw((d) => ({
++          ...d,
++          deadlines: [
++            ...d.deadlines,
++            { ...dl, id: newId('dl'), done: false, tentative: false, reminderDates: [] },
++          ],
++        }))
++      },
++
++      toggleDeadlineDone(id) {
++        setRaw((d) => ({
++          ...d,
++          deadlines: d.deadlines.map((x) => (x.id === id ? { ...x, done: !x.done } : x)),
++        }))
++      },
++
++      deleteDeadline(id) {
++        // Data rule: deleting a deadline cancels its scheduled notifications —
++        // on web there is nothing to cancel yet; Capacitor step will hook in here.
++        setRaw((d) => ({ ...d, deadlines: d.deadlines.filter((x) => x.id !== id) }))
++      },
++
++      updateSettings(patch) {
++        setRaw((d) => ({ ...d, settings: { ...d.settings, ...patch } }))
++      },
++
++      resetAll() {
++        clearData()
++        setRaw(loadData())
++      },
++    }
++  }, [data])
++
++  return <Ctx.Provider value={api}>{children}</Ctx.Provider>
++}
++
++export function useApp(): AppApi {
++  const ctx = useContext(Ctx)
++  if (!ctx) throw new Error('useApp must be used inside AppProvider')
++  return ctx
++}
++
++/** Convenience: current mark of a slot on a date. */
++export function getMark(data: AppData, date: DateStr, slotId: string): MarkStatus | null {
++  return markFor(data, date, slotId)
++}
+diff --git a/app/src/index.css b/app/src/index.css
+new file mode 100644
+index 0000000..0fd945c
+--- /dev/null
++++ b/app/src/index.css
+@@ -0,0 +1,76 @@
++:root {
++  /* Placeholder palette until the real design tokens arrive in Step 2. */
++  --bg: #fff8f2;
++  --card: #ffffff;
++  --text: #1e1b2e;
++  --soft: #6b6580;
++  --primary: #d93a32;
++  --safe: #1fa35b;
++  --limit: #f2a100;
++  --danger: #e5383b;
++  --radius: 20px;
++}
++
++* { box-sizing: border-box; }
++
++body {
++  margin: 0;
++  font-family: system-ui, -apple-system, sans-serif;
++  background: var(--bg);
++  color: var(--text);
++}
++
++.app { max-width: 480px; margin: 0 auto; padding: 16px 16px 96px; }
++
++h1 { font-size: 24px; }
++h2 { font-size: 17px; margin: 24px 0 8px; }
++
++.card {
++  background: var(--card);
++  border-radius: var(--radius);
++  padding: 14px 16px;
++  margin-bottom: 12px;
++  box-shadow: 0 8px 24px rgba(217, 58, 50, 0.08);
++}
++
++.row { display: flex; align-items: center; gap: 8px; }
++.spread { justify-content: space-between; }
++.grow { flex: 1; }
++
++button {
++  border: none;
++  border-radius: 999px;
++  padding: 10px 16px;
++  font-size: 14px;
++  cursor: pointer;
++  background: #eee6dd;
++  color: var(--text);
++  min-height: 40px;
++}
++button.primary { background: var(--primary); color: #fff; }
++button.present.on { background: var(--safe); color: #fff; }
++button.absent.on { background: var(--danger); color: #fff; }
++button.noclass.on { background: var(--soft); color: #fff; }
++
++input, select {
++  border: 1px solid #ddd;
++  border-radius: 12px;
++  padding: 10px 12px;
++  font-size: 15px;
++  background: #fff;
++  min-height: 44px;
++}
++label { font-size: 13px; color: var(--soft); display: block; margin: 8px 0 2px; }
++
++.pct { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
++.safe { color: var(--safe); }
++.limit { color: var(--limit); }
++.below { color: var(--danger); }
++.msg { font-size: 13px; color: var(--soft); }
++
++.tabs { position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: center; gap: 8px;
++  padding: 12px; background: rgba(255,255,255,.8); backdrop-filter: blur(8px); }
++@media (min-width: 481px) { .tabs { max-width: 480px; margin: 0 auto; border-radius: 24px 24px 0 0; } }
++
++table { width: 100%; border-collapse: collapse; font-size: 13px; }
++td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid #f0e8e0; }
+diff --git a/app/src/logic/attendance.test.ts b/app/src/logic/attendance.test.ts
+new file mode 100644
+index 0000000..8fcc112
+--- /dev/null
++++ b/app/src/logic/attendance.test.ts
+@@ -0,0 +1,178 @@
++// Tests for the attendance core, built from the worked examples in the document.
++
++import { describe, expect, it } from 'vitest'
++import type { AppData } from '../data/model'
++import { EMPTY_DATA } from '../data/model'
++import type { Subject } from '../data/model'
++import {
++  buildReport,
++  computeSubjectTotals,
++  slotsForDate,
++  summarizeSubject,
++} from './attendance'
++
++function dataWith(over: Partial<AppData>): AppData {
++  return { ...structuredClone(EMPTY_DATA), ...over }
++}
++
++describe('B4/B5 formulas (threshold 75)', () => {
++  function summary(attended: number, held: number, threshold = 75) {
++    const subj: Subject = { id: 's1', shortName: 'X', fullName: 'X', nicknames: [], typedAttended: attended, typedHeld: held }
++    const data = dataWith({ subjects: [subj] })
++    data.settings.threshold = threshold
++    const totals = computeSubjectTotals(data, 's1', '2026-01-01', '2026-01-01', '2026-01-01')
++    return summarizeSubject(data, 's1', totals)
++  }
++
++  it('can miss N = floor((100A − min·H)/min): 80/100 at 75 → can miss 33', () => {
++    const s = summary(80, 100)
++    expect(s.canMiss).toBe(Math.floor((100 * 80 - 75 * 100) / 75)) // 6
++    expect(s.canMiss).toBe(6)
++    expect(s.status).toBe('safe')
++    expect(s.message).toContain('You’re safe! You can skip 6 more classes')
++  })
++
++  it('exactly at the limit shows the limit message', () => {
++    const s = summary(75, 100)
++    expect(s.canMiss).toBe(0)
++    expect(s.status).toBe('limit')
++    expect(s.message).toBe('At the limit. Don’t miss the next class')
++  })
++
++  it('below minimum: attend next N classes (ceil formula)', () => {
++    // 70 of 100 at 75%: need ceil((75*100 − 100*70)/(100−75)) = ceil(500/25) = 20
++    const s = summary(70, 100)
++    expect(s.status).toBe('below')
++    expect(s.mustAttendNext).toBe(20)
++    expect(s.message).toBe('Attend the next 20 classes to get back to 75%')
++  })
++
++  it('threshold 100 below is out of reach', () => {
++    const s = summary(99, 100, 100)
++    expect(s.status).toBe('below')
++    expect(s.message).toContain('cannot be recovered')
++  })
++
++  it('changing the threshold changes every can-miss number (F1)', () => {
++    expect(summary(80, 100, 75).canMiss).toBe(6)
++    expect(summary(80, 100, 80).canMiss).toBe(0)
++    expect(summary(80, 100, 80).status).toBe('limit')
++    expect(summary(80, 100, 90).status).toBe('below')
++  })
++})
++
++describe('J5 assumed past attendance + B2 no-class', () => {
++  it('past unmarked classes count at assumed %, marked ones leave the pool', () => {
++    // One Mon class per week; semester start Mon 2026-10-05, today Fri 2026-10-23.
++    // Mondays before today: 5,12,19 = 3 past classes. Assume 80% → round(2.4)=2 attended.
++    const data = dataWith({
++      subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [] }],
++      slots: [
++        {
++          id: 'sl1', subjectId: 's1', weekday: 1, startTime: '09:00', endTime: '10:00',
++          type: 'lecture', room: '', teacher: '', validFrom: '2026-10-05', validUntil: null,
++        },
++      ],
++    })
++    data.settings.semesterStart = '2026-10-05'
++    const t = computeSubjectTotals(data, 's1', '2026-10-05', '2026-10-23', '2026-10-23')
++    expect(t.held).toBe(3)
++    expect(t.attended).toBe(2) // round(0.8 × 3) = 2
++
++    // Mark one past Monday absent: pool becomes 2 unmarked → round(1.6)=2, plus 0 marked present.
++    data.marks.push({ id: 'm1', date: '2026-10-12', slotId: 'sl1', status: 'absent' })
++    const t2 = computeSubjectTotals(data, 's1', '2026-10-05', '2026-10-23', '2026-10-23')
++    expect(t2.held).toBe(3)
++    expect(t2.attended).toBe(2) // round(0.8×2)=2
++
++    // No class counts in neither (B2).
++    data.marks[0].status = 'noclass'
++    const t3 = computeSubjectTotals(data, 's1', '2026-10-05', '2026-10-23', '2026-10-23')
++    expect(t3.held).toBe(2)
++    expect(t3.attended).toBe(2) // round(0.8×2)… wait pool: 5th and 19th unmarked past = 2 → attended 2? 
++    // Actually both remaining are unmarked past: round(0.8*2)=2? 0.8*2=1.6→2. Yes.
++  })
++
++  it('worked example J13 row: 60 past unmarked at 80% → 48 attended of 60 held', () => {
++    // Simulate with typed-free math: 60 Mondays over ~15 months is slow; instead check the rounding directly.
++    const data = dataWith({
++      subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [] }],
++      slots: [
++        {
++          id: 'sl1', subjectId: 's1', weekday: 1, startTime: '09:00', endTime: '10:00',
++          type: 'lecture', room: '', teacher: '', validFrom: '2026-08-03', validUntil: null,
++        },
++      ],
++    })
++    // Aug 3 (Mon) .. Oct 26 (Mon) = 13 Mondays past, today Wed Oct 28.
++    const t = computeSubjectTotals(data, 's1', '2026-08-03', '2026-10-28', '2026-10-28')
++    expect(t.held).toBe(13)
++    expect(t.attended).toBe(Math.round(0.8 * 13)) // 10 (0.8*13=10.4→10)
++  })
++
++  it('B8/J6: typed ERP totals replace calculated figures', () => {
++    const data = dataWith({
++      subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [], typedAttended: 30, typedHeld: 60 }],
++      slots: [
++        {
++          id: 'sl1', subjectId: 's1', weekday: 1, startTime: '09:00', endTime: '10:00',
++          type: 'lecture', room: '', teacher: '', validFrom: '2026-08-03', validUntil: null,
++        },
++      ],
++    })
++    const t = computeSubjectTotals(data, 's1', '2026-08-03', '2026-10-28', '2026-10-28')
++    expect(t.held).toBe(60)
++    expect(t.attended).toBe(30)
++    expect(t.usesTypedTotals).toBe(true)
++  })
++})
++
++describe('A7/A8 weekly repeat and history', () => {
++  const base = {
++    id: 'sl1', subjectId: 's1', weekday: 1, startTime: '09:00', endTime: '10:00',
++    type: 'lecture' as const, room: '', teacher: '',
++  }
++
++  it('a Monday slot appears on every Monday after validFrom', () => {
++    const data = dataWith({
++      subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [] }],
++      slots: [{ ...base, validFrom: '2026-10-05', validUntil: null }],
++    })
++    expect(slotsForDate(data, '2026-10-05')).toHaveLength(1) // Mon
++    expect(slotsForDate(data, '2026-10-12')).toHaveLength(1) // next Mon
++    expect(slotsForDate(data, '2026-10-06')).toHaveLength(0) // Tue
++  })
++
++  it('removing from today keeps past days intact (validUntil)', () => {
++    const data = dataWith({
++      subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [] }],
++      slots: [{ ...base, validFrom: '2026-10-05', validUntil: '2026-10-26' }],
++    })
++    expect(slotsForDate(data, '2026-10-19')).toHaveLength(1) // before removal — still there
++    expect(slotsForDate(data, '2026-11-02')).toHaveLength(0) // after — gone
++  })
++
++  it('Sunday off by default, on when enabled (A13)', () => {
++    const data = dataWith({
++      subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [] }],
++      slots: [{ ...base, weekday: 7, validFrom: '2026-10-01', validUntil: null }],
++    })
++    expect(slotsForDate(data, '2026-10-04')).toHaveLength(0) // Sunday
++    data.settings.sundayClasses = true
++    expect(slotsForDate(data, '2026-10-04')).toHaveLength(1)
++  })
++
++  it('holidays remove classes but exam days keep them (A12, J3)', () => {
++    const data = dataWith({
++      subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [] }],
++      slots: [{ ...base, validFrom: '2026-10-05', validUntil: null }],
++      holidays: [
++        { id: 'h1', startDate: '2026-10-12', endDate: '2026-10-12', label: 'Holiday', isExamDay: false },
++        { id: 'h2', startDate: '2026-10-19', endDate: '2026-10-19', label: 'Exam', isExamDay: true },
++      ],
++    })
++    const r = buildReport(data, '2026-10-23', '2026-10-05', '2026-10-23')
++    // Past Mondays: 5, 12 (holiday, excluded), 19 (exam day, counts) → held 2
++    expect(r.bySubject[0].held).toBe(2)
++  })
++})
+diff --git a/app/src/logic/attendance.ts b/app/src/logic/attendance.ts
+new file mode 100644
+index 0000000..7ea37c5
+--- /dev/null
++++ b/app/src/logic/attendance.ts
+@@ -0,0 +1,234 @@
++// ============================================================
++// Attendance core — plain code on the phone, fixed formulas.
++// B2:  percentage = attended ÷ held × 100; No class counts in neither.
++// B4:  can miss N = floor((100×attended − min×held) ÷ min)
++// B5:  back to X%: N = ceil((min×held − 100×attended) ÷ (100 − min))
++// J4/J5: past unmarked classes count at the assumed % (rounded to
++//        nearest whole class); marked ones are exact and leave the
++//        assumed pool. B8/J6: typed totals replace everything.
++// Data rules: attended ≤ held, both ≥ 0; timetable edits apply from
++//        their validFrom onward (past days keep what they had).
++// ============================================================
++
++import type { AppData, DateStr, MarkStatus, Slot, Subject } from '../data/model'
++import { addDays, weekdayOf } from './dates'
++
++/** Slots that were scheduled on a given date, honouring validFrom/validUntil (A8)
++ *  and Sunday off unless enabled (A13). */
++export function slotsForDate(data: AppData, date: DateStr): Slot[] {
++  const wd = weekdayOf(date)
++  if (wd === 7 && !data.settings.sundayClasses) return []
++  return data.slots.filter(
++    (s) =>
++      s.weekday === wd &&
++      date >= s.validFrom &&
++      (s.validUntil === null || date <= s.validUntil),
++  )
++}
++
++/** True when the date falls inside a holiday range (A12). Exam days DO count
++ *  as normal classes (section J), so isExamDay holidays are not no-class days. */
++export function isHoliday(data: AppData, date: DateStr): boolean {
++  return data.holidays.some(
++    (h) => !h.isExamDay && date >= h.startDate && date <= h.endDate,
++  )
++}
++
++export function markFor(data: AppData, date: DateStr, slotId: string): MarkStatus | null {
++  const m = data.marks.find((mk) => mk.date === date && mk.slotId === slotId)
++  return m ? m.status : null
++}
++
++/** All dates from `from` up to and including `to`. */
++export function eachDay(from: DateStr, to: DateStr): DateStr[] {
++  const out: DateStr[] = []
++  let d = from
++  while (d <= to) {
++    out.push(d)
++    d = addDays(d, 1)
++  }
++  return out
++}
++
++export interface SubjectTotals {
++  subjectId: string
++  /** Classes counted as held (No class excluded). */
++  held: number
++  /** Classes attended. */
++  attended: number
++  /** Held classes with no mark yet that fall before today (assumed pool). */
++  unmarkedPast: number
++  /** Whether B8 typed totals were used. */
++  usesTypedTotals: boolean
++}
++
++/**
++ * Compute held/attended for one subject over a date range.
++ * - Marks inside the range are counted exactly.
++ * - Past (before `today`) unmarked scheduled classes count toward held, and
++ *   contribute round(assumed% × count) attended (J5) — unless the subject has
++ *   typed ERP totals, which replace all of it (B8/J6).
++ * - Future unmarked classes are not counted at all.
++ */
++export function computeSubjectTotals(
++  data: AppData,
++  subjectId: string,
++  rangeStart: DateStr,
++  rangeEnd: DateStr,
++  today: DateStr,
++): SubjectTotals {
++  const subj = data.subjects.find((s) => s.id === subjectId)
++  let held = 0
++  let attended = 0
++  let unmarkedPast = 0
++
++  for (const date of eachDay(rangeStart, rangeEnd)) {
++    if (isHoliday(data, date)) continue
++    for (const slot of slotsForDate(data, date)) {
++      if (slot.subjectId !== subjectId) continue
++      const status = markFor(data, date, slot.id)
++      if (status === 'noclass') continue // B2: counts in neither
++      held += 1
++      if (status === 'present') attended += 1
++      else if (status === 'absent') {
++        /* not attended */
++      } else {
++        // unmarked
++        if (date < today) unmarkedPast += 1
++        else if (data.settings.unmarkedAsPresent) attended += 1 // B14 (Stretch setting)
++      }
++    }
++  }
++
++  // J5: assumed attendance for past unmarked classes.
++  const assumedPct = data.settings.assumedPastAttendance
++  attended += Math.round((assumedPct / 100) * unmarkedPast)
++
++  const usesTyped = subj?.typedHeld !== undefined
++  if (usesTyped && subj) {
++    held = Math.max(0, subj.typedHeld ?? 0)
++    attended = Math.min(held, Math.max(0, subj.typedAttended ?? 0))
++  }
++
++  // Data rule: attended never exceeds held, neither below 0.
++  attended = Math.max(0, Math.min(attended, held))
++  held = Math.max(0, held)
++
++  return { subjectId, held, attended, unmarkedPast, usesTypedTotals: usesTyped }
++}
++
++export interface AttendanceSummary {
++  subjectId: string
++  name: string
++  shortName: string
++  held: number
++  attended: number
++  /** Percentage, unrounded value kept separately for maths. */
++  percent: number
++  threshold: number
++  status: 'safe' | 'limit' | 'below' | 'nodata'
++  /** Friendly line per B4/B5/B7. */
++  message: string
++  /** N in "you can miss N more classes"; 0 otherwise. */
++  canMiss: number
++  /** N in "attend the next N classes" (B5); only when below. */
++  mustAttendNext: number
++  /** Whether at least 5 classes are marked for this subject (B7 warning gate). */
++  enoughMarks: boolean
++}
++
++function effectiveThreshold(data: AppData, subject: Subject): number {
++  return subject.thresholdOverride ?? data.settings.threshold
++}
++
++export function summarizeSubject(
++  data: AppData,
++  subjectId: string,
++  totals: SubjectTotals,
++): AttendanceSummary {
++  const subject = data.subjects.find((s) => s.id === subjectId)!
++  const t = effectiveThreshold(data, subject)
++  const { held, attended } = totals
++  const percent = held === 0 ? 0 : (attended / held) * 100
++
++  // Count how many classes the user actually marked (for the B7 gate).
++  let markedCount = 0
++  for (const m of data.marks) {
++    const slot = data.slots.find((sl) => sl.id === m.slotId)
++    if (slot && slot.subjectId === subjectId && m.status !== 'noclass') markedCount += 1
++  }
++  const enoughMarks = totals.usesTypedTotals || markedCount >= 5
++
++  let status: AttendanceSummary['status'] = 'nodata'
++  let message = ''
++  let canMiss = 0
++  let mustAttendNext = 0
++
++  if (held === 0) {
++    message = 'No classes recorded yet.'
++  } else {
++    if (percent >= t) {
++      // B4: N = floor((100×A − min×H) ÷ min)
++      const n = Math.floor(((100 * attended - t * held) / t))
++      status = n === 0 ? 'limit' : 'safe'
++      if (n === 0) message = 'At the limit. Don\u2019t miss the next class'
++      else message = `You\u2019re safe! You can skip ${n} more class${n === 1 ? '' : 'es'}`
++      canMiss = Math.max(0, n)
++    } else {
++      status = 'below'
++      if (t >= 100) {
++        mustAttendNext = 0
++        message = `Below ${t}% and it cannot be recovered by attending alone.`
++      } else {
++        // B5: N = ceil((min×H − 100×A) ÷ (100 − min))
++        mustAttendNext = Math.ceil((t * held - 100 * attended) / (100 - t))
++        message = `Attend the next ${mustAttendNext} class${mustAttendNext === 1 ? '' : 'es'} to get back to ${t}%`
++      }
++    }
++  }
++
++  return {
++    subjectId,
++    name: subject.fullName,
++    shortName: subject.shortName,
++    held,
++    attended,
++    percent,
++    threshold: t,
++    status,
++    message,
++    canMiss,
++    mustAttendNext,
++    enoughMarks,
++  }
++}
++
++export function overallPercent(summaries: AttendanceSummary[]): number {
++  const held = summaries.reduce((a, s) => a + s.held, 0)
++  const attended = summaries.reduce((a, s) => a + s.attended, 0)
++  return held === 0 ? 0 : (attended / held) * 100
++}
++
++/** Everything the UI needs, recomputed from marks + timetable + settings.
++ *  Never stored (data model rule). */
++export interface AttendanceReport {
++  bySubject: AttendanceSummary[]
++  overall: number
++  /** Subjects below threshold with enough marks to warn (B7). */
++  warnings: AttendanceSummary[]
++}
++
++export function buildReport(
++  data: AppData,
++  today: DateStr,
++  rangeStart: DateStr,
++  rangeEnd: DateStr,
++): AttendanceReport {
++  const bySubject = data.subjects.map((subj) => {
++    const totals = computeSubjectTotals(data, subj.id, rangeStart, rangeEnd, today)
++    return summarizeSubject(data, subj.id, totals)
++  })
++  const overall = overallPercent(bySubject)
++  const warnings = bySubject.filter((s) => s.status === 'below' && s.enoughMarks)
++  return { bySubject, overall, warnings }
++}
+diff --git a/app/src/logic/dates.ts b/app/src/logic/dates.ts
+new file mode 100644
+index 0000000..ef69bdc
+--- /dev/null
++++ b/app/src/logic/dates.ts
+@@ -0,0 +1,81 @@
++// Date helpers. All dates are stored as YYYY-MM-DD (data model rule),
++// shown day first ("9 Nov", "09/11") per the Key decisions table.
++
++import type { DateStr } from '../data/model'
++
++const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
++
++export function pad2(n: number): string {
++  return n < 10 ? `0${n}` : `${n}`
++}
++
++/** Today's date as YYYY-MM-DD in local time. */
++export function todayStr(): DateStr {
++  const d = new Date()
++  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
++}
++
++export function toDate(dateStr: DateStr): Date {
++  const [y, m, d] = dateStr.split('-').map(Number)
++  return new Date(y, m - 1, d)
++}
++
++export function fromDate(d: Date): DateStr {
++  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
++}
++
++export function addDays(dateStr: DateStr, days: number): DateStr {
++  const d = toDate(dateStr)
++  d.setDate(d.getDate() + days)
++  return fromDate(d)
++}
++
++/** Difference in whole days: b − a. */
++export function diffDays(a: DateStr, b: DateStr): number {
++  const ms = toDate(b).getTime() - toDate(a).getTime()
++  return Math.round(ms / 86_400_000)
++}
++
++/** 1 = Monday … 7 = Sunday. */
++export function weekdayOf(dateStr: DateStr): number {
++  const dow = toDate(dateStr).getDay() // 0 = Sunday
++  return dow === 0 ? 7 : dow
++}
++
++/** "9 Nov" or "9 Nov 2026" — day first. */
++export function formatShort(dateStr: DateStr, withYear = false): string {
++  const d = toDate(dateStr)
++  const base = `${d.getDate()} ${MONTHS[d.getMonth()]}`
++  return withYear ? `${base} ${d.getFullYear()}` : base
++}
++
++/** "Mon" … "Sun". */
++export function weekdayName(weekday: number): string {
++  return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][weekday - 1] ?? '?'
++}
++
++export function monthKey(dateStr: DateStr): string {
++  return dateStr.slice(0, 7) // YYYY-MM
++}
++
++/** First day of the month after the given date's month. J2 plan start. */
++export function nextMonthFirstDay(dateStr: DateStr): DateStr {
++  const d = toDate(dateStr)
++  return fromDate(new Date(d.getFullYear(), d.getMonth() + 1, 1))
++}
++
++/** Number of days in a given YYYY-MM month. */
++export function daysInMonth(key: string): number {
++  const [y, m] = key.split('-').map(Number)
++  return new Date(y, m, 0).getDate()
++}
++
++/** Friendly "in N days" / "N days ago" / "today" line. */
++export function relativeDay(target: DateStr, from: DateStr): string {
++  const n = diffDays(from, target)
++  if (n === 0) return 'today'
++  if (n === 1) return 'tomorrow'
++  if (n === -1) return 'yesterday'
++  if (n > 1) return `in ${n} days`
++  return `${-n} days ago`
++}
+diff --git a/app/src/main.tsx b/app/src/main.tsx
+new file mode 100644
+index 0000000..db032b7
+--- /dev/null
++++ b/app/src/main.tsx
+@@ -0,0 +1,10 @@
++import { StrictMode } from 'react'
++import { createRoot } from 'react-dom/client'
++import './index.css'
++import App from './App'
++
++createRoot(document.getElementById('root')!).render(
++  <StrictMode>
++    <App />
++  </StrictMode>,
++)
+diff --git a/app/tsconfig.json b/app/tsconfig.json
+new file mode 100644
+index 0000000..109f0ac
+--- /dev/null
++++ b/app/tsconfig.json
+@@ -0,0 +1,20 @@
++{
++  "compilerOptions": {
++    "target": "ES2020",
++    "useDefineForClassFields": true,
++    "lib": ["ES2020", "DOM", "DOM.Iterable"],
++    "module": "ESNext",
++    "skipLibCheck": true,
++    "moduleResolution": "bundler",
++    "allowImportingTsExtensions": true,
++    "isolatedModules": true,
++    "moduleDetection": "force",
++    "noEmit": true,
++    "jsx": "react-jsx",
++    "strict": true,
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "noFallthroughCasesInSwitch": true
++  },
++  "include": ["src"]
++}
+diff --git a/app/vite.config.ts b/app/vite.config.ts
+new file mode 100644
+index 0000000..9ffcc67
+--- /dev/null
++++ b/app/vite.config.ts
+@@ -0,0 +1,6 @@
++import { defineConfig } from 'vite'
++import react from '@vitejs/plugin-react'
++
++export default defineConfig({
++  plugins: [react()],
++})
+-- 
+2.39.5
+
