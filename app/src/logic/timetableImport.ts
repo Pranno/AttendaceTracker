@@ -241,6 +241,21 @@ export function parseTimetableText(text: string): ImportResult {
   }
 }
 
+/** Batch tags found in the parsed text, sorted (e.g. ["A1", "A2", "A3"]). */
+export function distinctBatches(entries: ParsedEntry[]): string[] {
+  const set = new Set<string>()
+  for (const e of entries) if (e.batch) set.add(e.batch.toUpperCase())
+  return [...set].sort()
+}
+
+/** Keep only whole-class entries + entries tagged with `batch` (A3). */
+export function keepOnlyBatch(entries: ParsedEntry[], batch: string): ParsedEntry[] {
+  return entries.filter((e) => {
+    if (!e.batch) return true
+    return e.batch.toUpperCase() === batch.toUpperCase()
+  })
+}
+
 /** Keep only whole-class entries and my batch's (untagged = everyone). */
 export function filterByBatch(entries: ParsedEntry[], myBatch: string): ParsedEntry[] {
   if (!myBatch) return entries

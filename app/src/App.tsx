@@ -1,8 +1,8 @@
 // Step-2 app shell: ThemeProvider (design tokens, F9) wraps the data store;
 // the floating pill navigation switches Today / Calendar / Subjects / Settings.
 
-import { useState } from 'react'
-import { AppProvider } from './data/store'
+import { useEffect, useState } from 'react'
+import { AppProvider, useApp } from './data/store'
 import { ThemeProvider } from './theme/ThemeProvider'
 import NavBar from './components/NavBar'
 import type { Tab } from './components/NavBar'
@@ -10,7 +10,35 @@ import Today from './components/Today'
 import Calendar from './components/Calendar'
 import Subjects from './components/Subjects'
 import Plan from './components/Plan'
+import Study from './components/Study'
 import Settings from './components/Settings'
+import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync } from './logic/reminders'
+import { todayStr } from './logic/dates'
+
+/** D6/B11: on app open — request permission, fire any deadline reminders that
+ *  came due while closed, and show the evening "mark attendance" nudge. */
+function ReminderRunner() {
+  const { data } = useApp()
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      await ensureNotifyPermission()
+      if (cancelled) return
+      runCatchUpReminders(data)
+      const now = new Date()
+      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+      if (eveningNudgeDue(data, todayStr(), hhmm)) {
+        void fireEveningNudgeAsync('Mark your attendance', "Today's classes aren't all marked yet.")
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // Run once per mount; data read is a snapshot at open time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return null
+}
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today')
@@ -23,9 +51,11 @@ export default function App() {
   return (
     <ThemeProvider>
       <AppProvider>
+        <ReminderRunner />
         {tab === 'today' && <Today go={go} />}
         {tab === 'calendar' && <Calendar />}
         {tab === 'plan' && <Plan focusSubjectId={focusSubjectId} />}
+        {tab === 'study' && <Study />}
         {tab === 'subjects' && <Subjects go={go} />}
         {tab === 'settings' && <Settings />}
         <NavBar tab={tab} onChange={(t) => go(t)} />

@@ -8,7 +8,7 @@ import { useApp } from '../data/store'
 import type { ClassType } from '../data/model'
 import { newId, slotMatchesBatch } from '../data/model'
 import { formatShort, todayStr, weekdayName } from '../logic/dates'
-import { parseTimetableText, filterByBatch, entriesToSlots } from '../logic/timetableImport'
+import { parseTimetableText, filterByBatch, entriesToSlots, distinctBatches, keepOnlyBatch } from '../logic/timetableImport'
 import type { ParsedEntry } from '../logic/timetableImport'
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
@@ -27,20 +27,51 @@ export default function Timetable() {
   const [editTeacher, setEditTeacher] = useState('');
   const [importText, setImportText] = useState('')
   const [parsed, setParsed] = useState<ParsedEntry[] | null>(null)
+  const [allParsed, setAllParsed] = useState<ParsedEntry[]>([]) // pre-filter, for the batch prompt (A3)
   const [parseWarn, setParseWarn] = useState<string[]>([])
   const [hiddenOther, setHiddenOther] = useState(0)
 
   function runParse(text: string) {
     const res = parseTimetableText(text)
+    setAllParsed(res.entries)
     const mine = filterByBatch(res.entries, myBatch)
     setHiddenOther(res.entries.length - mine.length)
     setParseWarn(res.warnings)
     setParsed(mine.length > 0 ? mine : res.entries)
   }
 
+  // A3: if the pasted timetable contains batches and none is chosen yet, ask now.
+  const importBatches = parsed && !myBatch ? distinctBatches(allParsed) : []
+
+  function chooseImportBatch(b: string) {
+    setData((d) => ({ ...d, settings: { ...d.settings, myBatch: b } }))
+    const kept = keepOnlyBatch(allParsed, b)
+    setHiddenOther(allParsed.length - kept.length)
+    setParsed(kept)
+  }
+
   async function onFilePicked(f: File | undefined) {
     if (!f) return
-    const text = await f.text()
+    let text = await f.text()
+    // A1: PDFs can't be read as plain text — extract what we can instead of
+    // silently failing. Ask the user to copy-paste if nothing usable comes out.
+    if (f.name.toLowerCase().endsWith('.pdf') || text.startsWith('%PDF')) {
+      const strings = Array.from(
+        new Set(text.match(/\(([A-F][1-9]?)\)\s*[A-Z]{2,6}\s*\d{0,4}/g) ?? []),
+      )
+      if (strings.length >= 3) {
+        setParseWarn([
+          `Extracted ${strings.length} class codes from the PDF’s text layer — paste the full table (open it, Ctrl/Cmd+A → Copy) for days and times.`,
+        ])
+        setParsed(null)
+        setAllParsed([])
+        setImportText(strings.join('\n'))
+        return
+      }
+      setParseWarn(['This PDF has no readable text layer. Open it, press Ctrl/Cmd+A → Copy, then paste here.'])
+      setParsed(null)
+      return
+    }
     setImportText(text)
     runParse(text)
   }
@@ -168,6 +199,18 @@ export default function Timetable() {
           {parsed && parsed.length > 0 && (
             <>
               <h3 style={{ marginTop: 12 }}>Review before saving (nothing saved yet)</h3>
+              {importBatches.length > 0 && (
+                <div className="card msg" style={{ marginTop: 6 }}>
+                  Which batch is yours? Pick it to keep only your classes.
+                  <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
+                    {importBatches.map((b) => (
+                      <button key={b} className="chip" onClick={() => chooseImportBatch(b)}>
+                        {b}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {hiddenOther > 0 && (
                 <div className="msg">{hiddenOther} class entries from other batches were hidden.</div>
               )}

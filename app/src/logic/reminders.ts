@@ -1,7 +1,10 @@
-// Reminder scheduling (F3, B11). On the web build we use the Notification
-// API plus a catch-up check on app open; the Capacitor step will swap the
-// actual firing to Local Notifications while keeping these helpers.
+// Reminder scheduling (F3, B11, D6/D7). Web builds use the browser Notification
+// API plus a catch-up check on app open. Native (Capacitor/Android) builds fire
+// real Local Notifications — scheduled at the user's chosen time (F3) with an
+// id derived from the deadline so editing/deleting replaces/cancels them (D7).
 
+import { Capacitor } from '@capacitor/core'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import type { AppData, DateStr, Deadline } from '../data/model'
 import { addDays, todayStr } from './dates'
 
@@ -82,4 +85,91 @@ function diffDaysLocal(a: DateStr, b: DateStr): number {
   const da = new Date(a + 'T00:00:00')
   const db = new Date(b + 'T00:00:00')
   return Math.round((db.getTime() - da.getTime()) / 86400000)
+}
+
+// ---------------- Native (Capacitor) local notifications — D6/D7 ----------------
+
+/** True on a native platform where Local Notifications are available. */
+export function isNative(): boolean {
+  return Capacitor.isNativePlatform()
+}
+
+/** Stable numeric id for a deadline's notification (same deadline → same id,
+ *  so reschedule replaces and cancel removes it — D7). */
+export function notifIdFor(deadlineId: string): number {
+  let h = 0
+  for (let i = 0; i < deadlineId.length; i++) h = (h * 31 + deadlineId.charCodeAt(i)) >>> 0
+  return (h % 2_000_000_000) + 1 // avoid 0; under Java int max
+}
+
+async function ensureNativePermission(): Promise<boolean> {
+  try {
+    const perm = await LocalNotifications.checkPermissions()
+    if (perm.display === 'granted') return true
+    const res = await LocalNotifications.requestPermissions()
+    return res.display === 'granted'
+  } catch {
+    return false
+  }
+}
+
+function reminderDateTime(date: DateStr, time: string): Date {
+  const [h, m] = (time || '18:00').split(':')
+  const d = new Date(date + 'T00:00:00')
+  d.setHours(Number(h) || 18, Number(m) || 0, 0, 0)
+  return d
+}
+
+/** Schedule (or replace) the local notification for one deadline at the
+ *  user's F3 time. Past dates are skipped. No-op on web. */
+export async function scheduleDeadlineNotification(dl: Deadline, leadDays: number, time: string): Promise<void> {
+  if (!isNative()) return
+  const rd = reminderDateFor(dl, leadDays)
+  if (!rd) return
+  const at = reminderDateTime(rd, time)
+  if (at.getTime() <= Date.now()) return
+  if (!(await ensureNativePermission())) return
+  await LocalNotifications.schedule({
+    notifications: [
+      {
+        id: notifIdFor(dl.id),
+        title: 'Deadline coming up',
+        body: `${dl.title} — due ${dl.dueDate}`,
+        schedule: { at },
+        smallIcon: 'ic_stat_icon_config_sample',
+      },
+    ],
+  })
+}
+
+/** Cancel a deadline's scheduled notification (D7: deleting cancels it). */
+export async function cancelDeadlineNotification(deadlineId: string): Promise<void> {
+  if (!isNative()) return
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: notifIdFor(deadlineId) }] })
+  } catch {
+    /* not scheduled — nothing to cancel */
+  }
+}
+
+/** Re-sync every active deadline with the OS scheduler after settings change
+ *  (lead days or time edited in Settings → all reminders re-armed). */
+export async function resyncAllNotifications(data: AppData): Promise<void> {
+  if (!isNative()) return
+  for (const dl of data.deadlines) await cancelDeadlineNotification(dl.id)
+  for (const dl of data.deadlines) {
+    if (!dl.done) await scheduleDeadlineNotification(dl, data.settings.reminderLeadDays, data.settings.notificationTime)
+  }
+}
+
+/** Evening "mark your attendance" nudge (B11) — fires now on both platforms. */
+export async function fireEveningNudgeAsync(title: string, body: string): Promise<void> {
+  if (isNative()) {
+    if (!(await ensureNativePermission())) return
+    await LocalNotifications.schedule({
+      notifications: [{ id: 999_001, title, body, schedule: { at: new Date(Date.now() + 500) } }],
+    })
+    return
+  }
+  fireNotification(title, body)
 }

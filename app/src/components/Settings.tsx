@@ -149,10 +149,16 @@ function joinBatch(div: string, num: string): string {
 }
 
 export default function Settings() {
-  const { data, updateSettings, resetAll } = useApp()
+  const { data, updateSettings, resetAll, addHoliday, deleteHoliday } = useApp()
   const { choice, setChoice } = useTheme()
   const s = data.settings
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Holidays & exam days (A12)
+  const [holLabel, setHolLabel] = useState('')
+  const [holStart, setHolStart] = useState('')
+  const [holEnd, setHolEnd] = useState('')
+  const [holIsExam, setHolIsExam] = useState(false)
 
   const themes: { id: ThemeChoice; label: string; tokens: 'sunrise' | 'midnight' | null }[] = [
     { id: 'sunrise', label: 'Sunrise', tokens: 'sunrise' },
@@ -364,6 +370,63 @@ export default function Settings() {
           onChange={(v) => updateSettings({ sundayClasses: v })}
           label="Sunday classes"
         />
+      </div>
+
+      <SectionTitle>HOLIDAYS &amp; EXAM DAYS</SectionTitle>
+      <div className="msg" style={{ marginBottom: 8 }}>
+        Holidays hide that day’s classes; exam days are marked on the calendar but still count normally (A12).
+      </div>
+      {data.holidays.length === 0 && <div className="card msg">No holidays or exam days yet.</div>}
+      {data.holidays.map((h) => (
+        <div className="card row spread" key={h.id}>
+          <div>
+            <b>{h.isExamDay ? '📝' : '🎉'} {h.label}</b>
+            <div className="msg">
+              {formatShort(h.startDate)}
+              {h.endDate !== h.startDate ? ` → ${formatShort(h.endDate)}` : ''} ·{' '}
+              {h.isExamDay ? 'exam day' : 'holiday'}
+            </div>
+          </div>
+          <button onClick={() => deleteHoliday(h.id)}>Remove</button>
+        </div>
+      ))}
+      <div className="card">
+        <label>Label</label>
+        <input value={holLabel} onChange={(e) => setHolLabel(e.target.value)} placeholder="Diwali break / Mid-terms" />
+        <div className="field-row">
+          <div className="grow">
+            <label className="small-label">From</label>
+            <input type="date" value={holStart} onChange={(e) => setHolStart(e.target.value)} />
+          </div>
+          <div className="grow">
+            <label className="small-label">To</label>
+            <input type="date" value={holEnd || holStart} onChange={(e) => setHolEnd(e.target.value)} />
+          </div>
+        </div>
+        <div className="card row spread" style={{ marginTop: 6 }}>
+          <div>
+            <b>Exam day</b>
+            <div className="msg">Off by mistake? No — exam days keep counting for attendance.</div>
+          </div>
+          <Toggle checked={holIsExam} onChange={setHolIsExam} label="Exam day" />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button
+            className="primary"
+            disabled={!holLabel.trim() || !holStart}
+            onClick={() => {
+              const start = holStart
+              const end = holEnd && holEnd >= holStart ? holEnd : holStart
+              addHoliday({ label: holLabel.trim(), startDate: start, endDate: end, isExamDay: holIsExam })
+              setHolLabel('')
+              setHolStart('')
+              setHolEnd('')
+              setHolIsExam(false)
+            }}
+          >
+            Add {holIsExam ? 'exam day' : 'holiday'}
+          </button>
+        </div>
       </div>
 
       <SectionTitle>PASTE A DEADLINE MESSAGE</SectionTitle>

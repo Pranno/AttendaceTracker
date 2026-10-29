@@ -3,10 +3,11 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, DateStr, MarkStatus, Slot, Subject, Deadline } from '../data/model'
+import type { AppData, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Unit, Topic, PracticeQuestion } from '../data/model'
 import { newId } from '../data/model'
 import { loadData, saveData, clearData } from '../data/storage'
 import { markFor } from '../logic/attendance'
+import { scheduleDeadlineNotification, cancelDeadlineNotification, resyncAllNotifications } from '../logic/reminders'
 
 interface AppApi {
   data: AppData
@@ -25,6 +26,24 @@ interface AppApi {
   updateDeadline: (id: string, patch: Partial<Deadline>) => void
   toggleDeadlineDone: (id: string) => void
   deleteDeadline: (id: string) => void
+  // ---- holidays / exam days (A12) ----
+  addHoliday: (h: Omit<Holiday, 'id'>) => void
+  updateHoliday: (id: string, patch: Partial<Holiday>) => void
+  deleteHoliday: (id: string) => void
+  // ---- study units & topics (E-series) ----
+  addUnit: (u: Omit<Unit, 'id' | 'topics'> & { topics?: Topic[] }) => void
+  updateUnit: (id: string, patch: Partial<Unit>) => void
+  deleteUnit: (id: string) => void
+  upsertTopic: (unitId: string, topic: Topic) => void
+  removeTopic: (unitId: string, name: string) => void
+  /** E3/E4: tick a unit or one of its topics as revised on `date`. */
+  markRevised: (unitId: string, topicName: string | null, date: DateStr) => void
+  /** E10: add a practice question to a unit. */
+  addQuestion: (unitId: string, q: Omit<PracticeQuestion, 'id'>) => void
+  updateQuestion: (unitId: string, q: PracticeQuestion) => void
+  removeQuestion: (unitId: string, qid: string) => void
+  // ---- focus sessions (E9 timer log) ----
+  addFocusSession: (date: DateStr, minutes: number, kind: 'study' | 'project' | 'break') => void
   // ---- settings ----
   updateSettings: (patch: Partial<AppData['settings']>) => void
   resetAll: () => void
@@ -96,20 +115,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       addDeadline(dl) {
-        setRaw((d) => ({
-          ...d,
-          deadlines: [
-            ...d.deadlines,
-            { reminderDates: [], tentative: false, ...dl, id: newId('dl'), done: false },
-          ],
-        }))
+        let created: Deadline | null = null
+        setRaw((d) => {
+          const item: Deadline = { reminderDates: [], tentative: false, ...dl, id: newId('dl'), done: false }
+          created = item
+          return { ...d, deadlines: [...d.deadlines, item] }
+        })
+        // D6: on native, arm the OS notification immediately (no-op on web).
+        if (created) {
+          void scheduleDeadlineNotification(created, data.settings.reminderLeadDays, data.settings.notificationTime)
+        }
       },
 
       updateDeadline(id, patch) {
+        // D7: an edit replaces the old scheduled reminder.
+        void cancelDeadlineNotification(id)
         setRaw((d) => ({
           ...d,
           deadlines: d.deadlines.map((x) => (x.id === id ? { ...x, ...patch } : x)),
         }))
+        const after = { ...data.deadlines.find((x) => x.id === id), ...patch } as Deadline | undefined
+        if (after?.id && !after.done) {
+          void scheduleDeadlineNotification(after, data.settings.reminderLeadDays, data.settings.notificationTime)
+        }
       },
 
       toggleDeadlineDone(id) {
@@ -117,16 +145,124 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...d,
           deadlines: d.deadlines.map((x) => (x.id === id ? { ...x, done: !x.done } : x)),
         }))
+        const was = data.deadlines.find((x) => x.id === id)
+        if (was && !was.done) void cancelDeadlineNotification(id) // now done → cancel reminder
       },
 
       deleteDeadline(id) {
-        // Data rule: deleting a deadline cancels its scheduled notifications —
-        // on web there is nothing to cancel yet; Capacitor step will hook in here.
+        // Data rule (D7): deleting a deadline cancels its scheduled notifications.
+        void cancelDeadlineNotification(id)
         setRaw((d) => ({ ...d, deadlines: d.deadlines.filter((x) => x.id !== id) }))
       },
 
+      addHoliday(h) {
+        setRaw((d) => ({ ...d, holidays: [...d.holidays, { ...h, id: newId('hol') }] }))
+      },
+
+      updateHoliday(id, patch) {
+        setRaw((d) => ({ ...d, holidays: d.holidays.map((x) => (x.id === id ? { ...x, ...patch } : x)) }))
+      },
+
+      deleteHoliday(id) {
+        setRaw((d) => ({ ...d, holidays: d.holidays.filter((x) => x.id !== id) }))
+      },
+
+      addUnit(u) {
+        setRaw((d) => ({
+          ...d,
+          units: [...d.units, { ...u, topics: u.topics ?? [], id: newId('unit') }],
+        }))
+      },
+
+      updateUnit(id, patch) {
+        setRaw((d) => ({ ...d, units: d.units.map((x) => (x.id === id ? { ...x, ...patch } : x)) }))
+      },
+
+      deleteUnit(id) {
+        setRaw((d) => ({ ...d, units: d.units.filter((x) => x.id !== id) }))
+      },
+
+      upsertTopic(unitId, topic) {
+        setRaw((d) => ({
+          ...d,
+          units: d.units.map((u) => {
+            if (u.id !== unitId) return u
+            const exists = u.topics.some((t) => t.name === topic.name)
+            const topics = exists
+              ? u.topics.map((t) => (t.name === topic.name ? topic : t))
+              : [...u.topics, topic]
+            return { ...u, topics }
+          }),
+        }))
+      },
+
+      removeTopic(unitId, name) {
+        setRaw((d) => ({
+          ...d,
+          units: d.units.map((u) => (u.id === unitId ? { ...u, topics: u.topics.filter((t) => t.name !== name) } : u)),
+        }))
+      },
+
+      markRevised(unitId, topicName, date) {
+        setRaw((d) => ({
+          ...d,
+          units: d.units.map((u) => {
+            if (u.id !== unitId) return u
+            if (topicName === null) {
+              // E3: whole unit revised — tick every topic too.
+              return { ...u, revisedDate: date, topics: u.topics.map((t) => ({ ...t, revisedDate: t.revisedDate ?? date })) }
+            }
+            const topics = u.topics.map((t) => (t.name === topicName ? { ...t, revisedDate: date } : t))
+            const allDone = topics.length > 0 && topics.every((t) => t.revisedDate)
+            return { ...u, topics, revisedDate: allDone ? u.revisedDate ?? date : u.revisedDate }
+          }),
+        }))
+      },
+
+      addQuestion(unitId, q) {
+        setRaw((d) => ({
+          ...d,
+          units: d.units.map((u) =>
+            u.id === unitId ? { ...u, questions: [...(u.questions ?? []), { ...q, id: newId('q') }] } : u,
+          ),
+        }))
+      },
+
+      updateQuestion(unitId, q) {
+        setRaw((d) => ({
+          ...d,
+          units: d.units.map((u) =>
+            u.id === unitId ? { ...u, questions: (u.questions ?? []).map((x) => (x.id === q.id ? q : x)) } : u,
+          ),
+        }))
+      },
+
+      removeQuestion(unitId, qid) {
+        setRaw((d) => ({
+          ...d,
+          units: d.units.map((u) =>
+            u.id === unitId ? { ...u, questions: (u.questions ?? []).filter((x) => x.id !== qid) } : u,
+          ),
+        }))
+      },
+
+      addFocusSession(date, minutes, kind) {
+        setRaw((d) => ({ ...d, focusSessions: [...d.focusSessions, { id: newId('fs'), date, minutes, kind }] }))
+      },
+
       updateSettings(patch) {
-        setRaw((d) => ({ ...d, settings: { ...d.settings, ...patch } }))
+        setRaw((d) => {
+          const next = { ...d, settings: { ...d.settings, ...patch } }
+          // D7: when reminder lead time or arrival time change, re-arm every
+          // native scheduled notification with the new timing.
+          if (
+            (patch.reminderLeadDays !== undefined && patch.reminderLeadDays !== d.settings.reminderLeadDays) ||
+            (patch.notificationTime !== undefined && patch.notificationTime !== d.settings.notificationTime)
+          ) {
+            void resyncAllNotifications(next)
+          }
+          return next
+        })
       },
 
       resetAll() {

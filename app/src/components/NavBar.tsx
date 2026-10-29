@@ -6,7 +6,7 @@
 // - Hides on scroll down, returns on scroll up; respects safe area
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarDays, CalendarRange, LayoutGrid, Plus, Settings2, SunMedium } from 'lucide-react'
+import { CalendarDays, CalendarRange, GraduationCap, LayoutGrid, Plus, Settings2, SunMedium } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Sheet } from './ui/parts'
 import { useApp } from '../data/store'
@@ -14,12 +14,13 @@ import type { ClassType, DateStr } from '../data/model'
 import { todayStr } from '../logic/dates'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
 
-export type Tab = 'today' | 'calendar' | 'plan' | 'subjects' | 'settings'
+export type Tab = 'today' | 'calendar' | 'plan' | 'study' | 'subjects' | 'settings'
 
 const ITEMS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: 'today', label: 'Today', icon: SunMedium },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'plan', label: 'Plan', icon: CalendarRange },
+  { id: 'study', label: 'Study', icon: GraduationCap },
   { id: 'subjects', label: 'Subjects', icon: LayoutGrid },
   { id: 'settings', label: 'Settings', icon: Settings2 },
 ]
