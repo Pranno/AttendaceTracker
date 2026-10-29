@@ -156,6 +156,21 @@ export default function Settings() {
   const s = data.settings
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // Semester dates (F5): local draft so typing one field doesn't clobber the
+  // other; applied together by the Save button (or auto when both are valid).
+  const [semStart, setSemStart] = useState(s.semesterStart ?? '')
+  const [semEnd, setSemEnd] = useState(s.semesterEnd ?? '')
+  const [semSaved, setSemSaved] = useState(false)
+  const semValid = !!semStart && !!semEnd && semEnd >= semStart
+  const semDirty = semStart !== (s.semesterStart ?? '') || semEnd !== (s.semesterEnd ?? '')
+
+  function saveSemesterDates() {
+    if (!semValid) return
+    updateSettings({ semesterStart: semStart, semesterEnd: semEnd })
+    setSemSaved(true)
+    window.setTimeout(() => setSemSaved(false), 2500)
+  }
+
   // Holidays & exam days (A12)
   const [holLabel, setHolLabel] = useState('')
   const [holStart, setHolStart] = useState('')
@@ -235,8 +250,11 @@ export default function Settings() {
             <input
               type="date"
               className="fill"
-              value={s.semesterStart ?? ''}
-              onChange={(e) => updateSettings({ semesterStart: e.target.value || null })}
+              value={semStart}
+              onChange={(e) => {
+                setSemStart(e.target.value)
+                setSemSaved(false)
+              }}
             />
           </div>
           <div className="grow">
@@ -244,13 +262,27 @@ export default function Settings() {
             <input
               type="date"
               className="fill"
-              value={s.semesterEnd ?? ''}
-              min={s.semesterStart ?? undefined}
-              onChange={(e) => updateSettings({ semesterEnd: e.target.value || null })}
+              value={semEnd}
+              min={semStart || undefined}
+              onChange={(e) => {
+                setSemEnd(e.target.value)
+                setSemSaved(false)
+              }}
             />
           </div>
         </div>
-        <div className="msg">Classes only appear inside this range; the monthly plan needs both.</div>
+        <button
+          className="primary big-btn"
+          style={{ width: '100%', marginTop: 10 }}
+          disabled={!semValid || !semDirty}
+          onClick={saveSemesterDates}
+        >
+          {semSaved ? '✓ Saved!' : semDirty ? 'Save semester dates' : 'Semester dates saved ✓'}
+        </button>
+        <div className="msg">
+          Classes only appear inside this range; the monthly plan needs both. Saving re-dates your timetable to the
+          start date so Today, Calendar and the Plan update immediately.
+        </div>
       </div>
 
       {/* Batch rule (doc T8 + user requirement): div A has batches A1/A2/A3.
