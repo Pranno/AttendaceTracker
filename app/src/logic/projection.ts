@@ -30,7 +30,7 @@
 // ============================================================
 
 import type { AppData, DateStr } from '../data/model'
-import { computeSubjectTotals, isHoliday, markFor, slotsForDate } from './attendance'
+import { computeSubjectTotals, effectiveSubjectId, isHoliday, markFor, slotsForDate } from './attendance'
 import { addDays, daysInMonth, monthKey, pad2 } from './dates'
 
 export interface SubjectMonthPlan {
@@ -159,7 +159,7 @@ export function projectSubjectMonth(
       let walk = addDays(today, 1)
       while (walk <= prevMonthEnd) {
         if (!isHoliday(data, walk)) {
-          const slots = slotsForDate(data, walk).filter((sl) => sl.subjectId === subjectId)
+          const slots = slotsForDate(data, walk).filter((sl) => effectiveSubjectId(data, walk, sl) === subjectId)
           for (const slot of slots) {
             const m = markFor(data, walk, slot.id)
             if (m === 'noclass' || m === 'cancelled') continue
@@ -181,7 +181,7 @@ export function projectSubjectMonth(
   while (d <= monthEnd) {
     const holiday = isHoliday(data, d)
     if (!holiday) {
-      const slots = slotsForDate(data, d).filter((sl) => sl.subjectId === subjectId)
+      const slots = slotsForDate(data, d).filter((sl) => effectiveSubjectId(data, d, sl) === subjectId)
       for (const slot of slots) {
         const status = markFor(data, d, slot.id)
         if (status === 'noclass' || status === 'cancelled') {
@@ -189,7 +189,7 @@ export function projectSubjectMonth(
           continue
         }
         classesInMonth += 1
-        if (status === 'present') presentInMonth += 1
+        if (status === 'present' || status === 'converted') presentInMonth += 1
         else if (status === 'absent') absentInMonth += 1
       }
     }

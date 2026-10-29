@@ -10,7 +10,25 @@ export type DateStr = string
 export type ClassType = 'lecture' | 'lab' | 'tutorial' | 'online'
 /** `cancelled` is C4: a future class marked off in advance — it does not
  *  count as held (same maths as noclass). */
-export type MarkStatus = 'present' | 'absent' | 'noclass' | 'cancelled'
+export type MarkStatus = 'present' | 'absent' | 'noclass' | 'cancelled' | 'converted'
+
+/** Stretch #5: one converted lecture. The class that happened on `date` in
+ *  place of `slotId`'s usual subject was really `subjectId`'s lecture
+ *  (e.g. the WAD period was taken by FE because the teacher was away). */
+export interface Conversion {
+  id: string
+  date: DateStr
+  /** The timetable slot whose period got taken over. */
+  slotId: string
+  /** The subject that actually took the period. */
+  subjectId: string
+  note?: string
+}
+
+/** The conversion recorded for one date+slot, if any. */
+export function conversionFor(conversions: Conversion[], date: DateStr, slotId: string): Conversion | undefined {
+  return conversions.find((c) => c.date === date && c.slotId === slotId)
+}
 
 /** Settings — created at first launch. */
 export interface AppSettings {
@@ -336,6 +354,8 @@ export interface AppData {
   courseLinks: CourseLink[]
   suggestions: Suggestion[]
   events: CalendarEvent[]
+  /** Stretch #5: converted lectures (subject swap on a given day). */
+  conversions: Conversion[]
   /** E11: CGPA planner semesters (kept when a new semester starts, E14). */
   cgpaSemesters?: CgpaSemester[]
 }
@@ -354,6 +374,7 @@ export const EMPTY_DATA: AppData = {
   courseLinks: [],
   suggestions: [],
   events: [],
+  conversions: [],
 }
 
 let counter = 0

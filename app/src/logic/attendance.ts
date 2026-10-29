@@ -10,9 +10,22 @@
 //        their validFrom onward (past days keep what they had).
 // ============================================================
 
-import type { AppData, DateStr, MarkStatus, Slot, Subject } from '../data/model'
+import type { AppData, Conversion, DateStr, MarkStatus, Slot, Subject } from '../data/model'
 import { slotMatchesBatch } from '../data/model'
 import { addDays, weekdayOf } from './dates'
+
+/** Stretch #5: the subject a converted lecture really belongs to on this date. */
+export function conversionFor(data: AppData, date: DateStr, slotId: string): Conversion | undefined {
+  return data.conversions.find((c) => c.date === date && c.slotId === slotId)
+}
+
+/** The subject a class on `date`/`slot` actually counts toward: the converted
+ *  target when the period was swapped ("WAD became FE"), otherwise the slot's
+ *  own subject. Attendance marked on a converted class lands here. */
+export function effectiveSubjectId(data: AppData, date: DateStr, slot: Slot): string {
+  const conv = conversionFor(data, date, slot.id)
+  return conv ? conv.subjectId : slot.subjectId
+}
 
 /** Slots that were scheduled on a given date, honouring validFrom/validUntil (A8),
  *  Sunday off unless enabled (A13), and the user's batch selection (batch rule:
@@ -63,6 +76,8 @@ export interface SubjectTotals {
   unmarkedPast: number
   /** Whether B8 typed totals were used. */
   usesTypedTotals: boolean
+  /** Stretch #5: converted periods counted toward this subject in the range. */
+  convertedCount: number
 }
 
 /**
@@ -88,11 +103,14 @@ export function computeSubjectTotals(
   for (const date of eachDay(rangeStart, rangeEnd)) {
     if (isHoliday(data, date)) continue
     for (const slot of slotsForDate(data, date)) {
-      if (slot.subjectId !== subjectId) continue
+      // Stretch #5: a converted period counts toward the subject that actually
+      // took it ("WAD became FE" → held+attended land on FE's totals).
+      const owner = effectiveSubjectId(data, date, slot)
+      if (owner !== subjectId) continue
       const status = markFor(data, date, slot.id)
       if (status === 'noclass' || status === 'cancelled') continue // B2: counts in neither
       held += 1
-      if (status === 'present') attended += 1
+      if (status === 'present' || status === 'converted') attended += 1
       else if (status === 'absent') {
         /* not attended */
       } else {
@@ -117,7 +135,20 @@ export function computeSubjectTotals(
   attended = Math.max(0, Math.min(attended, held))
   held = Math.max(0, held)
 
-  return { subjectId, held, attended, unmarkedPast, usesTypedTotals: usesTyped }
+  // Stretch #5: count converted periods owned by this subject (for the note).
+  let convertedCount = 0
+  for (const c of data.conversions) {
+    if (c.subjectId === subjectId && c.date >= rangeStart && c.date <= rangeEnd && !isHoliday(data, c.date)) {
+      const slot = data.slots.find((sl) => sl.id === c.slotId)
+      if (slot && slot.subjectId !== subjectId) convertedCount += 1
+    }
+  }
+
+  // Stretch #5: a typed ERP total already includes any swapped lectures, so
+  // don't show the "converted" note when B8 totals replace the calculation.
+  if (usesTyped) convertedCount = 0
+
+  return { subjectId, held, attended, unmarkedPast, usesTypedTotals: usesTyped, convertedCount }
 }
 
 export interface AttendanceSummary {
@@ -126,6 +157,10 @@ export interface AttendanceSummary {
   shortName: string
   held: number
   attended: number
+  /** Stretch #5: how many of the counted classes were converted periods
+   *  (another subject's slot swapped into this one, e.g. FE taking WAD's
+   *  period). Shown as a small note on the subject card. */
+  convertedCount: number
   /** Percentage, unrounded value kept separately for maths. */
   percent: number
   threshold: number
@@ -158,7 +193,7 @@ export function summarizeSubject(
   let markedCount = 0
   for (const m of data.marks) {
     const slot = data.slots.find((sl) => sl.id === m.slotId)
-    if (slot && slot.subjectId === subjectId && m.status !== 'noclass' && m.status !== 'cancelled') markedCount += 1
+    if (slot && effectiveSubjectId(data, m.date, slot) === subjectId && m.status !== 'noclass' && m.status !== 'cancelled') markedCount += 1
   }
   const enoughMarks = totals.usesTypedTotals || markedCount >= 5
 
@@ -196,6 +231,7 @@ export function summarizeSubject(
     shortName: subject.shortName,
     held,
     attended,
+    convertedCount: totals.convertedCount,
     percent,
     threshold: t,
     status,

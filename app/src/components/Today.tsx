@@ -12,7 +12,7 @@ import { useMemo, useRef, useState } from 'react'
 import { ClipboardPaste, Moon, SunMedium, BookOpenCheck } from 'lucide-react'
 import { useApp } from '../data/store'
 import type { DateStr, MarkStatus } from '../data/model'
-import { buildReport, slotsForDate, isHoliday, markFor } from '../logic/attendance'
+import { buildReport, slotsForDate, isHoliday, markFor, conversionFor } from '../logic/attendance'
 import { addDays, diffDays, formatShort, monthKey, todayStr, weekdayName, weekdayOf } from '../logic/dates'
 import { PercentRing, SectionTitle, StatusPill, ChipRow } from './ui/parts'
 import { subjectPalette, subjectTileStyle, STATUS_VAR } from '../theme/tokens'
@@ -23,7 +23,7 @@ import PasteDeadlineSheet from './PasteDeadlineSheet'
 import EmailInbox from './EmailInbox'
 
 export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void }) {
-  const { data, setMark } = useApp()
+  const { data, setMark, addConversion, removeConversion } = useApp()
   const { active, choice, setChoice } = useTheme()
   const [undoMsg, setUndoMsg] = useState<string | null>(null)
   const [dateOverride, setDateOverride] = useState<DateStr | null>(null)
@@ -31,6 +31,8 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   const undoRef = useRef<(() => void) | null>(null)
   const [popSlot, setPopSlot] = useState<string | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
+  // Stretch #5: the class card whose "Converted into…" picker is open.
+  const [convertSlot, setConvertSlot] = useState<string | null>(null)
 
   const today = todayStr()
   const viewDate = dateOverride ?? today
@@ -102,11 +104,28 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
     setTimeout(() => setPopSlot(null), 450)
     if (status !== null) {
       undoRef.current = () => setMark(viewDate, slotId, prev)
-      setUndoMsg(`Marked ${status === 'noclass' ? 'No class' : status === 'cancelled' ? 'Cancelled' : status}.`)
+      setUndoMsg(`Marked ${status === 'noclass' ? 'No class' : status === 'cancelled' ? 'Cancelled' : status === 'converted' ? 'Converted' : status}.`)
       window.setTimeout(() => setUndoMsg(null), 4000)
       // Light haptic feedback where supported.
       navigator.vibrate?.(10)
     }
+  }
+
+  /** Stretch #5: this period was really another subject's lecture
+   *  ("WAD became FE"). Attendance for the day then counts toward that
+   *  subject and the class counts as attended here. */
+  function convertTo(slotId: string, subjectId: string) {
+    addConversion(viewDate, slotId, subjectId)
+    setMark(viewDate, slotId, 'present')
+    setConvertSlot(null)
+    const name = data.subjects.find((s) => s.id === subjectId)?.shortName ?? ''
+    setUndoMsg(`Converted to ${name} — marked present.`)
+    window.setTimeout(() => setUndoMsg(null), 4000)
+  }
+
+  function unconvert(convId: string, slotId: string) {
+    removeConversion(convId)
+    setMark(viewDate, slotId, null)
   }
 
   const shownSlots = daySlots.filter((slot) => {
@@ -275,6 +294,8 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
         shownSlots.map((slot) => {
           const subj = data.subjects.find((s) => s.id === slot.subjectId)
           const status = markFor(data, viewDate, slot.id)
+          const conv = conversionFor(data, viewDate, slot.id)
+          const convSubj = conv ? data.subjects.find((s) => s.id === conv.subjectId) : undefined
           const idx = subjectIndex(slot.subjectId)
           return (
             <div
@@ -285,6 +306,12 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
               <div className="row spread">
                 <div>
                   <b style={{ color: 'var(--subj-strong)' }}>{subj?.shortName}</b>
+                  {conv && (
+                    <>
+                      {' → '}
+                      <b style={{ color: 'var(--subj-strong)' }}>{convSubj?.shortName ?? '?'}</b>
+                    </>
+                  )}
                   <div className="class-meta">
                     {slot.startTime}–{slot.endTime} · {slot.type}
                     {slot.room ? ` · ${slot.room}` : ''}
@@ -301,7 +328,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
               {status ? (
                 <div className="row mark-row spread" style={{ marginTop: 8 }}>
                   <span className={`status-chip ${status}`}>
-                    {status === 'cancelled' ? 'Cancelled' : status === 'noclass' ? 'No class' : status === 'present' ? 'Present' : 'Absent'}
+                    {status === 'cancelled' ? 'Cancelled' : status === 'noclass' ? 'No class' : status === 'present' ? 'Present' : status === 'converted' ? 'Converted' : 'Absent'}
                   </span>
                   <button className="link-btn" onClick={() => mark(slot.id, null)}>
                     Change
@@ -317,6 +344,46 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
                   </button>
                   <button className="mark noclass" onClick={() => mark(slot.id, 'noclass')}>
                     No class
+                  </button>
+                </div>
+              )}
+
+              {/* Stretch #5: "this lecture was converted into…" picker */}
+              {conv ? (
+                <div className="convert-box">
+                  <span>
+                    Converted into <b>{convSubj?.shortName ?? '?'}</b> — counts toward it.
+                  </span>
+                  <button className="link-btn" onClick={() => unconvert(conv.id, slot.id)}>
+                    Undo
+                  </button>
+                </div>
+              ) : convertSlot === slot.id ? (
+                <div className="convert-box">
+                  <span>Counts as:</span>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => e.target.value && convertTo(slot.id, e.target.value)}
+                  >
+                    <option value="" disabled>
+                      Pick subject…
+                    </option>
+                    {data.subjects
+                      .filter((s) => s.id !== slot.subjectId)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.shortName}
+                        </option>
+                      ))}
+                  </select>
+                  <button className="link-btn" onClick={() => setConvertSlot(null)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="row" style={{ marginTop: 6 }}>
+                  <button className="link-btn" onClick={() => setConvertSlot(slot.id)}>
+                    Converted into… (teacher swap)
                   </button>
                 </div>
               )}
@@ -379,7 +446,12 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
               {s.held === 0 ? '—' : `${s.percent.toFixed(1)}%`}
             </div>
           </div>
-          <div className="msg">{s.message}</div>
+          <div className="msg">
+            {s.message}
+            {s.convertedCount > 0 && (
+              <> · {s.convertedCount} converted in ({s.convertedCount === 1 ? '1 class from another subject' : `${s.convertedCount} classes from other subjects`})</>
+            )}
+          </div>
         </div>
       ))}
 

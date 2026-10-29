@@ -21,6 +21,12 @@ interface AppApi {
   removeSlotFromToday: (id: string, today: DateStr) => void
   // ---- attendance marking (B1) ----
   setMark: (date: DateStr, slotId: string, status: MarkStatus | null) => void
+  // ---- converted lectures (Stretch #5: subject swap on a day) ----
+  /** Record that on `date` the class in `slotId`'s period was really another
+   *  subject's lecture. Attendance for that day then counts toward
+   *  `subjectId`. Re-converting the same date+slot replaces the old record. */
+  addConversion: (date: DateStr, slotId: string, subjectId: string, note?: string) => void
+  removeConversion: (id: string) => void
   // ---- deadlines (C5 minimal for step 1) ----
   addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }, id?: string) => void
   updateDeadline: (id: string, patch: Partial<Deadline>) => void
@@ -103,6 +109,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             subjects: d.subjects.filter((s) => s.id !== id),
             slots: d.slots.filter((s) => s.subjectId !== id),
             marks: d.marks.filter((m) => !slotIds.includes(m.slotId)),
+            // Stretch #5: conversions pointing at the removed subject/slots die too.
+            conversions: d.conversions.filter((c) => c.subjectId !== id && !slotIds.includes(c.slotId)),
           }
         })
       },
@@ -131,6 +139,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (status !== null) marks.push({ id: `${date}_${slotId}`, date, slotId, status })
           return { ...d, marks }
         })
+      },
+
+      addConversion(date, slotId, subjectId, note) {
+        setRaw((d) => {
+          // one conversion per date+slot; re-converting replaces the old one
+          const rest = d.conversions.filter((c) => !(c.date === date && c.slotId === slotId))
+          return { ...d, conversions: [...rest, { id: newId('conv'), date, slotId, subjectId, note }] }
+        })
+      },
+
+      removeConversion(id) {
+        setRaw((d) => ({ ...d, conversions: d.conversions.filter((c) => c.id !== id) }))
       },
 
       addDeadline(dl, id) {

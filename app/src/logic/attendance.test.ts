@@ -10,6 +10,7 @@ import {
   slotsForDate,
   summarizeSubject,
 } from './attendance'
+import { projectSubjectMonth } from './projection'
 
 function dataWith(over: Partial<AppData>): AppData {
   return { ...structuredClone(EMPTY_DATA), ...over }
@@ -174,5 +175,85 @@ describe('A7/A8 weekly repeat and history', () => {
     const r = buildReport(data, '2026-10-23', '2026-10-05', '2026-10-23')
     // Past Mondays: 5, 12 (holiday, excluded), 19 (exam day, counts) → held 2
     expect(r.bySubject[0].held).toBe(2)
+  })
+})
+
+// ---------- Stretch #5: converted lectures (teacher swap) ----------
+describe('Stretch #5 conversions ("WAD became FE")', () => {
+  const MON = '2026-01-05' // a Monday
+  const wkSlot = (id: string, subjectId: string): any => ({
+    id,
+    subjectId,
+    weekday: 1, // Monday
+    startTime: '09:00',
+    endTime: '10:00',
+    type: 'L',
+    room: '',
+    teacher: '',
+    validFrom: '2026-01-01',
+    validUntil: null,
+  })
+
+  function convData(over: Partial<AppData>): AppData {
+    const d = dataWith({
+      subjects: [
+        { id: 'wad', shortName: 'WAD', fullName: 'Web App Dev', nicknames: [] },
+        { id: 'fe', shortName: 'FE', fullName: 'Finals Elective', nicknames: [] },
+      ],
+      slots: [wkSlot('wad1', 'wad'), wkSlot('fe1', 'fe')],
+      ...over,
+    })
+    d.settings.semesterStart = '2026-01-01'
+    return d
+  }
+
+  it('counts held+attended toward the subject that actually took the period', () => {
+    const data = convData({
+      conversions: [{ id: 'c1', date: MON, slotId: 'wad1', subjectId: 'fe' }],
+      marks: [
+        { id: `${MON}_wad1`, date: MON, slotId: 'wad1', status: 'present' },
+        { id: `${MON}_fe1`, date: MON, slotId: 'fe1', status: 'absent' },
+      ],
+    })
+    const fe = computeSubjectTotals(data, 'fe', '2026-01-01', '2026-01-31', '2026-01-06')
+    expect(fe.held).toBe(5) // 4 own Mondays + the Jan-5 WAD period that became FE
+    expect(fe.attended).toBe(1) // only the marked-present converted class; the rest are future/unmarked
+    expect(fe.convertedCount).toBe(1)
+
+    const wad = computeSubjectTotals(data, 'wad', '2026-01-01', '2026-01-31', '2026-01-06')
+    expect(wad.held).toBe(3) // 4 Mondays minus the one that became FE
+    expect(wad.attended).toBe(0) // all three remaining ones are in the future, unmarked
+  })
+
+  it('without a conversion the same mark stays on the original subject', () => {
+    const data = convData({
+      marks: [{ id: `${MON}_wad1`, date: MON, slotId: 'wad1', status: 'present' }],
+    })
+    const wad = computeSubjectTotals(data, 'wad', '2026-01-01', '2026-01-31', '2026-01-06')
+    expect(wad.held).toBe(4) // all four Mondays still WAD's
+    expect(wad.attended).toBe(1) // just the marked-present one; others are future/unmarked
+    expect(wad.convertedCount).toBe(0)
+  })
+
+  it('a conversion with NO mark still counts as held for the new subject (B14 unmarked-as-present)', () => {
+    const data = convData({
+      conversions: [{ id: 'c1', date: MON, slotId: 'wad1', subjectId: 'fe' }],
+    })
+    data.settings.unmarkedAsPresent = true
+    const fe = computeSubjectTotals(data, 'fe', '2026-01-01', '2026-01-31', '2026-01-06')
+    expect(fe.held).toBe(5)
+    expect(fe.attended).toBe(5) // every unmarked class counts as attended (B14)
+  })
+
+  it('monthly plan routes the converted lecture into the new subject month total', () => {
+    const data = convData({
+      conversions: [{ id: 'c1', date: MON, slotId: 'wad1', subjectId: 'fe' }],
+      marks: [{ id: `${MON}_wad1`, date: MON, slotId: 'wad1', status: 'present' }],
+    })
+    const fePlan = projectSubjectMonth(data, 'fe', '2026-01', '2026-01-06')
+    expect(fePlan.classesInMonth).toBe(5)
+    expect(fePlan.presentInMonth).toBe(1)
+    const wadPlan = projectSubjectMonth(data, 'wad', '2026-01', '2026-01-06')
+    expect(wadPlan.classesInMonth).toBe(3) // 4 Mondays minus the one that became FE
   })
 })
