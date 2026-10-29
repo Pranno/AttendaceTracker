@@ -26,7 +26,7 @@ function DeadlinePaste() {
   const [savedMsg, setSavedMsg] = useState<string | null>(null)
 
   function run() {
-    const r = extractDeadlines(text, todayStr())
+    const r = extractDeadlines(text, todayStr(), data.subjects)
     setResults(r)
     setChecked(r.map(() => true))
     setSavedMsg(null)
@@ -296,6 +296,16 @@ export default function Settings() {
         onChange={(n) => updateSettings({ reminderLeadDays: n })}
         hint="Notifications arrive this many days early (Step 5 fires them)."
       />
+
+      <div className="card">
+        <label className="small-label">Notification arrival time</label>
+        <input
+          type="time"
+          value={s.notificationTime}
+          onChange={(e) => updateSettings({ notificationTime: e.target.value || '18:00' })}
+        />
+        <div className="msg">Time of day deadline reminder notifications arrive (F3).</div>
+      </div>
 
       {/* F4: evening "mark your attendance" nudge (B11) */}
       <div className="card row spread">

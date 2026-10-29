@@ -4,7 +4,8 @@
 // and quick actions (F14).
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, CheckCheck, Pencil, Trash2, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCheck, Pencil, Trash2, Plus, ClipboardPaste } from 'lucide-react'
+import PasteDeadlineSheet from './PasteDeadlineSheet'
 import { useApp } from '../data/store'
 import type { DateStr, Deadline, MarkStatus } from '../data/model'
 import { slotsForDate, isHoliday, markFor } from '../logic/attendance'
@@ -24,6 +25,7 @@ export default function Calendar() {
   const [openDate, setOpenDate] = useState<DateStr | null>(null)
   /** null = closed; 'new' = adding; otherwise editing that deadline id. */
   const [dlEditorId, setDlEditorId] = useState<string | 'new' | null>(null)
+  const [pasteOpen, setPasteOpen] = useState(false)
 
   useEffect(() => {
     // Keep the visible month in sync with "today" on first mount after a date change.
@@ -125,7 +127,12 @@ export default function Calendar() {
     <div className="screen pad">
       <div className="row spread" style={{ margin: '8px 0 12px' }}>
         <h1 style={{ margin: 0 }}>Calendar</h1>
-        <button className="secondary small-btn" onClick={jumpToday}>Today</button>{/* C6 */}
+        <div className="row" style={{ gap: 8 }}>
+          <button className="secondary small-btn" onClick={() => setPasteOpen(true)}>
+            <ClipboardPaste size={15} /> Paste
+          </button>
+          <button className="secondary small-btn" onClick={jumpToday}>Today</button>{/* C6 */}
+        </div>
       </div>
 
       <div className="card cal-card">
@@ -290,6 +297,7 @@ export default function Calendar() {
           />
         )}
       </Sheet>
+      <PasteDeadlineSheet open={pasteOpen} onClose={() => setPasteOpen(false)} />
     </div>
   )
 }

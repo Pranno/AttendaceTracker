@@ -1,8 +1,7 @@
 // Floating pill navigation (G2) — the signature control of the app.
 // - Rounded pill floating 12–16px above the bottom edge, inset from the sides
 // - Soft shadow + slight blur so content shows faintly behind it
-// - Four items: Today, Calendar, Subjects, Settings; active item is a filled
-//   pill whose background SLIDES from item to item with a springy animation
+// - Four items: Today, Calendar, Subjects, Settings (plus Plan deep-link tab)
 // - Round gradient quick-add button beside the bar → opens the quick-add sheet
 // - Hides on scroll down, returns on scroll up; respects safe area
 
@@ -13,6 +12,7 @@ import { Sheet } from './ui/parts'
 import { useApp } from '../data/store'
 import type { DateStr } from '../data/model'
 import { todayStr } from '../logic/dates'
+import PasteDeadlineSheet from './PasteDeadlineSheet'
 
 export type Tab = 'today' | 'calendar' | 'plan' | 'subjects' | 'settings'
 
@@ -27,6 +27,7 @@ const ITEMS: { id: Tab; label: string; icon: LucideIcon }[] = [
 export default function NavBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   const [hidden, setHidden] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [pasteOpen, setPasteOpen] = useState(false)
   const lastY = useRef(window.scrollY)
   const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const [pillStyle, setPillStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 })
@@ -84,14 +85,34 @@ export default function NavBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab)
           <Plus size={26} strokeWidth={2.6} />
         </button>
       </div>
-      <QuickAddSheet open={addOpen} onClose={() => setAddOpen(false)} goSettings={() => onChange('settings')} />
+
+      <QuickAddSheet
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onOpenPaste={() => {
+          setAddOpen(false)
+          setPasteOpen(true)
+        }}
+        goSettings={() => onChange('settings')}
+      />
+
+      <PasteDeadlineSheet open={pasteOpen} onClose={() => setPasteOpen(false)} />
     </>
   )
 }
 
-// Quick add: paste a reminder (placeholder until Step 5), add a lecture by hand
-// (works now — reuses the store), add a deadline (works now).
-function QuickAddSheet({ open, onClose, goSettings }: { open: boolean; onClose: () => void; goSettings: () => void }) {
+// Quick add: paste a reminder (D1/D2), add a lecture by hand, add a deadline.
+function QuickAddSheet({
+  open,
+  onClose,
+  onOpenPaste,
+  goSettings,
+}: {
+  open: boolean
+  onClose: () => void
+  onOpenPaste: () => void
+  goSettings: () => void
+}) {
   const { data, addDeadline } = useApp()
   const today: DateStr = todayStr()
   const [kind, setKind] = useState<'reminder' | 'lecture' | 'deadline'>('deadline')
@@ -101,7 +122,6 @@ function QuickAddSheet({ open, onClose, goSettings }: { open: boolean; onClose: 
   const [due, setDue] = useState(today)
   const [subjectId, setSubjectId] = useState('')
 
-  // lecture shortcut: the full form lives in Subjects → Timetable (step 3 polish)
   function submitDeadline() {
     if (!title.trim()) return
     addDeadline({
@@ -118,9 +138,15 @@ function QuickAddSheet({ open, onClose, goSettings }: { open: boolean; onClose: 
   return (
     <Sheet open={open} onClose={onClose} title="Quick add">
       <div className="row" style={{ marginBottom: 12, gap: 8 }}>
-        <button className={`chip ${kind === 'deadline' ? 'on' : ''}`} onClick={() => setKind('deadline')}>Deadline</button>
-        <button className={`chip ${kind === 'lecture' ? 'on' : ''}`} onClick={() => setKind('lecture')}>Lecture</button>
-        <button className={`chip ${kind === 'reminder' ? 'on' : ''}`} onClick={() => setKind('reminder')}>Paste a message</button>
+        <button className={`chip ${kind === 'deadline' ? 'on' : ''}`} onClick={() => setKind('deadline')}>
+          Deadline
+        </button>
+        <button className={`chip ${kind === 'lecture' ? 'on' : ''}`} onClick={() => setKind('lecture')}>
+          Lecture
+        </button>
+        <button className={`chip ${kind === 'reminder' ? 'on' : ''}`} onClick={() => setKind('reminder')}>
+          Paste a message
+        </button>
       </div>
 
       {kind === 'deadline' && (
@@ -149,6 +175,68 @@ function QuickAddSheet({ open, onClose, goSettings }: { open: boolean; onClose: 
       )}
 
       {kind === 'lecture' && (
+        <div className="card">
+          <div className="field-row">
+            <label>Subject</label>
+            <select value={subjectId} onChange={e => setSubjectId(e.target.value)}>
+              <option value="">—</option>
+              {data.subjects.map(s => (
+                <option key={s.id} value={s.id}>{s.shortName} — {s.fullName}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field-row">
+            <label>Day</label>
+            <select value={weekday} onChange={e => setWeekday(Number(e.target.value))}>
+              {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((d,i)=> (
+                <option key={i+1} value={i+1}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field-row">
+            <label>Start</label>
+            <input type="time" value={startTime} onChange={e=>setStartTime(e.target.value)} />
+            <label>End</label>
+            <input type="time" value={endTime} onChange={e=>setEndTime(e.target.value)} />
+          </div>
+          <div className="field-row">
+            <label>Type</label>
+            <select value={type} onChange={e=>setType(e.target.value as any)}>
+              <option value="lecture">Lecture</option>
+              <option value="lab">Lab</option>
+              <option value="tutorial">Tutorial</option>
+              <option value="online">Online</option>
+            </select>
+          </div>
+          <div className="field-row">
+            <label>Room</label>
+            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="B-204" />
+            <label>Teacher</label>
+            <input value={teacher} onChange={e=>setTeacher(e.target.value)} placeholder="Prof X" />
+          </div>
+          <div className="field-row">
+            <label>Batch</label>
+            <input value={batch} onChange={e=>setBatch(e.target.value)} placeholder={data.settings.myBatch || 'A1'} />
+          </div>
+          <button className="primary big-btn" onClick={() => {
+            const sid = subjectId || data.subjects[0]?.id;
+            if (!sid) return;
+            addSlot({
+              subjectId: sid,
+              weekday,
+              startTime,
+              endTime,
+              type,
+              room: room.trim(),
+              teacher: teacher.trim(),
+              batch: batch.trim().toUpperCase() || undefined,
+              validFrom: today,
+              validUntil: null,
+            });
+            onClose();
+          }}>Add lecture</button>
+        </div>
+      )
         <div className="msg">
           Open <b>Subjects → Timetable</b> to add a lecture by hand — it repeats every week automatically.
           <button className="primary" style={{ marginTop: 10 }} onClick={() => { onClose(); goSettings() }}>
@@ -158,8 +246,13 @@ function QuickAddSheet({ open, onClose, goSettings }: { open: boolean; onClose: 
       )}
 
       {kind === 'reminder' && (
-        <div className="msg">
-          Pasting a college message to make a deadline arrives in Step 5. For now, add it as a deadline above.
+        <div>
+          <div className="msg" style={{ marginBottom: 12 }}>
+            Paste any WhatsApp message, email, or college notice to automatically extract dates and subject.
+          </div>
+          <button className="primary big-btn" onClick={onOpenPaste}>
+            Open paste box
+          </button>
         </div>
       )}
     </Sheet>

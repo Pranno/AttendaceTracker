@@ -1,9 +1,10 @@
 // ============================================================
 // Today screen — Step 2 design (section "Screen designs → Today").
 // Gradient header (edge to edge), greeting + date, theme button,
-// shortcut tiles, paste-pill bar, overlapping attendance hero card
-// with the big ring, THIS MONTH rows, today's class cards with
-// Present / Absent / No class pills, coming-up deadline cards and
+// shortcut tiles, paste-pill bar (opens PasteDeadlineSheet),
+// overlapping attendance hero card with the big ring,
+// THIS MONTH rows (Section J figures), today's class cards with
+// B1 choice collapse & Change link, coming-up deadline cards and
 // a vivid "revise next" banner.
 // ============================================================
 
@@ -17,7 +18,8 @@ import { PercentRing, SectionTitle, StatusPill, ChipRow } from './ui/parts'
 import { subjectPalette, subjectTileStyle, STATUS_VAR } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
-import { planVerdict, projectSubject } from '../logic/projection'
+import { projectSubjectMonth } from '../logic/projection'
+import PasteDeadlineSheet from './PasteDeadlineSheet'
 
 export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void }) {
   const { data, setMark } = useApp()
@@ -27,6 +29,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   const [filter, setFilter] = useState<'all' | 'unmarked' | 'below'>('all')
   const undoRef = useRef<(() => void) | null>(null)
   const [popSlot, setPopSlot] = useState<string | null>(null)
+  const [pasteOpen, setPasteOpen] = useState(false)
 
   const today = todayStr()
   const viewDate = dateOverride ?? today
@@ -58,29 +61,25 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
         : report.overall >= data.settings.threshold
           ? 'limit'
           : 'below'
+
   const totalCanSkip = report.bySubject.reduce((a, s) => a + s.canMiss, 0)
   const heroLine =
     overallTone === 'nodata'
       ? 'Add your timetable to start tracking.'
       : overallTone === 'safe'
-        ? `You're safe! You can skip ${totalCanSkip} more classe${totalCanSkip === 1 ? '' : 's'}`
+        ? `You're safe! You can skip ${totalCanSkip} more ${totalCanSkip === 1 ? 'class' : 'classes'}`
         : overallTone === 'limit'
           ? "At the limit. Don't miss the next class"
           : `Below ${data.settings.threshold}% — attend the next classes to get back on track`
 
-  // This-month rows per subject: projection-engine numbers (J-series),
-  // horizon = rest of the current month (capped at semester end).
+  // This-month rows per subject: Section J numbers (Classes, Must attend, Can skip)
+  const curMonthKey = monthKey(today)
   const monthRows = useMemo(() => {
-    const mk = monthKey(today)
-    const [y, m] = mk.split('-').map(Number)
-    const monthEnd = `${mk}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`
-    const semEnd = data.settings.semesterEnd ?? monthEnd
-    const horizonEnd = semEnd < monthEnd ? semEnd : monthEnd
     return report.bySubject.map((s, i) => {
-      const sp = projectSubject(data, s.subjectId, today > monthEnd ? monthEnd : today > horizonEnd ? horizonEnd : today, horizonEnd)
-      return { summary: s, index: i, proj: sp }
+      const plan = projectSubjectMonth(data, s.subjectId, curMonthKey, today)
+      return { summary: s, index: i, plan }
     })
-  }, [report, data, today])
+  }, [report, data, curMonthKey, today])
 
   // Coming-up deadlines (next 3 weeks).
   const upcoming = useMemo(
@@ -95,16 +94,18 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
-  function mark(slotId: string, status: MarkStatus) {
+  function mark(slotId: string, status: MarkStatus | null) {
     const prev = markFor(data, viewDate, slotId)
     setMark(viewDate, slotId, status)
     setPopSlot(slotId)
     setTimeout(() => setPopSlot(null), 450)
-    undoRef.current = () => setMark(viewDate, slotId, prev)
-    setUndoMsg(`Marked ${status === 'noclass' ? 'No class' : status}.`)
-    window.setTimeout(() => setUndoMsg(null), 4000)
-    // Light haptic feedback where supported.
-    navigator.vibrate?.(10)
+    if (status !== null) {
+      undoRef.current = () => setMark(viewDate, slotId, prev)
+      setUndoMsg(`Marked ${status === 'noclass' ? 'No class' : status === 'cancelled' ? 'Cancelled' : status}.`)
+      window.setTimeout(() => setUndoMsg(null), 4000)
+      // Light haptic feedback where supported.
+      navigator.vibrate?.(10)
+    }
   }
 
   const shownSlots = daySlots.filter((slot) => {
@@ -155,8 +156,8 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           </button>
         </div>
 
-        {/* paste pill bar (opens fully in Step 5) */}
-        <button className="paste-pill" onClick={() => go('settings')}>
+        {/* paste pill bar (D1: opens paste modal) */}
+        <button className="paste-pill" onClick={() => setPasteOpen(true)}>
           <ClipboardPaste size={18} />
           <span>Paste a college message…</span>
         </button>
@@ -213,35 +214,39 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
         </div>
       )}
 
-      {/* ---------- this month ---------- */}
+      {/* ---------- this month (Section J) ---------- */}
       <SectionTitle>THIS MONTH · {new Date().toLocaleString('en', { month: 'long' })}</SectionTitle>
       {monthRows.length === 0 && (
         <div className="card msg">No subjects yet — add your timetable under Subjects.</div>
       )}
-      {monthRows.map(({ summary: s, index, proj }) => (
+      {monthRows.map(({ summary: s, index, plan }) => (
         <button
           key={s.subjectId}
           className="month-row card-like"
           style={subjectTileStyle(index, active)}
-          onClick={() => go('plan', s.subjectId)}
+          onClick={() => go('subjects', s.subjectId)}
         >
           <span className="subj-dot" style={{ background: 'var(--subj-strong)', color: 'var(--subj-on)' }}>
             {s.shortName.slice(0, 2)}
           </span>
           <span className="grow" style={{ textAlign: 'left' }}>
             <b>{s.shortName}</b>
-            <span className="msg month-row-verdict">{planVerdict(proj)}</span>
+            <span className="msg month-row-verdict" style={{ display: 'block', fontSize: 12 }}>
+              {plan.verdict}
+            </span>
           </span>
-          <StatusPill tone="neutral">{proj.remainingClasses} left</StatusPill>
+          {/* Three pill figures: classes, must attend, can skip (Section J / Screen designs) */}
+          <StatusPill tone="neutral">{plan.classesInMonth} classes</StatusPill>
+          <StatusPill tone="neutral">{plan.mustAttend} to attend</StatusPill>
           <StatusPill
-            tone={s.status === 'safe' ? 'safe' : s.status === 'limit' ? 'limit' : s.status === 'below' ? 'below' : 'neutral'}
+            tone={plan.status === 'safe' ? 'safe' : plan.status === 'limit' ? 'limit' : plan.status === 'below' ? 'below' : 'neutral'}
           >
-            {s.status === 'below' ? `recover ${proj.mustAttendNext}` : `skip ${proj.canSkipRest}`}
+            {plan.outOfReach ? 'Out of reach' : `skip ${plan.canSkip}`}
           </StatusPill>
         </button>
       ))}
 
-      {/* ---------- today's classes ---------- */}
+      {/* ---------- today's classes (B1: Present / Absent / No class) ---------- */}
       <SectionTitle>CLASSES · {formatShort(viewDate)}</SectionTitle>
       <ChipRow
         options={[
@@ -290,17 +295,30 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
                   </span>
                 )}
               </div>
-              <div className="row mark-row">
-                <button className={`mark present ${status === 'present' ? 'on' : ''}`} onClick={() => mark(slot.id, 'present')}>
-                  Present
-                </button>
-                <button className={`mark absent ${status === 'absent' ? 'on' : ''}`} onClick={() => mark(slot.id, 'absent')}>
-                  Absent
-                </button>
-                <button className={`mark noclass ${status === 'noclass' ? 'on' : ''}`} onClick={() => mark(slot.id, 'noclass')}>
-                  No class
-                </button>
-              </div>
+
+              {/* B1: A marked class shows only its choice, with a Change link to switch */}
+              {status ? (
+                <div className="row mark-row spread" style={{ marginTop: 8 }}>
+                  <span className={`status-chip ${status}`}>
+                    {status === 'cancelled' ? 'Cancelled' : status === 'noclass' ? 'No class' : status === 'present' ? 'Present' : 'Absent'}
+                  </span>
+                  <button className="link-btn" onClick={() => mark(slot.id, null)}>
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <div className="row mark-row">
+                  <button className="mark present" onClick={() => mark(slot.id, 'present')}>
+                    Present
+                  </button>
+                  <button className="mark absent" onClick={() => mark(slot.id, 'absent')}>
+                    Absent
+                  </button>
+                  <button className="mark noclass" onClick={() => mark(slot.id, 'noclass')}>
+                    No class
+                  </button>
+                </div>
+              )}
             </div>
           )
         })}
@@ -363,6 +381,9 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           <div className="msg">{s.message}</div>
         </div>
       ))}
+
+      {/* Paste Deadline Sheet (D1) */}
+      <PasteDeadlineSheet open={pasteOpen} onClose={() => setPasteOpen(false)} />
     </div>
   )
 }

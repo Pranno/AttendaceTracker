@@ -82,6 +82,27 @@ describe('extractDeadlines', () => {
     expect(extractDeadlines('   \n  ', TODAY)).toEqual([])
   })
 
+  it('matches user subjects by short name, full name, and nicknames (M6)', () => {
+    const subjects = [
+      { id: 's1', shortName: 'SDC', fullName: 'Statistics and Differential Calculus', nicknames: ['Maths', 'Calculus'] },
+      { id: 's2', shortName: 'WAD', fullName: 'Web Application Development', nicknames: ['Web Dev'] },
+    ]
+    const r1 = extractDeadlines('Maths submission of integration worksheet at 9 Nov', TODAY, subjects)
+    expect(r1).toHaveLength(1)
+    expect(r1[0].subjectHint).toBe('SDC')
+
+    const r2 = extractDeadlines('All the 10 certificates mentioned in WAD syllabus to be completed and shown before 30th October', TODAY, subjects)
+    expect(r2).toHaveLength(1)
+    expect(r2[0].subjectHint).toBe('WAD')
+    expect(r2[0].dueDate).toBe('2026-10-30')
+  })
+
+  it('ignores hyphenated numbers without a year like Grades 1-12 (M5/C12)', () => {
+    const r = extractDeadlines('Grades 1-12 test submission on 15/11', TODAY)
+    expect(r).toHaveLength(1)
+    expect(r[0].dueDate).toBe('2026-11-15')
+  })
+
   it('preserves sourceLine for preview UI', () => {
     const src = 'CN presentation on 25/11'
     const r = extractDeadlines(src, TODAY)

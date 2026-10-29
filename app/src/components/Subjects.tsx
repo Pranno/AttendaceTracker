@@ -1,8 +1,8 @@
 // Subjects screen (Step 2): a grid of big round icon tiles (Uber-services
 // style), each with the subject colour, name and an attendance badge in the
-// safe/limit/danger tone. Opening a subject shows its percentage card, can-miss
-// line and the weekly timetable for that subject. The Timetable editor from
-// Step 1 lives under the "Timetable" chip here (full upload flow arrives Step 3).
+// safe/limit/danger tone. Opening a subject shows its monthly plan card (J8),
+// percentage card, can-miss line and the weekly timetable for that subject.
+// The Timetable editor lives under the "Timetable" chip here.
 
 import { useMemo, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
@@ -15,6 +15,7 @@ import { subjectPalette, subjectTileStyle, STATUS_VAR } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
 import Timetable from './Timetable'
+import MonthlyPlanCard from './MonthlyPlanCard'
 
 const SUBJECT_ICONS = ['📘', '🧪', '🧮', '💻', '📡', '🎨', '🛠️', '🌐']
 
@@ -69,11 +70,19 @@ export default function Subjects({ go }: { go: (t: Tab, subjectId?: string) => v
             {open.held === 0 ? 'no data' : `${open.percent.toFixed(1)}%`}
           </StatusPill>
         </div>
+
+        {/* J8: Monthly Plan card at the top of each subject page */}
+        <MonthlyPlanCard
+          subjectId={open.subjectId}
+          onOpenSettings={() => go('settings')}
+        />
+
         <div className="card" style={subjectTileStyle(openIdx, active)}>
           <b>{open.name}</b>
           <div className="class-meta">{open.attended}/{open.held} classes attended · target {open.threshold}%</div>
           <div style={{ marginTop: 6 }}><b>{open.message}</b></div>
         </div>
+
         <SectionTitle>EVERY WEEK</SectionTitle>
         {slots.length === 0 && <div className="card msg">No lectures scheduled.</div>}
         {slots.map((sl) => (

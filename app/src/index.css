@@ -1,11 +1,10 @@
-// ============================================================
-// Step-2 stylesheet — everything is driven by the design tokens
-// written onto <html> by ThemeProvider (var(--bg), var(--card), …).
-// Shape, depth and spacing follow the "Design and look" section:
-// cards 20–24px radius, pills fully round, soft layered shadows,
-// 8px grid, ≥48px tap targets, 96px bottom gutter for the nav.
-// ============================================================
-
+﻿/* ============================================================
+   Step-2 stylesheet — everything is driven by the design tokens
+   written onto <html> by ThemeProvider (var(--bg), var(--card), …).
+   Shape, depth and spacing follow the  Design and look section:
+   cards 20–24px radius, pills fully round, soft layered shadows,
+   8px grid, ≥48px tap targets, 96px bottom gutter for the nav.
+   ============================================================ */
 * { box-sizing: border-box; }
 
 html, body { margin: 0; padding: 0; }
@@ -17,7 +16,7 @@ html, body { margin: 0; padding: 0; }
    IMPORTANT: we also honour prefers-color-scheme as a fallback, because
    if data-theme is ever missing/stale (first paint, saved preference out
    of sync), inputs previously inherited the OS's dark scheme and rendered
-   white text on our white cards — i.e. dates and options became invisible.
+   white text on our white cards â€” i.e. dates and options became invisible.
    Now every input carries an explicit colour, so nothing can wash out. */
 html[data-theme='sunrise'] { color-scheme: light; }
 html[data-theme='midnight'] { color-scheme: dark; }
@@ -355,7 +354,7 @@ input, select {
   -webkit-text-fill-color: var(--text);
 }
 input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
-/* labels must stay readable in BOTH themes — previously they used the same
+/* labels must stay readable in BOTH themes â€” previously they used the same
    muted colour as body text, which washed out on light cards */
 label {
   font-size: 13px; display: block; margin: 8px 0 2px; font-weight: 700;
@@ -537,7 +536,7 @@ td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(
 .plan-whead { font-weight: 800; color: var(--soft); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
 .plan-wrow + .plan-wrow { border-top: 1px solid color-mix(in srgb, var(--soft) 14%, transparent); }
 
-/* pill nav with 5 items — tighter labels on small screens */
+/* pill nav with 5 items â€” tighter labels on small screens */
 .pillnav { gap: 2px; }
 .pillnav button span { font-size: 11px; }
 @media (max-width: 380px) {
@@ -576,3 +575,4 @@ td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(
   font-family: inherit; color-scheme: light;
 }
 [data-theme='midnight'] .extract-date { color-scheme: dark; }
+

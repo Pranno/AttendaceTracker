@@ -19,7 +19,12 @@ export default function Timetable() {
   const myBatch = data.settings.myBatch
 
   // ---- import flow (A1–A5) ----
-  const [importOpen, setImportOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false);
+  const [editSlotId, setEditSlotId] = useState<string | null>(null);
+  const [editStart, setEditStart] = useState('');
+  const [editEnd, setEditEnd] = useState('');
+  const [editRoom, setEditRoom] = useState('');
+  const [editTeacher, setEditTeacher] = useState('');
   const [importText, setImportText] = useState('')
   const [parsed, setParsed] = useState<ParsedEntry[] | null>(null)
   const [parseWarn, setParseWarn] = useState<string[]>([])
@@ -338,7 +343,51 @@ export default function Timetable() {
                         : ''}
                     </span>
                   </span>
-                  <button onClick={() => removeSlotFromToday(s.id, today)}>Remove</button>
+                  {editSlotId === s.id ? (
+                    <div className="edit-form card" style={{ marginTop: 6 }}>
+                      <div className="field-row">
+                        <label>Start</label>
+                        <input type="time" value={editStart} onChange={e => setEditStart(e.target.value)} />
+                        <label>End</label>
+                        <input type="time" value={editEnd} onChange={e => setEditEnd(e.target.value)} />
+                      </div>
+                      <div className="field-row">
+                        <label>Room</label>
+                        <input value={editRoom} onChange={e => setEditRoom(e.target.value)} placeholder="B-204" />
+                        <label>Teacher</label>
+                        <input value={editTeacher} onChange={e => setEditTeacher(e.target.value)} placeholder="Prof X" />
+                      </div>
+                      <button className="primary" onClick={() => {
+                        // End current slot today and add new slot starting today
+                        updateSlot(s.id, { validUntil: today });
+                        addSlot({
+                          subjectId: s.subjectId,
+                          weekday: s.weekday,
+                          startTime: editStart,
+                          endTime: editEnd,
+                          type: s.type,
+                          room: editRoom.trim(),
+                          teacher: editTeacher.trim(),
+                          batch: s.batch,
+                          validFrom: today,
+                          validUntil: null,
+                        });
+                        setEditSlotId(null);
+                      }}>Save</button>
+                      <button className="secondary" onClick={() => setEditSlotId(null)}>Cancel</button>
+                    </div>
+                  ) : (
+                    <>
+                      <button onClick={() => {
+                        setEditSlotId(s.id);
+                        setEditStart(s.startTime);
+                        setEditEnd(s.endTime);
+                        setEditRoom(s.room);
+                        setEditTeacher(s.teacher);
+                      }}>Edit</button>
+                      <button onClick={() => removeSlotFromToday(s.id, today)}>Remove</button>
+                    </>
+                  )}
                 </div>
               )
             })}
