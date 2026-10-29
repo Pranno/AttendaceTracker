@@ -30,6 +30,64 @@ export function clearData(): void {
   localStorage.removeItem(KEY)
 }
 
+// ---- Stretch #4: Multi-semester archive ----
+// When a semester ends you can archive it and start fresh. The snapshot is
+// kept under its own key so the active store stays small; archived semesters
+// are read-only (totals + per-subject attendance) until restored.
+
+const ARCHIVE_PREFIX = 'attendancetracker.archive.v1.'
+
+export interface ArchivedSemester {
+  id: string
+  label: string
+  startDate: string | null
+  endDate: string | null
+  archivedOn: string
+  /** Which subjects were archived with this semester (for display). */
+  subjectNames: string[]
+  /** Attendance totals at archive time, e.g. "WAD: 42/50 (84%)". */
+  summary: string[]
+  /** The complete AppData snapshot — restoring puts everything back. */
+  data: AppData
+}
+
+export function listArchives(): ArchivedSemester[] {
+  const out: ArchivedSemester[] = []
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k || !k.startsWith(ARCHIVE_PREFIX)) continue
+      const raw = localStorage.getItem(k)
+      if (!raw) continue
+      try {
+        out.push(JSON.parse(raw) as ArchivedSemester)
+      } catch {
+        /* skip corrupt entry */
+      }
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return out.sort((a, b) => b.archivedOn.localeCompare(a.archivedOn))
+}
+
+export function saveArchive(entry: ArchivedSemester): void {
+  localStorage.setItem(ARCHIVE_PREFIX + entry.id, JSON.stringify(entry))
+}
+
+export function deleteArchive(id: string): void {
+  localStorage.removeItem(ARCHIVE_PREFIX + id)
+}
+
+export function loadArchive(id: string): ArchivedSemester | null {
+  try {
+    const raw = localStorage.getItem(ARCHIVE_PREFIX + id)
+    return raw ? (JSON.parse(raw) as ArchivedSemester) : null
+  } catch {
+    return null
+  }
+}
+
 /** F7: Export my data — download the whole store as a JSON file. */
 export function exportData(data: AppData): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })

@@ -5,8 +5,10 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { AppData, CourseLink, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
-import { loadData, saveData, clearData } from '../data/storage'
-import { markFor } from '../logic/attendance'
+import { loadData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
+import type { ArchivedSemester } from '../data/storage'
+import { markFor, buildReport } from '../logic/attendance'
+import { todayStr } from '../logic/dates'
 import { scheduleDeadlineNotification, cancelDeadlineNotification, resyncAllNotifications } from '../logic/reminders'
 
 interface AppApi {
@@ -72,6 +74,13 @@ interface AppApi {
   // ---- settings ----
   updateSettings: (patch: Partial<AppData['settings']>) => void
   resetAll: () => void
+  // ---- Stretch #4: multi-semester archive ----
+  /** Snapshot the finished semester into storage and start a fresh app state. */
+  archiveSemester: () => ArchivedSemester | null
+  archivedSemesters: () => ArchivedSemester[]
+  deleteArchived: (id: string) => void
+  /** Put an archived snapshot back as the active data (and remove it from the archive). */
+  restoreArchive: (id: string) => boolean
 }
 
 const Ctx = createContext<AppApi | null>(null)
@@ -412,6 +421,65 @@ export function AppProvider({ children }: { children: ReactNode }) {
       resetAll() {
         clearData()
         setRaw(loadData())
+      },
+
+      // ---- Stretch #4: multi-semester archive ----
+      archiveSemester() {
+        if (data.subjects.length === 0 && data.slots.length === 0) return null
+        const today = todayStr()
+        const rangeStart =
+          data.settings.semesterStart ??
+          (data.slots.length ? data.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), today) : today)
+        const report = buildReport(data, today, rangeStart, today)
+        const entry: ArchivedSemester = {
+          id: newId('arch'),
+          label: data.settings.semesterName || `Semester ending ${today}`,
+          startDate: data.settings.semesterStart,
+          endDate: data.settings.semesterEnd,
+          archivedOn: today,
+          subjectNames: data.subjects.map((s) => s.shortName || s.fullName),
+          summary: report.bySubject.map((s) => `${s.shortName}: ${s.attended}/${s.held} (${Math.round(s.percent)}%)`),
+          data: structuredClone(data),
+        }
+        saveArchive(entry)
+        // Fresh start: keep nothing from the finished semester.
+        clearData()
+        setRaw(loadData())
+        return entry
+      },
+
+      archivedSemesters() {
+        return listArchives()
+      },
+
+      deleteArchived(id) {
+        deleteArchive(id)
+      },
+
+      restoreArchive(id) {
+        const arch = loadArchive(id)
+        if (!arch) return false
+        // If a live semester exists, archive it first so nothing is lost.
+        if (data.subjects.length > 0 || data.slots.length > 0) {
+          const today = todayStr()
+          const rangeStart =
+            data.settings.semesterStart ??
+            (data.slots.length ? data.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), today) : today)
+          const report = buildReport(data, today, rangeStart, today)
+          saveArchive({
+            id: newId('arch'),
+            label: data.settings.semesterName || `Semester archived ${today}`,
+            startDate: data.settings.semesterStart,
+            endDate: data.settings.semesterEnd,
+            archivedOn: today,
+            subjectNames: data.subjects.map((s) => s.shortName || s.fullName),
+            summary: report.bySubject.map((s) => `${s.shortName}: ${s.attended}/${s.held} (${Math.round(s.percent)}%)`),
+            data: structuredClone(data),
+          })
+        }
+        deleteArchive(id)
+        setRaw(arch.data)
+        return true
       },
     }
   }, [data])

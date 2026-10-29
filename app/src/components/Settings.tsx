@@ -447,6 +447,9 @@ export default function Settings() {
         <ErpRow key={sub.id} id={sub.id} short={sub.shortName} attended={sub.typedAttended} held={sub.typedHeld} />
       ))}
 
+      <SectionTitle>SEMESTER ARCHIVE</SectionTitle>
+      <ArchiveSection />
+
       <SectionTitle>YOUR DATA</SectionTitle>
       <div className="card row">
         <button className="secondary big-btn grow" onClick={() => exportData(data)}>
@@ -468,6 +471,88 @@ export default function Settings() {
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+// Stretch #4: multi-semester archive. End a semester → snapshot stays here
+// read-only (totals + per-subject attendance); start fresh next semester.
+// Restoring an archived semester swaps it back in (the current one is
+// auto-archived first, so nothing is ever lost).
+function ArchiveSection() {
+  const { data, archiveSemester, archivedSemesters, deleteArchived, restoreArchive } = useApp()
+  const [archives, setArchives] = useState(() => archivedSemesters())
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+  const hasLive = data.subjects.length > 0 || data.slots.length > 0
+
+  const refresh = () => setArchives(archivedSemesters())
+
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="msg" style={{ margin: 0 }}>
+        Semester finished? Archive it — the totals are kept and you start the new semester clean. You can restore any
+        archived semester later to view or continue it.
+      </div>
+      {done && <div className="msg" style={{ margin: 0, color: 'var(--ok, #2e7d32)' }}>{done}</div>}
+      <button
+        className="secondary big-btn grow"
+        disabled={!hasLive}
+        onClick={() => {
+          const entry = archiveSemester()
+          setDone(entry ? `Archived “${entry.label}”. Start the new timetable when ready.` : 'Nothing to archive yet.')
+          refresh()
+        }}
+      >
+        {hasLive
+          ? `Archive “${data.settings.semesterName || 'current semester'}” & start fresh`
+          : 'No active semester to archive'}
+      </button>
+
+      {archives.length === 0 ? (
+        <div className="msg" style={{ margin: 0 }}>
+          No archived semesters yet.
+        </div>
+      ) : (
+        archives.map((a) => (
+          <div key={a.id} className="card" style={{ background: 'var(--bg, rgba(0,0,0,0.03))' }}>
+            <b>{a.label}</b>
+            <div className="msg" style={{ margin: '2px 0' }}>
+              {a.startDate ?? '?'} → {a.endDate ?? 'archived'} · saved {a.archivedOn}
+            </div>
+            <div className="msg" style={{ margin: '2px 0' }}>
+              {a.summary.join(' · ') || 'No subjects recorded.'}
+            </div>
+            <div className="row" style={{ marginTop: 6, gap: 8 }}>
+              {confirmId === a.id ? (
+                <button
+                  className="danger big-btn grow"
+                  onClick={() => {
+                    if (restoreArchive(a.id)) setDone(`Restored “${a.label}”. The previous data was archived for you.`)
+                    setConfirmId(null)
+                    refresh()
+                  }}
+                >
+                  Tap again to confirm restore
+                </button>
+              ) : (
+                <button className="secondary big-btn grow" onClick={() => setConfirmId(a.id)}>
+                  Restore
+                </button>
+              )}
+              <button
+                className="danger-quiet big-btn grow"
+                onClick={() => {
+                  deleteArchived(a.id)
+                  refresh()
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   )
 }
