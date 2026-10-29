@@ -20,6 +20,7 @@ import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
 import { projectSubjectMonth } from '../logic/projection'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
+import EmailInbox from './EmailInbox'
 
 export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void }) {
   const { data, setMark } = useApp()
@@ -381,6 +382,9 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           <div className="msg">{s.message}</div>
         </div>
       ))}
+
+      {/* I5: pending email suggestions, compact view on Today */}
+      <EmailInbox compact />
 
       {/* Paste Deadline Sheet (D1) */}
       <PasteDeadlineSheet open={pasteOpen} onClose={() => setPasteOpen(false)} />

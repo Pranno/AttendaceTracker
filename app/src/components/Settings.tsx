@@ -13,6 +13,8 @@ import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
 import { extractDeadlines, type ExtractedDeadline } from '../logic/deadlines'
 import { todayStr, formatShort } from '../logic/dates'
+import EmailInbox from './EmailInbox'
+import { defaultRedirectUri, loadGmailConfig, saveGmailConfig } from '../logic/gmail'
 
 // ------------------------------------------------------------
 // Deadline paste extraction (D-series): paste a class-group message,
@@ -432,6 +434,10 @@ export default function Settings() {
       <SectionTitle>PASTE A DEADLINE MESSAGE</SectionTitle>
       <DeadlinePaste />
 
+      <SectionTitle>COLLEGE EMAIL</SectionTitle>
+      <GmailSetup />
+      <EmailInbox />
+
       <SectionTitle>REAL TOTALS FROM THE COLLEGE ERP</SectionTitle>
       <div className="msg" style={{ marginBottom: 8 }}>
         Typing totals replaces the app’s calculated figures for that subject.
@@ -461,6 +467,51 @@ export default function Settings() {
             Delete all my data
           </button>
         )}
+      </div>
+    </div>
+  )
+}
+
+// I1/I2: one-time Google Cloud OAuth setup. The user creates an "OAuth client
+// ID (Web application)" in their own Google Cloud project, enables the Gmail
+// API, and pastes the client ID here — no secrets bundled in the app.
+export function GmailSetup() {
+  const [clientId, setClientId] = useState(loadGmailConfig()?.clientId ?? '')
+  const [saved, setSaved] = useState<string | null>(null)
+
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="msg" style={{ margin: 0 }}>
+        To let the app read your college emails automatically: create a project at console.cloud.google.com → enable
+        the Gmail API → OAuth consent screen (External) → Credentials → “OAuth client ID” of type Web application →
+        add this app’s URL as an Authorized redirect URI → paste the Client ID below. Nothing leaves your phone except
+        the standard Google sign-in; the app only ever reads mail titles/bodies (gmail.readonly).
+      </div>
+      <label className="small-label">Google Cloud Client ID</label>
+      <input
+        value={clientId}
+        onChange={(e) => {
+          setClientId(e.target.value)
+          setSaved(null)
+        }}
+        placeholder="1234567890-xxxx.apps.googleusercontent.com"
+        spellCheck={false}
+      />
+      <div className="msg" style={{ margin: 0 }}>
+        Redirect URI to authorize: <code>{defaultRedirectUri()}</code>
+      </div>
+      <div>
+        <button
+          className="btn small"
+          disabled={!clientId.trim().endsWith('.apps.googleusercontent.com')}
+          onClick={() => {
+            saveGmailConfig(clientId)
+            setSaved('Saved. You can now connect Gmail above.')
+          }}
+        >
+          Save Client ID
+        </button>
+        {saved && <span className="msg" style={{ marginLeft: 8 }}>{saved}</span>}
       </div>
     </div>
   )

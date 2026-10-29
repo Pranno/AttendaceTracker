@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, CourseLink, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Unit, Topic, PracticeQuestion } from '../data/model'
+import type { AppData, CourseLink, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
 import { loadData, saveData, clearData } from '../data/storage'
 import { markFor } from '../logic/attendance'
@@ -42,6 +42,13 @@ interface AppApi {
   setDeadlineCourseLinks: (deadlineId: string, linkIds: string[]) => void
   /** H11: merge an imported batch of links, keeping status of existing ones. */
   importCourseLinks: (links: Omit<CourseLink, 'id'>[]) => void
+  // ---- email suggestions (I-series) ----
+  /** I3: append freshly parsed suggestions without duplicating message ids. */
+  addSuggestions: (s: Suggestion[]) => void
+  /** I4: accept a suggestion -> creates a real Deadline, marks it 'added'. */
+  acceptSuggestion: (id: string) => void
+  dismissSuggestion: (id: string) => void
+  clearSeenSuggestions: () => void
   // ---- study units & topics (E-series) ----
   addUnit: (u: Omit<Unit, 'id' | 'topics'> & { topics?: Topic[] }) => void
   updateUnit: (id: string, patch: Partial<Unit>) => void
@@ -249,6 +256,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
             links.map((l) => ({ ...l, id: newId('course') })),
           ),
         }))
+      },
+
+      addSuggestions(s) {
+        if (s.length === 0) return
+        setRaw((d) => ({ ...d, suggestions: [...d.suggestions, ...s] }))
+      },
+
+      acceptSuggestion(id) {
+        const sug = data.suggestions.find((x) => x.id === id)
+        if (!sug || sug.status !== 'new' || !sug.date) return
+        // I4: accepting turns the suggestion into a real deadline — same path as
+        // manual add (including D6 native notification arming).
+        this.addDeadline({
+          title: sug.title,
+          dueDate: sug.date,
+          subjectId: sug.subjectId,
+          sourceText: sug.sourceSnippet,
+        })
+        setRaw((d) => ({
+          ...d,
+          suggestions: d.suggestions.map((x) => (x.id === id ? { ...x, status: 'added' as const } : x)),
+        }))
+      },
+
+      dismissSuggestion(id) {
+        setRaw((d) => ({
+          ...d,
+          suggestions: d.suggestions.map((x) => (x.id === id ? { ...x, status: 'dismissed' as const } : x)),
+        }))
+      },
+
+      clearSeenSuggestions() {
+        setRaw((d) => ({ ...d, suggestions: d.suggestions.filter((x) => x.status === 'new') }))
       },
 
       addUnit(u) {
