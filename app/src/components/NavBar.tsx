@@ -10,7 +10,7 @@ import { CalendarDays, CalendarRange, LayoutGrid, Plus, Settings2, SunMedium } f
 import type { LucideIcon } from 'lucide-react'
 import { Sheet } from './ui/parts'
 import { useApp } from '../data/store'
-import type { DateStr } from '../data/model'
+import type { ClassType, DateStr } from '../data/model'
 import { todayStr } from '../logic/dates'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
 
@@ -93,7 +93,6 @@ export default function NavBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab)
           setAddOpen(false)
           setPasteOpen(true)
         }}
-        goSettings={() => onChange('settings')}
       />
 
       <PasteDeadlineSheet open={pasteOpen} onClose={() => setPasteOpen(false)} />
@@ -106,16 +105,23 @@ function QuickAddSheet({
   open,
   onClose,
   onOpenPaste,
-  goSettings,
 }: {
   open: boolean
   onClose: () => void
   onOpenPaste: () => void
-  goSettings: () => void
 }) {
-  const { data, addDeadline } = useApp()
+  const { data, addDeadline, addSlot } = useApp()
   const today: DateStr = todayStr()
   const [kind, setKind] = useState<'reminder' | 'lecture' | 'deadline'>('deadline')
+
+  // lecture mini-form
+  const [weekday, setWeekday] = useState(1)
+  const [startTime, setStartTime] = useState('09:00')
+  const [endTime, setEndTime] = useState('10:00')
+  const [type, setType] = useState<ClassType>('lecture')
+  const [room, setRoom] = useState('')
+  const [teacher, setTeacher] = useState('')
+  const [batch, setBatch] = useState('')
 
   // deadline mini-form
   const [title, setTitle] = useState('')
@@ -201,7 +207,7 @@ function QuickAddSheet({
           </div>
           <div className="field-row">
             <label>Type</label>
-            <select value={type} onChange={e=>setType(e.target.value as any)}>
+            <select value={type} onChange={e=>setType(e.target.value as ClassType)}>
               <option value="lecture">Lecture</option>
               <option value="lab">Lab</option>
               <option value="tutorial">Tutorial</option>
@@ -235,13 +241,6 @@ function QuickAddSheet({
             });
             onClose();
           }}>Add lecture</button>
-        </div>
-      )
-        <div className="msg">
-          Open <b>Subjects → Timetable</b> to add a lecture by hand — it repeats every week automatically.
-          <button className="primary" style={{ marginTop: 10 }} onClick={() => { onClose(); goSettings() }}>
-            Not now
-          </button>
         </div>
       )}
 
