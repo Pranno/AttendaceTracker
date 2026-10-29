@@ -5,9 +5,9 @@
 
 import { useState } from 'react'
 import { useApp } from '../data/store'
-import type { ClassType } from '../data/model'
+import type { ClassType, DateStr } from '../data/model'
 import { newId, slotMatchesBatch } from '../data/model'
-import { formatShort, todayStr, weekdayName } from '../logic/dates'
+import { formatShort, monthKey, todayStr, weekdayName } from '../logic/dates'
 import { parseTimetableText, filterByBatch, entriesToSlots, distinctBatches, keepOnlyBatch } from '../logic/timetableImport'
 import type { ParsedEntry } from '../logic/timetableImport'
 
@@ -92,7 +92,20 @@ export default function Timetable() {
       }
       const { slots, unmatched } = entriesToSlots(parsed, byShort, today)
       void unmatched // flagged ones simply aren't saved; user fixes them by hand (T9/A4)
-      return { ...d, subjects, slots: [...d.slots, ...slots.map((s) => ({ ...s, id: newId('slot') }))] }
+      // J2: the monthly plan starts from the month after the timetable was
+      // first confirmed. Set once — re-imports later don't move it back.
+      const nextMonthMk = (() => {
+        const d = new Date()
+        d.setDate(1)
+        d.setMonth(d.getMonth() + 1)
+        return monthKey(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` as DateStr)
+      })()
+      return {
+        ...d,
+        subjects,
+        slots: [...d.slots, ...slots.map((s) => ({ ...s, id: newId('slot') }))],
+        settings: d.settings.planStartMonth ? d.settings : { ...d.settings, planStartMonth: nextMonthMk },
+      }
     })
     setParsed(null)
     setImportText('')

@@ -175,7 +175,7 @@ export interface AttendanceSummary {
   enoughMarks: boolean
 }
 
-function effectiveThreshold(data: AppData, subject: Subject): number {
+export function effectiveThreshold(data: AppData, subject: Subject): number {
   return subject.thresholdOverride ?? data.settings.threshold
 }
 

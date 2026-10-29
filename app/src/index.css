@@ -9,6 +9,14 @@
 
 html, body { margin: 0; padding: 0; }
 
+/* Theme-independent fallbacks for the header gradient tokens.
+   ThemeProvider writes --headerFrom/--headerTo onto <html>; these kebab-case
+   names are what index.css consumes. If the JS ever fails to run (first paint,
+   stale bundle), the gradients below would render with NO background — leaving
+   white-on-white text in light mode. These defaults keep it visible. */
+:root { --header-from: #7B1E3A; --header-to: #D93A32; }
+[data-theme='midnight'] { --header-from: #3A1458; --header-to: #B02A4B; }
+
 /* Tell the browser (and native date/time pickers + autofill) which
    appearance matches our theme. ThemeProvider sets data-theme to
    'sunrise' (light) or 'midnight' (dark).
@@ -104,9 +112,13 @@ button:active { transform: scale(0.97); }
 /* ---------- header (gradient, edge to edge) ---------- */
 .hero-header {
   position: relative;
-  background: linear-gradient(180deg, var(--header-from), var(--header-to));
+  /* Fallback colour first: if the gradient vars are ever missing, the header
+     still paints dark red so its white greeting/date stay readable. */
+  background-color: var(--primary);
+  background-image: linear-gradient(180deg, var(--header-from), var(--header-to));
   padding: calc(16px + env(safe-area-inset-top)) 16px 64px;
   color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15); /* keeps white text legible even if a theme swap leaves the bg light momentarily */
   overflow: hidden;
   border-radius: 0 0 28px 28px;
 }

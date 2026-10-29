@@ -83,6 +83,9 @@ export default function Subjects({ go }: { go: (t: Tab, subjectId?: string) => v
           <div style={{ marginTop: 6 }}><b>{open.message}</b></div>
         </div>
 
+        {/* F2 (Stretch): per-subject threshold override. */}
+        <ThresholdEditor subjectId={open.subjectId} />
+
         <SectionTitle>EVERY WEEK</SectionTitle>
         {slots.length === 0 && <div className="card msg">No lectures scheduled.</div>}
         {slots.map((sl) => (
@@ -147,6 +150,51 @@ export default function Subjects({ go }: { go: (t: Tab, subjectId?: string) => v
             </button>
           ))}
         </>
+      )}
+    </div>
+  )
+}
+
+/** F2 (Stretch): per-subject attendance threshold. By default a subject uses
+ *  the global threshold from Settings; turning this on gives it its own value
+ *  (e.g. labs at 90%). The change flows into every calculation automatically
+ *  (attendance.ts, projection.ts both read effectiveThreshold). */
+function ThresholdEditor({ subjectId }: { subjectId: string }) {
+  const { data, updateSubject } = useApp()
+  const subject = data.subjects.find((s) => s.id === subjectId)
+  if (!subject) return null
+  const hasOverride = typeof subject.thresholdOverride === 'number'
+  const value = subject.thresholdOverride ?? data.settings.threshold
+
+  return (
+    <div className="card row spread" style={{ alignItems: 'center' }}>
+      <span>
+        <b>Separate target %</b>
+        <div className="class-meta">
+          {hasOverride
+            ? `This subject uses ${value}% instead of the global ${data.settings.threshold}%`
+            : `Uses the global target (${data.settings.threshold}%)`}
+        </div>
+      </span>
+      <label className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={hasOverride}
+          onChange={(e) => updateSubject(subjectId, { thresholdOverride: e.target.checked ? Math.min(100, Math.max(0, value)) : undefined })}
+        />
+      </label>
+      {hasOverride && (
+        <input
+          type="number"
+          min={0}
+          max={100}
+          value={value}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            if (!Number.isNaN(n)) updateSubject(subjectId, { thresholdOverride: Math.min(100, Math.max(0, n)) })
+          }}
+          style={{ width: 70 }}
+        />
       )}
     </div>
   )

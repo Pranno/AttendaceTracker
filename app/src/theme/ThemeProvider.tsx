@@ -44,7 +44,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement
     const tokens = THEME_TOKENS[active]
-    for (const [k, v] of Object.entries(tokens)) root.style.setProperty(`--${k}`, v)
+    for (const [k, v] of Object.entries(tokens)) {
+      root.style.setProperty(`--${k}`, v)
+      // index.css consumes kebab-case names (--header-from etc.) while the
+      // token map is camelCase — write both so nothing can silently miss.
+      const kebab = k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
+      if (kebab !== k) root.style.setProperty(`--${kebab}`, v)
+    }
     root.dataset.theme = active
     // Colour the browser chrome / status bar area to match the header.
     const meta = document.querySelector('meta[name="theme-color"]')

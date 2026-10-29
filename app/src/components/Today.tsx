@@ -35,6 +35,9 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   const [convertSlot, setConvertSlot] = useState<string | null>(null)
 
   const today = todayStr()
+  // Week strip (stretch): 'week' shows the current Mon–Sun row of day chips;
+  // 'day' is the single-day ◀ ▶ stepper.
+  const [stripMode, setStripMode] = useState<'week' | 'day'>('week')
   const viewDate = dateOverride ?? today
   const isPast = viewDate < today
 
@@ -43,6 +46,19 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
     if (data.slots.length === 0) return today
     return data.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), today)
   }, [data.settings.semesterStart, data.slots, today])
+
+  /** First-time setup nudge: once the timetable exists but nothing has been
+   *  recorded yet, invite the user to mark today and fill semester details. */
+  const showWelcome =
+    data.slots.length > 0 &&
+    data.marks.length === 0 &&
+    data.deadlines.length === 0 &&
+    localStorage.getItem('at.welcomed') !== '1'
+  function dismissWelcome() {
+    localStorage.setItem('at.welcomed', '1')
+    if (data.settings.semesterName === '') go('settings')
+    else setDateOverride(today)
+  }
 
   const report = useMemo(
     () => buildReport(data, today, rangeStart, today),
@@ -202,7 +218,31 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
 
       {choice === 'system' && null /* follow-the-phone handled by provider */}
 
-      {/* ---------- day strip ---------- */}
+      {/* ---------- day / week strip ---------- */}
+      {stripMode === 'week' ? (
+        <div className="row daystrip" style={{ gap: 4 }}>
+          <button className="icon-btn" onClick={() => setDateOverride(addDays(viewDate, -7))} aria-label="Previous week">◀</button>
+          {Array.from({ length: 7 }, (_, i) => {
+            const monday = addDays(today, 1 - weekdayOf(today)) // Monday of this week
+            const ds = addDays(monday, i) as DateStr
+            const count = isHoliday(data, ds) ? 0 : slotsForDate(data, ds).length
+            return (
+              <button
+                key={ds}
+                className={`chip${ds === viewDate ? ' on' : ''}`}
+                style={{ flex: 1, textAlign: 'center', position: 'relative' }}
+                onClick={() => setDateOverride(ds > today ? today : ds)}
+              >
+                <div className="small-label">{weekdayName(weekdayOf(ds)).slice(0, 3)}</div>
+                <b>{ds.slice(8)}</b>
+                {count > 0 && <span className="dot" style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', display: 'inline-block' }} />}
+              </button>
+            )
+          })}
+          <button className="icon-btn" onClick={() => setDateOverride(addDays(viewDate, 7) > today ? today : addDays(viewDate, 7))} aria-label="Next week">▶</button>
+          <button className="chip" onClick={() => setStripMode('day')}>Day</button>
+        </div>
+      ) : (
       <div className="row daystrip">
         <button className="icon-btn" onClick={() => setDateOverride(addDays(viewDate, -1))} aria-label="Previous day">◀</button>
         <div className="grow" style={{ textAlign: 'center' }}>
@@ -217,7 +257,22 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           ▶
         </button>
         {dateOverride && <button className="chip" onClick={() => setDateOverride(null)}>Back to today</button>}
+        <button className="chip" onClick={() => setStripMode('week')}>Week</button>
       </div>
+      )}
+
+      {showWelcome && (
+        <div className="card" style={{ borderLeft: '6px solid var(--accent)' }}>
+          <b>Welcome aboard 👋</b>
+          <div className="msg" style={{ marginTop: 4 }}>
+            Your timetable is in. Three quick steps: ① mark today's classes below, ② set your semester name & dates in Settings, ③ paste any deadline notice into Today → "+".
+          </div>
+          <div className="row" style={{ marginTop: 8, gap: 8 }}>
+            <button className="primary grow" onClick={dismissWelcome}>Got it</button>
+            <button className="chip" onClick={() => localStorage.setItem('at.welcomed', '1')}>Skip</button>
+          </div>
+        </div>
+      )}
 
       {undoMsg && (
         <div className="card undo-card row spread">

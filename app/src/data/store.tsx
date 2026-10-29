@@ -17,6 +17,9 @@ interface AppApi {
   // ---- subjects & timetable (A6, A10) ----
   addSubject: (shortName: string, fullName: string) => Subject
   removeSubject: (id: string) => void
+  /** F2 (Stretch): per-subject settings, e.g. thresholdOverride. Pass null to
+   *  clear the override and fall back to the global threshold. */
+  updateSubject: (id: string, patch: Partial<Omit<Subject, 'id'>> & { thresholdOverride?: number | null }) => void
   addSlot: (slot: Omit<Slot, 'id'>) => void
   updateSlot: (id: string, patch: Partial<Slot>) => void
   /** A8: removing a class applies from today onward; past keeps what it had. */
@@ -108,6 +111,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         setRaw((d) => ({ ...d, subjects: [...d.subjects, subj] }))
         return subj
+      },
+
+      updateSubject(id, patch) {
+        setRaw((d) => ({
+          ...d,
+          subjects: d.subjects.map((s) => {
+            if (s.id !== id) return s
+            const next = { ...s, ...patch }
+            // thresholdOverride: null means "clear it" (back to global threshold).
+            if ('thresholdOverride' in patch && patch.thresholdOverride === null) delete next.thresholdOverride
+            return next
+          }),
+        }))
       },
 
       removeSubject(id) {
