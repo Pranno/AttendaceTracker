@@ -970,28 +970,72 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   // periods; ties go to the upper band). This keeps multi-row cells intact
   // without ever letting a band swallow the next period's rows.
   {
-    const entryBaseYs = new Map<number, Set<number>>()
+    // Entry-bearing baselines are measured on ENTRY FRAGMENT ROWS (true
+    // baselines), not grouped visual lines: the extractor puts each stacked
+    // batch row on its own baseline (A1 334.5, A2 320.7, A3 306.9) while the
+    // period label sits at just one of them. Grouped rows would glue those
+    // three batches into one line and lose their tags entirely.
+    const baseRow = (f: Frag): number => Math.round(f.y * 2) / 2
+    interface ERow { page: number; y: number; frags: Frag[] }
+    const eRows: ERow[] = []
     for (const f of frags) {
       if (!ENTRY_RE.test(normalizeTypeTok(f.str.trim()))) continue
-      let s = entryBaseYs.get(f.page)
-      if (!s) entryBaseYs.set(f.page, (s = new Set()))
-      s.add(Math.round(f.y * 2) / 2) // quantise so near-identical baselines merge
+      let r = eRows.find((x) => x.page === f.page && Math.abs(x.y - baseRow(f)) <= 0.6)
+      if (!r) { r = { page: f.page, y: baseRow(f), frags: [] }; eRows.push(r) }
+      r.frags.push(f)
     }
-    for (const [pg, ys] of entryBaseYs) {
-      const bandsHere = uniqBands.filter((b) => b.page === pg)
-      if (!bandsHere.length) continue
-      for (const y of ys) {
-        if (bandsHere.some((b) => Math.abs(b.yTop - y) <= 3)) continue // label row itself
-        let best: Band | undefined
-        let bestD = Infinity
-        for (const b of bandsHere) {
-          const d = Math.abs(b.yTop - y)
-          if (d < bestD || (d === bestD && b.yTop > (best?.yTop ?? -Infinity))) { best = b; bestD = d }
+    eRows.sort((a, b) => a.page - b.page || b.y - a.y)
+
+    // ---- assign each entry baseline to exactly ONE period band ----
+    // The time label sits on ONE of the stacked baselines (e.g. the 8:00-9:00
+    // label at y=320.7 between A1@334.5 and A3@306.9). Two rules keep every
+    // row inside the right period:
+    //  * a baseline within ~half the label pitch belongs to the band whose
+    //    label it touches (that IS the band's own cell block);
+    //  * otherwise it belongs to the band whose label is the CLOSEST one
+    //    below it in reading order (PDF y grows up, so "below" = larger y) —
+    //    never to a label above, which would push another period's rows into
+    //    this band (the duplicate-class symptom).
+    const labelYsByPage = new Map<number, number[]>()
+    for (const b of uniqBands) {
+      const arr = labelYsByPage.get(b.page) ?? []
+      if (!arr.some((y) => Math.abs(y - b.yTop) < 1)) arr.push(b.yTop)
+      labelYsByPage.set(b.page, arr)
+    }
+    const nearestLabelAbove = (pg: number, y: number): number | null => {
+      const ls = labelYsByPage.get(pg)
+      if (!ls) return null
+      let best: number | null = null
+      for (const l of ls) if (l > y + 0.01 && (best === null || l < best)) best = l
+      return best
+    }
+    for (const r of eRows) {
+      const cand = uniqBands.filter((b) => b.page === r.page)
+      if (!cand.length) continue
+      let best: Band | undefined
+      let bestD = Infinity
+      for (const b of cand) {
+        // touching the label row (own cell block) always wins
+        const d = Math.min(Math.abs(b.yTop - r.y), Math.abs(b.yBottom - r.y))
+        const owns = d <= 8
+        // distance to the closest label strictly above this baseline
+        const nl = nearestLabelAbove(r.page, r.y)
+        const dAbove = nl === null ? Infinity : nl - r.y
+        const score = owns ? d : dAbove
+        if (score === Infinity) continue
+        if (owns) {
+          // among bands sharing this label row prefer the one already spanning it
+          if (!best || bestD > score || (bestD === score && b.yTop > best.yTop)) { best = b; bestD = score }
+        } else if (dAbove !== Infinity) {
+          // only accept if no band claims ownership by proximity to label
+          const claimed = cand.some((o) => Math.min(Math.abs(o.yTop - r.y), Math.abs(o.yBottom - r.y)) <= 8)
+          if (claimed) continue
+          if (!best || score < bestD - 0.001 || (Math.abs(score - bestD) <= 0.001 && b.yTop > best.yTop)) { best = b; bestD = score }
         }
-        if (!best || bestD > 45) continue
-        best.yTop = Math.max(best.yTop, y)
-        best.yBottom = Math.min(best.yBottom, y)
       }
+      if (!best || bestD > 60) continue
+      best.yTop = Math.max(best.yTop, r.y)
+      best.yBottom = Math.min(best.yBottom, r.y)
     }
   }
 
