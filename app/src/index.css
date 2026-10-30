@@ -345,6 +345,8 @@ button.primary { background: var(--primary); color: #fff; }
 button.secondary { background: var(--card); border: 1.5px solid var(--soft); }
 button.danger { background: var(--danger); color: #fff; }
 button.danger-quiet { background: color-mix(in srgb, var(--danger) 14%, var(--card)); color: var(--danger); }
+button:disabled { opacity: 0.5; cursor: default; }
+button:disabled:active { transform: none; }
 .big-btn { min-height: 48px; font-weight: 800; }
 
 input, select {

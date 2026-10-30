@@ -422,6 +422,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateSettings(patch) {
         setRaw((d) => {
           const next = { ...d, settings: { ...d.settings, ...patch } }
+          // Semester dates are a single logical edit: saving both dates also
+          // stamps imported timetable slots (whose validFrom defaults to the
+          // import date) so classes appear immediately in Today/Calendar/Plan.
+          // Only touched when at least one date is newly provided and the pair
+          // is valid — never on unrelated setting changes.
+          const prevStart = d.settings.semesterStart
+          const prevEnd = d.settings.semesterEnd
+          const start = next.settings.semesterStart
+          const end = next.settings.semesterEnd
+          const datesJustCompleted = !!(start && end) && !(prevStart && prevEnd)
+          if (datesJustCompleted) {
+            next.slots = next.slots.map((s) => ({ ...s, validFrom: start }))
+          } else if (start && prevStart && start !== prevStart) {
+            next.slots = next.slots.map((s) =>
+              s.validFrom === prevStart ? { ...s, validFrom: start } : s,
+            )
+          }
           // D7: when reminder lead time or arrival time change, re-arm every
           // native scheduled notification with the new timing.
           if (
