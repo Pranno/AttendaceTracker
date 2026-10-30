@@ -264,7 +264,7 @@ export function parseTimetableText(text: string): ImportResult {
   const seen = new Set<string>()
   for (const e of entries) {
     if (e.needsReview && !e.subjectShort) continue
-    const key = `${e.batch ?? ''}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const key = `${e.batch ?? '∅'}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(e)
@@ -396,6 +396,35 @@ function bandLines(frags: Frag[]): string[] {
  *  ("2407"), wrapped teacher initials ("KRP"), or a teacher word glued to the
  *  marker by the extractor ("(L)PS"). */
 
+/** A cell line may stack several batch entries side by side ("A1 … 2406 |
+ *  A2 … 2408"). Split it at the point where a new entry begins: an optional
+ *  batch tag followed by CODE + type marker. Boundaries are found with a
+ *  lookBEHIND over already-consumed text so positions stay exact even when
+ *  fragments glue tokens together ("(L)PS" or "ASEP(P)"). */
+function splitEntryLine(line: string): string[] {
+  const norm = normalizeTypeTok(line.replace(/\s+/g, ' ').trim())
+  if (!ENTRY_RE.test(norm)) return [norm]
+  const boundary = new RegExp(
+    String.raw`(?<=^|[^\w)])((?:[A-E](?:[1-9])?(?:[.\s-]+))?[A-Z][A-Z0-9]*(?:-[IVX]+)?\s*${TYPE_TOK})`,
+    'g',
+  )
+  const starts: number[] = []
+  let m: RegExpExecArray | null
+  while ((m = boundary.exec(norm))) {
+    // only real entry starts (the regex above could also fire mid-word)
+    if (m.index > 0 && /[A-Za-z]/.test(norm[m.index - 1])) continue
+    starts.push(m.index)
+  }
+  if (starts.length <= 1) return [norm]
+  const parts: string[] = []
+  for (let i = 0; i < starts.length; i++) {
+    const end = i + 1 < starts.length ? starts[i + 1] : norm.length
+    const piece = norm.slice(starts[i], end).trim()
+    if (piece) parts.push(piece)
+  }
+  return parts.length ? parts : [norm]
+}
+
 /** Merge fragments into visual lines (top→bottom), stitching continuation
  *  fragments (wrapped room numbers / teacher initials) onto their owner using
  *  REAL x positions: a continuation fragment joins the nearest entry ABOVE it
@@ -413,12 +442,21 @@ export function stitchCellFrags(frags: Frag[]): string[] {
   rows.sort((a, b) => b.y - a.y) // top of cell first (PDF y grows upward)
   for (const r of rows) r.frags.sort((a, b) => a.x - b.x)
 
-  /** Per output line: the fragments it was built from (for column matching). */
-  const lineFrags: Frag[][] = []
+  /** Per output line: one owning entry fragment (for column matching) plus a
+   *  fragment that stands for the whole line (fallback). */
+  const lineOwners: Frag[] = []
+  const lineReps: Frag[] = []
   const out: string[] = []
   const pushLine = (fs: Frag[]) => {
-    out.push(fs.map((f) => f.str.trim()).filter(Boolean).join(' '))
-    lineFrags.push(fs)
+    const ln = fs.map((f) => f.str.trim()).filter(Boolean).join(' ')
+    for (const p of splitEntryLine(ln)) {
+      // the fragment holding this piece's subject code owns continuations
+      const subj = p.match(/^[A-E](?:[1-9])?[.\s-]+([A-Z][A-Z0-9]*)|^[A-Z][A-Z0-9]*/)?.[1] ?? ''
+      const owner = fs.find((f) => f.str.toUpperCase().includes(subj)) ?? fs[0]
+      out.push(p)
+      lineOwners.push(owner)
+      lineReps.push(fs[0])
+    }
   }
 
   for (const r of rows) {
@@ -455,10 +493,12 @@ export function stitchCellFrags(frags: Frag[]): string[] {
         }
       }
       if (!owner) continue // unattributable noise → dropped, not flagged
-      const li = lineFrags.findIndex((fs) => fs.includes(owner))
+      // prefer the exact per-entry line owned by this fragment; fall back to
+      // any line built from the same source fragment (nearest row wins)
+      let li = lineOwners.findIndex((o) => o === owner)
+      if (li < 0) li = lineReps.length ? lineReps.lastIndexOf(lineReps.find((rp) => rp === owner) ?? undefined) : -1
       if (li < 0) continue
       out[li] = `${out[li]} ${s}`
-      lineFrags[li].push(c)
     }
   }
   return out
@@ -574,13 +614,14 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
     const found = [...union.entries()].map(([weekday, x]) => ({ weekday, x })).sort((a, b) => a.x - b.x)
     dayCols = extendDayCols(found) ?? found
   }
-  // Legend-page fragments must NEVER reach the grid reader: the abbreviation
+  // Legend-only pages must NEVER reach the grid reader: the abbreviation
   // table ("1 CP Computer Programming KRP Kailas R. Patil") contains code+
   // initials pairs that parse as real entries, and their x positions land in
   // the Monday/Tuesday bands — producing phantom classes on the wrong days.
-  // Filter whole legend PAGES (never fragments inside grid pages, whose cell
-  // content legitimately spans those same x ranges).
-  const gridPageFrags = pageFrags.filter((frags) => !pageHasLegendTable(frags))
+  // A page is exempt only if it has NO day-heading row of its own; pages that
+  // DO carry the weekday header are always grid pages even when a stray
+  // numeric-SN + word pattern appears on them.
+  const gridPageFrags = pageFrags.filter((frags) => findDayColumns(frags).length >= 4 || !pageHasLegendTable(frags))
   const entries: ParsedEntry[] = []
   const warnings: string[] = []
   const gridFrags: Frag[][] = []
@@ -790,16 +831,19 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   for (const b of rawBands) {
     const prev = merged.length ? merged[merged.length - 1] : null
     if (prev && prev.page === b.page && Math.abs(prev.yTop - b.yTop) <= 5) {
-      // Same visual row. If the two ranges share an endpoint they are SIBLING
-      // periods printed on one line ("2:15 - 3:15" beside "3.15 – 4.15"): keep
-      // both bands, at slightly offset tops so each owns its own vertical
-      // slice of the row below. Otherwise it's a duplicate reading of the same
-      // period — snap the earlier band's bottom to cover both rows.
-      const sharesEndpoint =
-        prev.start === b.end || prev.end === b.start || prev.end === b.end || prev.start === b.start
-      if (sharesEndpoint) {
-        merged.push({ ...b, yTop: b.yTop - 0.1 })
+      // Same visual row. Two different time labels side by side on one row
+      // ("2:15 - 3:15" and "3.15 – 4.15") are SIBLING periods whose cells sit
+      // in DIFFERENT day columns; giving them separate overlapping bands makes
+      // each cell get claimed by both periods (duplicate classes). Merge them
+      // into one band covering both labels — parseCellEntries then emits one
+      // entry per column cell with the correct period times. Only true
+      // duplicates of the SAME range collapse here; everything else keeps
+      // distinct bands.
+      if (prev.start === b.start && prev.end === b.end) {
+        prev.yBottom = Math.min(prev.yTop, b.yTop)
       } else {
+        prev.start = prev.start < b.start ? prev.start : b.start
+        prev.end = prev.end > b.end ? prev.end : b.end
         prev.yBottom = Math.min(prev.yTop, b.yTop)
       }
       continue
@@ -892,7 +936,7 @@ function finishGridParse(rawEntries: ParsedEntry[], frags: Frag[]): GridParseRes
   const batches = distinctBatches(rawEntries)
   const seen = new Set<string>()
   for (const e of rawEntries) {
-    const key = `${e.batch ?? ''}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const key = `${e.batch ?? '∅'}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
     if (seen.has(key)) continue
     seen.add(key)
     entries.push(e)
@@ -1029,7 +1073,7 @@ export function parseTimetableFragments(frags: Frag[]): GridParseResult {
   //      halves of a wrapped row should stay ONE class per period ----
   const seen = new Set<string>()
   for (const e of rawEntries) {
-    const key = `${e.batch ?? ''}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const key = `${e.batch ?? '∅'}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
     if (seen.has(key)) continue
     seen.add(key)
     entries.push(e)
