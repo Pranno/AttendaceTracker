@@ -9,7 +9,7 @@ import type { Tab } from './components/NavBar'
 import Today from './components/Today'
 import Calendar from './components/Calendar'
 import Subjects from './components/Subjects'
-import Plan from './components/Plan'
+import Timetable from './components/Timetable'
 import Study from './components/Study'
 import Settings from './components/Settings'
 import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync } from './logic/reminders'
@@ -43,10 +43,11 @@ function ReminderRunner() {
 export default function App() {
   const [tab, setTab] = useState<Tab>('today')
   const [focusSubjectId, setFocusSubjectId] = useState<string | null>(null)
-  // Navigation with optional subject deep-link (Today/Subjects → Plan).
+  // Navigation with optional subject deep-link (Today/Subjects → plan details).
+  // 'plan' is a legacy deep-link tab: it opens Subjects focused on that subject.
   const go = (t: Tab, subjectId?: string) => {
     setFocusSubjectId(subjectId ?? null)
-    setTab(t)
+    setTab(t === 'plan' ? 'subjects' : t)
   }
   return (
     <ThemeProvider>
@@ -54,12 +55,23 @@ export default function App() {
         <ReminderRunner />
         {tab === 'today' && <Today go={go} />}
         {tab === 'calendar' && <Calendar />}
-        {tab === 'plan' && <Plan focusSubjectId={focusSubjectId} />}
+        {tab === 'timetable' && <TimetableView />}
         {tab === 'study' && <Study />}
-        {tab === 'subjects' && <Subjects go={go} />}
+        {(tab === 'subjects' || tab === 'plan') && <Subjects go={go} focusSubjectId={focusSubjectId} />}
         {tab === 'settings' && <Settings />}
         <NavBar tab={tab} onChange={(t) => go(t)} />
       </AppProvider>
     </ThemeProvider>
+  )
+}
+
+/** The Timetable tab: the editor grid that used to live behind a chip inside
+ *  the Subjects screen. */
+function TimetableView() {
+  return (
+    <div className="screen pad">
+      <h1 style={{ margin: '0 0 8px' }}>Timetable</h1>
+      <Timetable />
+    </div>
   )
 }

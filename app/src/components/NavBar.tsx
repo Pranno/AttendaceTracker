@@ -14,14 +14,19 @@ import type { ClassType, DateStr } from '../data/model'
 import { todayStr } from '../logic/dates'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
 
-export type Tab = 'today' | 'calendar' | 'plan' | 'study' | 'subjects' | 'settings'
+// Six bottom tabs: Today · Subjects · Timetable · Calendar · Study · Settings.
+// The monthly planner details live inside the Subjects screen (per subject),
+// and the timetable editor is its own tab (it used to be a chip under
+// Subjects). 'plan' stays as a deep-link alias of Subjects so existing
+// go('plan', subjectId) calls keep working.
+export type Tab = 'today' | 'subjects' | 'timetable' | 'calendar' | 'plan' | 'study' | 'settings'
 
 const ITEMS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: 'today', label: 'Today', icon: SunMedium },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'plan', label: 'Plan', icon: CalendarRange },
-  { id: 'study', label: 'Study', icon: GraduationCap },
   { id: 'subjects', label: 'Subjects', icon: LayoutGrid },
+  { id: 'timetable', label: 'Timetable', icon: CalendarRange },
+  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { id: 'study', label: 'Study', icon: GraduationCap },
   { id: 'settings', label: 'Settings', icon: Settings2 },
 ]
 

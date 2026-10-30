@@ -1,29 +1,33 @@
 // Subjects screen (Step 2): a grid of big round icon tiles (Uber-services
 // style), each with the subject colour, name and an attendance badge in the
-// safe/limit/danger tone. Opening a subject shows its monthly plan card (J8),
-// percentage card, can-miss line and the weekly timetable for that subject.
-// The Timetable editor lives under the "Timetable" chip here.
+// safe/limit/danger tone. Opening a subject shows its monthly planner card
+// (J8 — lectures this month / to attend) plus percentage card, can-miss line
+// and the weekly timetable for that subject. The Timetable editor now lives
+// on its own bottom tab.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { useApp } from '../data/store'
 import type { DateStr } from '../data/model'
 import { buildReport } from '../logic/attendance'
 import { todayStr, weekdayName } from '../logic/dates'
-import { SectionTitle, StatusPill, ChipRow } from './ui/parts'
+import { SectionTitle, StatusPill } from './ui/parts'
 import { subjectPalette, subjectTileStyle, STATUS_VAR } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
-import Timetable from './Timetable'
 import MonthlyPlanCard from './MonthlyPlanCard'
 
 const SUBJECT_ICONS = ['📘', '🧪', '🧮', '💻', '📡', '🎨', '🛠️', '🌐']
 
-export default function Subjects({ go }: { go: (t: Tab, subjectId?: string) => void }) {
+export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectId?: string) => void; focusSubjectId?: string | null }) {
   const { data } = useApp()
   const { active } = useTheme()
-  const [view, setView] = useState<'grid' | 'timetable'>('grid')
   const [openId, setOpenId] = useState<string | null>(null)
+
+  // Deep-link from Today/warnings: open the focused subject's page directly.
+  useEffect(() => {
+    if (focusSubjectId) setOpenId(focusSubjectId)
+  }, [focusSubjectId])
 
   const today = todayStr()
   const rangeStart = useMemo<DateStr>(() => {
@@ -39,20 +43,6 @@ export default function Subjects({ go }: { go: (t: Tab, subjectId?: string) => v
 
   const open = openId ? report.bySubject.find((s) => s.subjectId === openId) : null
   const openIdx = open ? data.subjects.findIndex((s) => s.id === open.subjectId) : 0
-
-  if (view === 'timetable') {
-    return (
-      <div className="screen pad">
-        <div className="row" style={{ marginBottom: 8 }}>
-          <button className="icon-btn" onClick={() => setView('grid')} aria-label="Back">
-            <ArrowLeft size={20} />
-          </button>
-          <h1 style={{ margin: 0 }}>Timetable</h1>
-        </div>
-        <Timetable />
-      </div>
-    )
-  }
 
   if (open) {
     const slots = data.slots
@@ -109,14 +99,6 @@ export default function Subjects({ go }: { go: (t: Tab, subjectId?: string) => v
       <div className="row spread">
         <h1 style={{ margin: 0 }}>Subjects</h1>
       </div>
-      <ChipRow
-        options={[
-          { id: 'grid', label: 'My subjects' },
-          { id: 'timetable', label: 'Timetable' },
-        ]}
-        value={view}
-        onChange={setView}
-      />
 
       {report.bySubject.length === 0 ? (
         <div className="card empty-card">🗒️ No subjects yet — add your timetable under “Timetable”.</div>

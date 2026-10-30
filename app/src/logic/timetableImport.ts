@@ -335,14 +335,6 @@ const BREAK_TEXT_RE = /short\s*h?break|lunch|tea\s*break|\bbreak\b/i
 /** NOTE/legend prose that sits below the grid and bleeds into the last band. */
 const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Room|Batch-Course|Course\s*Type|Theory Lecture|Practical Lecture|Tutorial Course|Course:|\bAbbreviation\b|abbreviation|Faculty Member|Online\s+Session|Online|\(?\s*SATKAA|\bSession\s*\)?\s*$|R\.\s*Patil|Kailas/i
 
-/** Legend-table column bands (PDF points): SN + abbreviation left of 250,
- *  course name 250–470, teacher initials 470–600, teacher names ≥600. Used
- *  to keep legend-page fragments out of the grid entirely — otherwise a row
- *  like "1 CP Computer Programming KRP Kailas R. Patil" becomes phantom
- *  classes on Monday during the continuation-page coverage check. */
-const LEGEND_NAME_X = 250
-const LEGEND_FULLNAME_X = 600
-
 /** Does this PAGE carry the abbreviation table? The table header (the "S.N."
  *  cell plus its "abbreviation" / "Course Name" neighbour cells) is the only
  *  reliable marker — and it sits in the LOWER part of the page, below the
@@ -362,19 +354,6 @@ function pageHasLegendTable(frags: Frag[]): boolean {
   const dayY = Math.max(...frags.filter((f) => DAY_HEAD_RE.test(f.str)).map((f) => f.y), -Infinity)
   if (Number.isFinite(dayY) && sn.y >= dayY) return false
   return hasAbbrWord && hasNameWord
-}
-
-/** Is this fragment part of the abbreviation-legend table (by position)? */
-function isLegendFrag(f: Frag): boolean {
-  if (/^S\.?N\.?$/i.test(f.str)) return true
-  const s = f.str.trim()
-  // bare code in the abbreviation column ("CP", "VACO-I")
-  if (f.x < LEGEND_NAME_X && /^[A-Z]{2,6}(?:-[IVX]+)?$/.test(s)) return true
-  // any word sitting inside the name / initials columns
-  if (f.x >= LEGEND_NAME_X && f.x < LEGEND_FULLNAME_X) return true
-  // wrapped teacher full name at the far right ("Deepak T. Mane")
-  if (f.x >= LEGEND_FULLNAME_X && /[A-Za-z]/.test(s)) return true
-  return false
 }
 
 /** A cell may hold several stacked lines; join fragments into one string per
@@ -564,7 +543,6 @@ export function stitchCellFrags(frags: Frag[]): string[] {
         (o, idx) => o === owner && !(isRoomC && /\s\d{3,4}(?=\s|$)/.test(out[idx])),
       )
       if (li < 0) li = lineOwners.indexOf(owner)
-      if (li < 0) li = lineReps.length ? lineReps.lastIndexOf(lineReps.find((rp) => rp === owner) ?? undefined) : -1
       if (li < 0) continue
       out[li] = `${out[li]} ${s}`
     }
@@ -785,45 +763,6 @@ function dayColsByPage(pageFrags: Frag[][]): ({ weekday: number; x: number }[] |
     void pi
     return out
   })
-}
-
-/** Day columns found ANYWHERE in the document (per page), sorted left→right.
- *  Continuation pages of a grid often omit the day header row entirely — the
- *  columns must then be interpolated from the spacing of the header page and
- *  validated against where entries actually sit on each page. */
-function allDayColsByPage(pageFrags: Frag[][]): { weekday: number; x: number }[][] {
-  return pageFrags.map((frags) => findDayColumns(frags).sort((a, b) => a.x - b.x)).filter((c) => c.length >= 4)
-}
-
-/** Reconstruct the full left→right day set for continuation pages that lack a
- *  header row. Missing days are interpolated at the median column pitch; extra
- *  candidates beyond seven days are ignored. Returns null when nothing usable
- *  can be rebuilt. */
-function extendDayCols(found: { weekday: number; x: number }[]): { weekday: number; x: number }[] | null {
-  if (found.length < 2) return null
-  const byWd = new Map(found.map((c) => [c.weekday, c.x]))
-  const xs = found.map((c) => c.x)
-  const gaps = xs.slice(1).map((x, i) => x - xs[i]).sort((a, b) => a - b)
-  const pitch = gaps[Math.floor(gaps.length / 2)] // median spacing
-  if (!Number.isFinite(pitch) || pitch < 30) return null
-  const out: { weekday: number; x: number }[] = []
-  for (let wd = 1; wd <= 6; wd++) {
-    const known = byWd.get(wd)
-    if (known !== undefined) { out.push({ weekday: wd, x: known }); continue }
-    // interpolate between the nearest known neighbours
-    const before = [...byWd.entries()].filter(([w]) => w < wd).sort((a, b) => b[0] - a[0])[0]
-    const after = [...byWd.entries()].filter(([w]) => w > wd).sort((a, b) => a[0] - b[0])[0]
-    let x: number
-    if (before && after) {
-      const span = after[1] - before[1]
-      const steps = after[0] - before[0]
-      x = before[1] + (span * (wd - before[0])) / steps
-    } else if (before) x = before[1] + pitch * (wd - before[0])
-    else if (after) x = after[1] - pitch * (after[0] - wd)
-    else continue
-    out.push({ weekday: wd, x })
-  }
-  return out.length >= 4 ? out.sort((a, b) => a.x - b.x) : null
 }
 
 /** Does this page's content actually sit under the given column bands? Count

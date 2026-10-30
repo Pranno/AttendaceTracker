@@ -560,13 +560,13 @@ td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(
 .plan-whead { font-weight: 800; color: var(--soft); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
 .plan-wrow + .plan-wrow { border-top: 1px solid color-mix(in srgb, var(--soft) 14%, transparent); }
 
-/* pill nav with 5 items â€” tighter labels on small screens */
+/* pill nav with 6 items â€” tighter labels on small screens */
 .pillnav { gap: 2px; }
-.pillnav button span { font-size: 11px; }
-@media (max-width: 380px) {
-  .pillnav button { padding: 8px 9px; }
+.pillnav button span { font-size: 10.5px; }
+@media (max-width: 430px) {
+  .pillnav button { padding: 8px 7px; }
   .pillnav button span { display: none; }
-  .pillnav button.active span { display: inline; }
+  .pillnav button.on span { display: inline; }
 }
 
 /* ---------- Deadline paste extraction ---------- */
