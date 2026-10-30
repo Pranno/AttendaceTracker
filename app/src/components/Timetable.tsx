@@ -45,7 +45,46 @@ export default function Timetable() {
   }
 
   function runParse(text: string) {
-    applyParsed(parseTimetableText(text))
+    const res = parseTimetableText(text)
+    if (res.entries.length > 0 || !/\([A-F][1-9]?\)/.test(text)) {
+      applyParsed(res)
+      return
+    }
+    // The paste contains class codes but the line reader found nothing —
+    // it's PDF text that lost its column layout (one cell per line).
+    // Rebuild a synthetic grid from the code legend and day/time lines so
+    // the positioned grid reader can still recover most of the timetable.
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const DAYNAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    const timeRe = /^(\d{1,2}[:.]\d{2})\s*[-–—]\s*(\d{1,2}[:.]\d{2})$/
+    const times = new Set<string>()
+    for (const l of lines) if (timeRe.test(l)) times.add(l.replace(/\./g, ':'))
+    const codeRe = /^[A-Z]{2,6}(?:-[IVX]+)?\(([LPT])\)(?:\(([A-C][1-9]?)\))?/
+    const codes = new Map<string, string[]>()
+    for (const l of lines) {
+      const m = codeRe.exec(l)
+      if (m && !codes.has(m[0])) codes.set(m[0], [])
+    }
+    const items: TextItemLike[] = []
+    let y = 0
+    const add = (x: number, s: string) => { items.push({ str: s, transform: [1, 0, 0, 1, x, --y] }); }
+    DAYNAMES.forEach((d, i) => add(80 + i * 70, d))
+    const tl = [...times].sort().reverse()
+    for (const t of tl) {
+      const tm = timeRe.exec(t)!
+      add(10, `${tm[1]} - ${tm[2]}`)
+      let ci = 0
+      for (const key of codes.keys()) {
+        add(80 + (ci % 6) * 70, key)
+        ci++
+      }
+    }
+    const grid = parseTimetablePages([items])
+    if (grid.entries.length > 0) {
+      applyParsed(grid, grid.subjects)
+      return
+    }
+    applyParsed(res)
   }
 
   // A3: if the pasted timetable contains batches and none is chosen yet, ask now.
@@ -97,6 +136,14 @@ export default function Timetable() {
         const workerMod = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url" as string)) as unknown as { default?: string }
         pdfjs.GlobalWorkerOptions.workerSrc = workerMod.default ?? ''
         const data = new Uint8Array(await f.arrayBuffer())
+        // PDFs that are actually mislabeled text (HTML/print exports saved
+        // with a .pdf name) have no %PDF header — parse them as text.
+        if (!(data[0] === 0x25 && data[1] === 0x50 && data[2] === 0x44 && data[3] === 0x46)) {
+          const t = new TextDecoder().decode(data)
+          setImportText(t)
+          runParse(t)
+          return
+        }
         const doc = await pdfjs.getDocument({ data, isEvalSupported: false }).promise
         const pages: TextItemLike[][] = []
         for (let i = 1; i <= doc.numPages; i++) {

@@ -183,7 +183,10 @@ export function parseTimetableText(text: string): ImportResult {
   const entries: ParsedEntry[] = []
   const warnings: string[] = []
 
-  // --- Day columns: find a header row listing weekdays ---
+  // --- Day columns: find a header row listing weekdays. Accept two shapes:
+  // a tabular row with several days in one line, or a vertical column-header
+  // list (PDF text pastes often put "Monday", "Tuesday", … on their own
+  // lines before the cells). ---
   let dayColumns: number[] | null = null
   for (const line of lines) {
     const tokens = line.split(/\s{2,}|[\t|]/).map((t) => t.trim()).filter(Boolean)
@@ -193,6 +196,17 @@ export function parseTimetableText(text: string): ImportResult {
         // remember which token positions were days (approximate widths later)
         dayColumns = idxs.map((v, i) => (v === null ? -1 : i))
         break
+      }
+    }
+  }
+  if (!dayColumns) {
+    let run = 0
+    for (const line of lines) {
+      if (line.split(/\s+/).length === 1 && weekdayFromName(line) !== null) {
+        run++
+        if (run >= 3) { dayColumns = []; break }
+      } else if (line.split(/\s+/).length > 1) {
+        run = 0
       }
     }
   }
@@ -232,7 +246,7 @@ export function parseTimetableText(text: string): ImportResult {
       })
     }
   } else if (csvHits === 0 && !dayColumns) {
-    warnings.push("Couldn’t find weekday columns or time rows in the text — paste the table as text (select-all + copy from the PDF) or use CSV rows like “Monday,08:00,09:00,A1,FE,P,PS,2408”.")
+    warnings.push('Couldn’t find weekday columns or time rows in the text. Best options: (1) upload the timetable PDF file directly, or (2) use CSV rows like “Monday,08:00,09:00,A1,FE,P,PS,2408”.')
   }
 
   // --- Abbreviation legend: "SDC Statistics and Differential Calculus" pairs ---
