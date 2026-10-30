@@ -33,13 +33,47 @@ export function effectiveSubjectId(data: AppData, date: DateStr, slot: Slot): st
 export function slotsForDate(data: AppData, date: DateStr): Slot[] {
   const wd = weekdayOf(date)
   if (wd === 7 && !data.settings.sundayClasses) return []
-  return data.slots.filter(
-    (s) =>
-      s.weekday === wd &&
-      date >= s.validFrom &&
-      (s.validUntil === null || date <= s.validUntil) &&
-      slotMatchesBatch(s.batch, data.settings.myBatch),
+  return mergeLabPairs(
+    data.slots.filter(
+      (s) =>
+        s.weekday === wd &&
+        date >= s.validFrom &&
+        (s.validUntil === null || date <= s.validUntil) &&
+        slotMatchesBatch(s.batch, data.settings.myBatch),
+    ),
   )
+}
+
+const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+
+/** College rule: practical/lab lectures run as ONE session spanning two
+ *  consecutive periods with a single attendance (e.g. FE lab 10:15–12:15 is
+ *  one session). Timetables often store such a lab as two back-to-back slots
+ *  of the same subject/type/batch/teacher — merge them into one counted
+ *  session whose end time is the later one, so held/attended never double up.
+ *  The merged slot keeps the FIRST slot's id, which is what Today/Calendar
+ *  mark buttons write to, so marking stays a single tap per lab. */
+export function mergeLabPairs(slots: Slot[]): Slot[] {
+  const out: Slot[] = []
+  for (const s of [...slots].sort((a, b) => a.startTime.localeCompare(b.startTime))) {
+    const prev = out[out.length - 1]
+    if (
+      prev &&
+      prev.type === 'lab' &&
+      s.type === 'lab' &&
+      prev.subjectId === s.subjectId &&
+      prev.endTime === s.startTime &&
+      (prev.batch ?? '') === (s.batch ?? '') &&
+      prev.teacher === s.teacher
+    ) {
+      out[out.length - 1] = { ...prev, endTime: s.endTime > prev.endTime ? s.endTime : prev.endTime }
+      continue
+    }
+    out.push(s)
+  }
+  // A lab already stored as one long block (>= ~90 min) is fine as-is; nothing
+  // else to do. Sanity guard: drop zero/negative-duration artifacts.
+  return out.filter((s) => mins(s.endTime) > mins(s.startTime) || s.startTime === s.endTime)
 }
 
 /** True when the date falls inside a holiday range (A12). Exam days DO count

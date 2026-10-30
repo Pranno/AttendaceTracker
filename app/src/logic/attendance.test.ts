@@ -111,6 +111,83 @@ describe('J5 assumed past attendance + B2 no-class', () => {
     expect(t.attended).toBe(Math.round(0.8 * 13)) // 10 (0.8*13=10.4→10)
   })
 
+  describe('lab double-period rule (college: a practical spans 2 periods, 1 attendance)', () => {
+    const lab = (id: string, startTime: string, endTime: string, over: Record<string, unknown> = {}) => ({
+      id, subjectId: 's1', weekday: 3, startTime, endTime,
+      type: 'lab' as const, room: '', teacher: 'PS', validFrom: '2026-10-01', validUntil: null, ...over,
+    })
+
+    it('two back-to-back lab slots of the same subject merge into ONE session', () => {
+      const data = dataWith({
+        subjects: [{ id: 's1', shortName: 'FE', fullName: 'FE', nicknames: [] }],
+        slots: [lab('l1', '10:15', '11:15'), lab('l2', '11:15', '12:15')],
+      })
+      const day = slotsForDate(data, '2026-10-07') // Wednesday
+      expect(day.length).toBe(1)
+      expect(day[0].startTime).toBe('10:15')
+      expect(day[0].endTime).toBe('12:15')
+      // counts as one held class, not two
+      const t = computeSubjectTotals(data, 's1', '2026-10-07', '2026-10-07', '2026-10-08')
+      expect(t.held).toBe(1)
+    })
+
+    it('merged lab keeps the first slot id so marking is one tap', () => {
+      const data = dataWith({
+        subjects: [{ id: 's1', shortName: 'FE', fullName: 'FE', nicknames: [] }],
+        slots: [lab('l1', '10:15', '11:15'), lab('l2', '11:15', '12:15')],
+      })
+      const day = slotsForDate(data, '2026-10-07')
+      expect(day[0].id).toBe('l1')
+    })
+
+    it('different batches / subjects / teachers do NOT merge', () => {
+      const data = dataWith({
+        subjects: [{ id: 's1', shortName: 'FE', fullName: 'FE', nicknames: [] }],
+        slots: [
+          lab('l1', '10:15', '11:15', { batch: 'A1' }),
+          lab('l2', '11:15', '12:15', { batch: 'A2' }),
+        ],
+      })
+      expect(slotsForDate(data, '2026-10-07').length).toBe(2)
+    })
+
+    it('a lecture followed by a lab does not merge', () => {
+      const data = dataWith({
+        subjects: [{ id: 's1', shortName: 'FE', fullName: 'FE', nicknames: [] }],
+        slots: [
+          { ...lab('l1', '10:15', '11:15'), type: 'lecture' as const },
+          lab('l2', '11:15', '12:15'),
+        ],
+      })
+      expect(slotsForDate(data, '2026-10-07').length).toBe(2)
+    })
+
+    it('three stacked lab periods merge into one long session', () => {
+      const data = dataWith({
+        subjects: [{ id: 's1', shortName: 'FE', fullName: 'FE', nicknames: [] }],
+        slots: [
+          lab('l1', '10:15', '11:15'),
+          lab('l2', '11:15', '12:15'),
+          lab('l3', '12:15', '13:15'),
+        ],
+      })
+      const day = slotsForDate(data, '2026-10-07')
+      expect(day.length).toBe(1)
+      expect(day[0].endTime).toBe('13:15')
+    })
+
+    it('monthly planner counts a merged lab as one class in the month', () => {
+      const data = dataWith({
+        settings: { ...structuredClone(EMPTY_DATA.settings), semesterStart: '2026-10-01', threshold: 75 },
+        subjects: [{ id: 's1', shortName: 'FE', fullName: 'FE', nicknames: [] }],
+        slots: [lab('l1', '10:15', '11:15'), lab('l2', '11:15', '12:15')],
+      })
+      const plan = projectSubjectMonth(data, 's1', '2026-10', '2026-10-28')
+      // Wednesdays in Oct 2026: 7,14,21,28 → 4 lab sessions, not 8
+      expect(plan.classesInMonth).toBe(4)
+    })
+  })
+
   it('B8/J6: typed ERP totals replace calculated figures', () => {
     const data = dataWith({
       subjects: [{ id: 's1', shortName: 'X', fullName: 'X', nicknames: [], typedAttended: 30, typedHeld: 60 }],
