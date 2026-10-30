@@ -264,7 +264,7 @@ export function parseTimetableText(text: string): ImportResult {
   const seen = new Set<string>()
   for (const e of entries) {
     if (e.needsReview && !e.subjectShort) continue
-    const key = `${e.batch ?? ''}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const key = `${e.batch ?? '∅'}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(e)
@@ -335,6 +335,48 @@ const BREAK_TEXT_RE = /short\s*h?break|lunch|tea\s*break|\bbreak\b/i
 /** NOTE/legend prose that sits below the grid and bleeds into the last band. */
 const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Room|Batch-Course|Course\s*Type|Theory Lecture|Practical Lecture|Tutorial Course|Course:|\bAbbreviation\b|abbreviation|Faculty Member|Online\s+Session|Online|\(?\s*SATKAA|\bSession\s*\)?\s*$|R\.\s*Patil|Kailas/i
 
+/** Legend-table column bands (PDF points): SN + abbreviation left of 250,
+ *  course name 250–470, teacher initials 470–600, teacher names ≥600. Used
+ *  to keep legend-page fragments out of the grid entirely — otherwise a row
+ *  like "1 CP Computer Programming KRP Kailas R. Patil" becomes phantom
+ *  classes on Monday during the continuation-page coverage check. */
+const LEGEND_NAME_X = 250
+const LEGEND_FULLNAME_X = 600
+
+/** Does this PAGE carry the abbreviation table? The table header (the "S.N."
+ *  cell plus its "abbreviation" / "Course Name" neighbour cells) is the only
+ *  reliable marker — and it sits in the LOWER part of the page, below the
+ *  grid. Keying on loose number+word rows instead would flag ordinary
+ *  furniture ("1 IQAC-103", SN columns inside the grid) and silently drop a
+ *  whole grid page's classes. */
+function pageHasLegendTable(frags: Frag[]): boolean {
+  const sn = frags.find((f) => /^S\.?\s*N\.?$/i.test(f.str.trim()))
+  if (!sn) return false
+  const sameRow = frags.filter((f) => Math.abs(f.y - sn.y) <= 8)
+  const headerish = sameRow.filter((f) => f.x > sn.x)
+  const hasAbbrWord = headerish.some((f) => /abbrev/i.test(f.str))
+  const hasNameWord = headerish.some((f) => /course|name|teacher/i.test(f.str))
+  // A real legend-table header never sits above the weekday heading row; if
+  // this page also carries a day-header row at least as high up, the "S.N."
+  // hit is grid furniture, not the abbreviation table.
+  const dayY = Math.max(...frags.filter((f) => DAY_HEAD_RE.test(f.str)).map((f) => f.y), -Infinity)
+  if (Number.isFinite(dayY) && sn.y >= dayY) return false
+  return hasAbbrWord && hasNameWord
+}
+
+/** Is this fragment part of the abbreviation-legend table (by position)? */
+function isLegendFrag(f: Frag): boolean {
+  if (/^S\.?N\.?$/i.test(f.str)) return true
+  const s = f.str.trim()
+  // bare code in the abbreviation column ("CP", "VACO-I")
+  if (f.x < LEGEND_NAME_X && /^[A-Z]{2,6}(?:-[IVX]+)?$/.test(s)) return true
+  // any word sitting inside the name / initials columns
+  if (f.x >= LEGEND_NAME_X && f.x < LEGEND_FULLNAME_X) return true
+  // wrapped teacher full name at the far right ("Deepak T. Mane")
+  if (f.x >= LEGEND_FULLNAME_X && /[A-Za-z]/.test(s)) return true
+  return false
+}
+
 /** A cell may hold several stacked lines; join fragments into one string per
  *  visual line (top→bottom), so entries can be re-joined afterwards using the
  *  room-number continuation lines ("A2 CP (P)" + "KRP" then "2416"). */
@@ -361,6 +403,35 @@ function bandLines(frags: Frag[]): string[] {
  *  ("2407"), wrapped teacher initials ("KRP"), or a teacher word glued to the
  *  marker by the extractor ("(L)PS"). */
 
+/** A cell line may stack several batch entries side by side ("A1 … 2406 |
+ *  A2 … 2408"). Split it at the point where a new entry begins: an optional
+ *  batch tag followed by CODE + type marker. Boundaries are found with a
+ *  lookBEHIND over already-consumed text so positions stay exact even when
+ *  fragments glue tokens together ("(L)PS" or "ASEP(P)"). */
+function splitEntryLine(line: string): string[] {
+  const norm = normalizeTypeTok(line.replace(/\s+/g, ' ').trim())
+  if (!ENTRY_RE.test(norm)) return [norm]
+  const boundary = new RegExp(
+    String.raw`(?<=^|[^\w)])((?:[A-E](?:[1-9])?(?:[.\s-]+))?[A-Z][A-Z0-9]*(?:-[IVX]+)?\s*${TYPE_TOK})`,
+    'g',
+  )
+  const starts: number[] = []
+  let m: RegExpExecArray | null
+  while ((m = boundary.exec(norm))) {
+    // only real entry starts (the regex above could also fire mid-word)
+    if (m.index > 0 && /[A-Za-z]/.test(norm[m.index - 1])) continue
+    starts.push(m.index)
+  }
+  if (starts.length <= 1) return [norm]
+  const parts: string[] = []
+  for (let i = 0; i < starts.length; i++) {
+    const end = i + 1 < starts.length ? starts[i + 1] : norm.length
+    const piece = norm.slice(starts[i], end).trim()
+    if (piece) parts.push(piece)
+  }
+  return parts.length ? parts : [norm]
+}
+
 /** Merge fragments into visual lines (top→bottom), stitching continuation
  *  fragments (wrapped room numbers / teacher initials) onto their owner using
  *  REAL x positions: a continuation fragment joins the nearest entry ABOVE it
@@ -378,12 +449,50 @@ export function stitchCellFrags(frags: Frag[]): string[] {
   rows.sort((a, b) => b.y - a.y) // top of cell first (PDF y grows upward)
   for (const r of rows) r.frags.sort((a, b) => a.x - b.x)
 
-  /** Per output line: the fragments it was built from (for column matching). */
-  const lineFrags: Frag[][] = []
+  /** Per output line: one owning entry fragment (for column matching) plus a
+   *  fragment that stands for the whole line (fallback). */
+  const lineOwners: Frag[] = []
+  const lineReps: Frag[] = []
   const out: string[] = []
   const pushLine = (fs: Frag[]) => {
-    out.push(fs.map((f) => f.str.trim()).filter(Boolean).join(' '))
-    lineFrags.push(fs)
+    const ln = fs.map((f) => f.str.trim()).filter(Boolean).join(' ')
+    // One output LINE per source fragment when any fragment holds a real
+    // entry start. Stacked cells put each batch entry on its own baseline
+    // ("A1 CP (P) DTM" at y=221, "A2 FE (P) PS 2408" at y=193); joining the
+    // whole visual band into one string loses which entry a wrapped room /
+    // teacher continuation below belongs to. Per-fragment lines keep the
+    // ownership exact — a continuation attaches to the entry line directly
+    // above it in the same column.
+    // A fragment is an "entry start" only when it BEGINS with the entry
+    // pattern. Bare batch tags ("A1", "A2") and bare subjects ("FE") match
+    // ENTRY_RE internally because every group except the subject is optional,
+    // but they don't start a class record — requiring m.index === 0 keeps them
+    // from being treated as standalone lines (which made pushLine emit one
+    // output line per tag fragment and lose the joined-line context entirely).
+    const isStart = (s: string): boolean => {
+      const n = normalizeTypeTok(s)
+      const m = ENTRY_RE.exec(n)
+      return !!m && m.index === 0 && m[0].length >= n.trim().length - 14
+    }
+    const entryFrags = fs.filter((f) => isStart(f.str.trim()))
+    if (entryFrags.length > 1) {
+      for (const f of entryFrags) {
+        for (const p of splitEntryLine(f.str.trim())) {
+          out.push(p)
+          lineOwners.push(f)
+          lineReps.push(f)
+        }
+      }
+      return
+    }
+    for (const p of splitEntryLine(ln)) {
+      // the fragment holding this piece's subject code owns continuations
+      const subj = p.match(/^[A-E](?:[1-9])?[.\s-]+([A-Z][A-Z0-9]*)|^[A-Z][A-Z0-9]*/)?.[1] ?? ''
+      const owner = fs.find((f) => f.str.toUpperCase().includes(subj)) ?? fs[0]
+      out.push(p)
+      lineOwners.push(owner)
+      lineReps.push(fs[0])
+    }
   }
 
   for (const r of rows) {
@@ -399,6 +508,32 @@ export function stitchCellFrags(frags: Frag[]): string[] {
     // Pure continuation row ("2407 2403", "KRP") — attach each fragment to the
     // closest entry-bearing line above that shares its column and lacks the
     // same kind of value.
+    // When the extractor glues several tokens onto ONE baseline ("A CP (L) PS
+    // 2406" or "(P) CK 2416"), the glued room/teacher live INSIDE that
+    // fragment — pre-split them into standalone fragments (same y, estimated
+    // x from character offsets) so the ownership pass below can see and
+    // attribute them.
+    const expanded: Frag[] = []
+    for (const f of r.frags) {
+      const s = f.str.trim()
+      let m = /([A-Za-z)])\s+(\d{3,4})\s*$/.exec(s)
+      if (m && !/^\d/.test(s)) {
+        const roomStart = f.x + (m.index + m[1].length + 1) * ((f.end - f.x) / Math.max(1, f.str.length))
+        expanded.push({ ...f, str: s.slice(0, m.index + m[1].length).trim(), end: roomStart })
+        expanded.push({ x: roomStart, end: f.end, y: f.y, str: m[2], page: f.page })
+        continue
+      }
+      m = /\((?:[LPTS])\)\s+([A-Z][A-Za-z0-9]{1,3})\s*$/i.exec(s)
+      if (m && !ENTRY_RE.test(normalizeTypeTok(s))) {
+        // marker+teacher glue with no subject code → standalone teacher frag
+        const tStart = f.x + (m.index + m[0].length - m[1].length) * ((f.end - f.x) / Math.max(1, f.str.length))
+        expanded.push({ ...f, str: s.slice(0, m.index).trim(), end: tStart })
+        expanded.push({ x: tStart, end: f.end, y: f.y, str: m[1], page: f.page })
+        continue
+      }
+      expanded.push(f)
+    }
+    r.frags = expanded.sort((a, b) => a.x - b.x)
     for (const c of r.frags) {
       const s = c.str.trim()
       if (!s) continue
@@ -410,7 +545,7 @@ export function stitchCellFrags(frags: Frag[]): string[] {
       outer: for (let j = rows.indexOf(r) - 1; j >= 0; j--) {
         for (const f of rows[j].frags) {
           if (!ENTRY_RE.test(normalizeTypeTok(f.str.trim()))) continue
-          if (overlapFracX(c, f.x, f.end) < 0.5) continue
+          if (overlapFracX(c, f.x - 2, f.end + 2) < 0.5) continue
           // does this fragment's own entry still lack this kind of value?
           const ent = normalizeTypeTok(f.str.trim())
           if (isRoom && /\d{3,4}(?=\s|$)/.test(ent.slice(ENTRY_RE.exec(ent)!.index))) continue
@@ -420,10 +555,18 @@ export function stitchCellFrags(frags: Frag[]): string[] {
         }
       }
       if (!owner) continue // unattributable noise → dropped, not flagged
-      const li = lineFrags.findIndex((fs) => fs.includes(owner))
+      // prefer the exact per-entry line owned by this fragment — and for room
+      // numbers, only a line that doesn't ALREADY carry one (otherwise the
+      // continuation lands on the wrong entry in a multi-batch cell). Fall
+      // back to any line built from the same source fragment (nearest wins).
+      const isRoomC = /^\d{3,4}$/.test(s)
+      let li = lineOwners.findIndex(
+        (o, idx) => o === owner && !(isRoomC && /\s\d{3,4}(?=\s|$)/.test(out[idx])),
+      )
+      if (li < 0) li = lineOwners.indexOf(owner)
+      if (li < 0) li = lineReps.length ? lineReps.lastIndexOf(lineReps.find((rp) => rp === owner) ?? undefined) : -1
       if (li < 0) continue
       out[li] = `${out[li]} ${s}`
-      lineFrags[li].push(c)
     }
   }
   return out
@@ -474,7 +617,46 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
         frags.push({ x, end: it.end, y, str: s, page: pgIndex })
       }
     }
-    pageFrags.push(frags)
+    // ---- Split glued extraction runs (T2/T3 hardening) ----
+    // pdf.js sometimes merges an entire visual row into ONE item
+    // ("8:00 - 9:00 A2 WAD (P) YP 2314 A FE (L) PS 2406"). Such mega-fragments
+    // have no usable x-extent, so they overlap EVERY day column at once and
+    // the whole row gets read under Monday (the "Tuesday classes appear on
+    // Monday" symptom). Cut them at period boundaries (a time range followed
+    // by a class entry) and emit sub-fragments evenly spaced across the run's
+    // width — enough positional signal for correct column attribution.
+    const ENTRY_TOK_RE = /[A-Z][A-Z0-9]*(?:-[IVX]+)?\s*\(\s*[LPTS]\s*\)/i
+    const TIME_HEAD_RE = /\d{1,2}[.:]\d{2}\s*[-–—]\s*\d{1,2}(?:[.:]\d{2})?/
+    const splitFrags: Frag[] = []
+    for (const f of frags) {
+      const wideEnough = f.end - f.x > 60 // a real run of text
+      const glued = wideEnough && TIME_HEAD_RE.test(f.str) && (f.str.match(ENTRY_TOK_RE) ?? []).length >= 2
+      if (!glued) { splitFrags.push(f); continue }
+      // cut points: just before each time range that follows an entry token
+      const cuts: number[] = [0]
+      const re = new RegExp(String.raw`${ENTRY_TOK_RE.source}[^]*?(?=${TIME_HEAD_RE.source})`, 'gi')
+      let mm: RegExpExecArray | null
+      while ((mm = re.exec(f.str))) cuts.push(mm.index + mm[0].length)
+      cuts.push(f.str.length)
+      const uniqCuts = [...new Set(cuts)].sort((a, b) => a - b)
+      const pieces: string[] = []
+      for (let i = 0; i + 1 < uniqCuts.length; i++) {
+        const piece = f.str.slice(uniqCuts[i], uniqCuts[i + 1]).trim()
+        if (piece) pieces.push(piece)
+      }
+      if (pieces.length <= 1) { splitFrags.push(f); continue }
+      const w = f.end - f.x
+      pieces.forEach((p, i) => {
+        splitFrags.push({
+          x: f.x + (w * i) / pieces.length,
+          end: f.x + (w * (i + 1)) / pieces.length,
+          y: f.y,
+          str: p,
+          page: f.page,
+        })
+      })
+    }
+    pageFrags.push(splitFrags)
   })
   const all = pageFrags.flat()
   if (all.length === 0) {
@@ -487,35 +669,38 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   // "Tuesday" split by the extractor) — otherwise Tuesday's classes get
   // attributed to Monday because Monday's band stretches over it. Pages with
   // no header are validated against these bands before being read.
-  const perPageCols = allDayColsByPage(pageFrags)
-  let dayCols: { weekday: number; x: number }[] = []
-  if (perPageCols.length) {
-    const union = new Map<number, number>()
-    for (const cols of perPageCols) {
-      for (const c of cols) {
-        if (!union.has(c.weekday)) union.set(c.weekday, c.x)
-        else union.set(c.weekday, Math.min(union.get(c.weekday)!, c.x))
-      }
-    }
-    const found = [...union.entries()].map(([weekday, x]) => ({ weekday, x })).sort((a, b) => a.x - b.x)
-    dayCols = extendDayCols(found) ?? found
-  }
+  // Day columns are computed PER PAGE. Every page has its own coordinate
+  // space and its own column geometry — page 2's grid starts further right
+  // than page 1's Monday column, so forcing page-2 cells through page-1 bands
+  // silently drops the afternoon classes. Pages without their own heading row
+  // get Mon–Sat anchors interpolated from the observed heading pitch.
+  const colsByPage = dayColsByPage(pageFrags)
+  const headerPages = colsByPage.filter(Boolean) as { weekday: number; x: number }[][]
+  const dayCols = headerPages[0] ?? []
+  // Legend-only pages must NEVER reach the grid reader: the abbreviation
+  // table ("1 CP Computer Programming KRP Kailas R. Patil") contains code+
+  // initials pairs that parse as real entries, and their x positions land in
+  // the Monday/Tuesday bands — producing phantom classes on the wrong days.
+  // A page is exempt only if it has NO day-heading row of its own; pages that
+  // DO carry the weekday header are always grid pages even when a stray
+  // numeric-SN + word pattern appears on them.
+  const gridPageFrags = pageFrags.map((frags, pi) => ({ frags, cols: colsByPage[pi] })).filter(({ frags }) => findDayColumns(frags).length >= 4 || !pageHasLegendTable(frags))
   const entries: ParsedEntry[] = []
   const warnings: string[] = []
   const gridFrags: Frag[][] = []
-  for (const frags of pageFrags) {
-    if (dayCols.length < 4) continue
+  for (const { frags, cols } of gridPageFrags) {
+    if (!cols || cols.length < 4) continue
     const hasHeader = findDayColumns(frags).length >= 4
     if (!hasHeader) {
       // Continuation page: only treat it as part of the grid when its class
       // fragments actually spread across ≥2 day columns. A legend/notes page
       // has entry-looking prose clustered in one area — reading it would
       // invent phantom classes on the wrong days.
-      const cov = pageColumnCoverage(frags, dayCols)
+      const cov = pageColumnCoverage(frags, cols)
       if (cov.size < 2) continue
     }
     gridFrags.push(frags)
-    entries.push(...readGridBoxes(frags, dayCols, warnings))
+    entries.push(...readGridBoxes(frags, cols, warnings))
   }
   if (dayCols.length < 4 && entries.length === 0) {
     return { entries: [], batches: [], subjects: [], warnings: ['No weekday heading row found in the file — add the classes by hand or paste the table as text.'] }
@@ -535,19 +720,71 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   return res
 }
 
-/** Locate the visual row(s) carrying ≥4 weekday names → column anchors. */
+/** Locate the visual row(s) carrying ≥4 weekday names → column anchors.
+ *  Anchors use the CENTRE of each heading fragment: cells hang around the
+ *  heading, not its left edge, and using `x` biased every band ~25pt to the
+ *  right (the "Tuesday classes land on Monday" symptom).
+ *  Handles glued extraction rows: when one fragment holds several day names
+ *  ("Time Monday Tuesday Wednesday…"), its width is split proportionally at
+ *  each name's character offset, so every heading still gets an x anchor. */
 export function findDayColumns(frags: Frag[]): { weekday: number; x: number }[] {
   const ys = [...new Set(frags.map((f) => f.y))].sort((a, b) => b - a)
   for (const y of ys) {
     const row = frags.filter((f) => Math.abs(f.y - y) <= 3).sort((a, b) => a.x - b.x)
-    const hits = row
-      .map((f) => ({ f, wd: DAY_HEAD_RE.test(f.str) ? weekdayFromName(f.str) : null }))
-      .filter((h) => h.wd !== null)
-    if (hits.length >= 4) {
-      return hits.map((h) => ({ weekday: h.wd!, x: h.f.x }))
+    const hits: { weekday: number; x: number }[] = []
+    for (const f of row) {
+      const wd = DAY_HEAD_RE.test(f.str) ? weekdayFromName(f.str) : null
+      if (wd !== null) { hits.push({ weekday: wd, x: (f.x + f.end) / 2 }); continue }
+      // multi-day run inside one fragment — cut it into per-day anchors
+      const re = /\b(mon|tues|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)?\b/gi
+      let m: RegExpExecArray | null
+      const found: { weekday: number; idx: number }[] = []
+      while ((m = re.exec(f.str))) {
+        const wd = weekdayFromName(m[0])
+        if (wd !== null && !found.some((x) => x.weekday === wd)) found.push({ weekday: wd, idx: m.index })
+      }
+      if (found.length < 2) continue
+      const w = Math.max(1, f.end - f.x)
+      for (let i = 0; i < found.length; i++) {
+        const frac = found[i].idx / Math.max(1, f.str.length)
+        const nextFrac = i + 1 < found.length ? found[i + 1].idx / f.str.length : 1
+        // centre of this day's slice within the run
+        hits.push({ weekday: found[i].weekday, x: f.x + w * ((frac + nextFrac) / 2) })
+      }
     }
+    if (hits.length >= 4) return hits.sort((a, b) => a.x - b.x)
   }
   return []
+}
+
+/** Per-page day columns. Page 2+ of these grids repeats the time labels but
+ *  NOT the weekday headings, and its own cell content starts further right
+ *  than page 1's Monday column would allow — forcing page-2 cells into page-1
+ *  bands loses the afternoon classes entirely. So: pages with their own
+ *  heading row use those anchors; pages without get their headings
+ *  interpolated from the observed pitch of the neighbouring pages' columns
+ *  (median spacing), keeping each page in its own coordinate space. */
+function dayColsByPage(pageFrags: Frag[][]): ({ weekday: number; x: number }[] | null)[] {
+  const perPage = pageFrags.map((frags) => {
+    const cols = findDayColumns(frags)
+    return cols.length >= 4 ? cols : null
+  })
+  const known = perPage.filter(Boolean) as { weekday: number; x: number }[][]
+  if (!known.length) return pageFrags.map(() => null)
+  // median pitch between adjacent headings across all header pages
+  const gaps: number[] = []
+  for (const cols of known) for (let i = 1; i < cols.length; i++) gaps.push(cols[i].x - cols[i - 1].x)
+  gaps.sort((a, b) => a - b)
+  const pitch = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 100
+  return perPage.map((cols, pi) => {
+    if (cols) return cols
+    // interpolate a full Mon–Sat set anchored on the average first-column x
+    const avgFirst = known.reduce((s, c) => s + c[0].x, 0) / known.length
+    const out: { weekday: number; x: number }[] = []
+    for (let wd = 1; wd <= 6; wd++) out.push({ weekday: wd, x: avgFirst + pitch * (wd - 1) })
+    void pi
+    return out
+  })
 }
 
 /** Day columns found ANYWHERE in the document (per page), sorted left→right.
@@ -690,14 +927,34 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   for (const b of rawBands) {
     const prev = merged.length ? merged[merged.length - 1] : null
     if (prev && prev.page === b.page && Math.abs(prev.yTop - b.yTop) <= 5) {
-      // keep the earlier (higher) band; snap its bottom to cover both rows
-      prev.yBottom = Math.min(prev.yTop, b.yTop)
+      // Same visual row. Two different time labels side by side on one row
+      // ("2:15 - 3:15" and "3.15 – 4.15") are SIBLING periods whose cells sit
+      // in DIFFERENT day columns; giving them separate overlapping bands makes
+      // each cell get claimed by both periods (duplicate classes). Merge them
+      // into one band covering both labels — parseCellEntries then emits one
+      // entry per column cell with the correct period times. Only true
+      // duplicates of the SAME range collapse here; everything else keeps
+      // distinct bands.
+      if (prev.start === b.start && prev.end === b.end) {
+        prev.yBottom = Math.min(prev.yTop, b.yTop)
+      } else {
+        prev.start = prev.start < b.start ? prev.start : b.start
+        prev.end = prev.end > b.end ? prev.end : b.end
+        prev.yBottom = Math.min(prev.yTop, b.yTop)
+      }
       continue
     }
     merged.push(b)
   }
   // A cell may stack two periods sharing an endpoint (10:00-10:15 break then
   // 10:15-11:15 class): give such a short band only the sliver above the next.
+  // The NEXT band is the one just BELOW this one in reading order — but PDF y
+  // grows upward, so after sorting top→bottom, `merged[i+1]` must have a LOWER
+  // y. When two bands share the same y (a split label like "2:15 - 3:15" plus
+  // "3.15 – 4.15" glued onto one visual row), they are SIBLINGS: the second
+  // owns everything below the first's bottom, and the pair together bounds the
+  // row underneath. Treat same-y neighbours as siblings by offsetting their
+  // effective tops a hair so ordering stays deterministic.
   for (let i = 0; i < merged.length; i++) {
     const next = merged[i + 1]
     if (!next || next.page !== merged[i].page) { merged[i].yBottom = -Infinity; continue }
@@ -713,6 +970,81 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   // under that page's lowest time label is prose, not a class. Cut there — per
   // page, because every page has its own y origin (a legend page's bottom row
   // can sit at the same y as a grid page's first period).
+  // ---- stacked batch rows ------------------------------------------------
+  // Cells hold one entry per text baseline: in the 8:00-9:00 Monday cell the
+  // three batches sit at y=334.5 (A1), 320.7 (A2) and 306.9 (A3) while the
+  // time label itself sits on just ONE of those baselines. With bands clamped
+  // to their own label row, only that middle baseline falls inside the box
+  // and the other batch rows are silently dropped (their tags never reach
+  // distinctBatches()). Assign every entry-bearing baseline to exactly ONE
+  // period band: the band whose label row is vertically closest (within ~2
+  // periods; ties go to the upper band). This keeps multi-row cells intact
+  // without ever letting a band swallow the next period's rows.
+  {
+    // Entry-bearing baselines are measured on ENTRY FRAGMENT ROWS (true
+    // baselines), not grouped visual lines: the extractor puts each stacked
+    // batch row on its own baseline (A1 334.5, A2 320.7, A3 306.9) while the
+    // period label sits at just one of them. Grouped rows would glue those
+    // three batches into one line and lose their tags entirely.
+    const baseRow = (f: Frag): number => Math.round(f.y * 2) / 2
+    // Entry-bearing baselines are measured on GROUPED visual rows just like
+    // the cell reader does — but with a TIGHT tolerance. pdf.js stacks batch
+    // rows ~6.9pt apart ("A1 FE (P) PS" at y=334.5, "8:00 - 9:00 A2 WAD…" at
+    // 320.7); grouping with ±3 would glue those two rows into one line whose
+    // text starts with "A1 …", so the whole row gets attributed to whichever
+    // band owns the top fragment and the period label's own baseline never
+    // reaches its band. With ±2 every batch row stays its own line: the ones
+    // starting with an entry pattern mark baselines; label rows (starting
+    // with the time range) don't match ENTRY_RE and stay neutral.
+    interface ERow { page: number; y: number; frags: Frag[] }
+    const eRows: ERow[] = []
+    for (const f of frags) {
+      let r = eRows.find((x) => x.page === f.page && Math.abs(x.y - f.y) <= 2)
+      if (!r) { r = { page: f.page, y: baseRow(f), frags: [] }; eRows.push(r) }
+      r.frags.push(f)
+    }
+    /** Does this joined line START with a real class entry? ENTRY_RE alone is
+     *  anchored only at "^" and every optional group can match empty, so it
+     *  fires on any uppercase word anywhere ("Short Break", wrapped rooms).
+     *  Require the subject code + type marker to begin within the first few
+     *  characters (after an optional batch tag). */
+    const startsWithEntry = (ln: string): boolean => {
+      const m = ENTRY_RE.exec(ln)
+      return !!m && m.index <= 4 && /\(\s*[LPTS]\s*\)|\([LPTS][A-Za-z(]/.test(ln.slice(m.index, m.index + 40))
+    }
+    const entryRows = eRows.filter((r) => {
+      const ln = normalizeTypeTok(
+        [...r.frags].sort((a, b) => a.x - b.x).map((f) => f.str.trim()).filter(Boolean).join(' '),
+      )
+      return !!ln && startsWithEntry(ln)
+    })
+    // Anchor each period band's box over its stacked batch rows. The time
+    // label sits on ONE baseline of the block (e.g. 8:00-9:00 at y=320.7 with
+    // A1@334.5 above and A3@306.9 below), so grow BOTH ways from the label —
+    // but never past the next period's own cell block. Consecutive entry rows
+    // are ~6.9pt apart; a gap of more than two pitches (~16pt) means the cell
+    // ended and the next block began, so growth stops there. This is what
+    // keeps the previous period's lowest batch row from being swallowed by
+    // the band below (the duplicate-class symptom).
+    const sortedBands = [...uniqBands].sort((a, b) => a.page - b.page || b.yTop - a.yTop)
+    for (const band of sortedBands) {
+      let curTop = band.yTop
+      for (;;) {
+        const cand = entryRows.filter((r) => r.page === band.page && r.y > curTop + 3 && r.y < curTop + 16)
+        if (!cand.length) break
+        curTop = Math.min(...cand.map((r) => r.y))
+      }
+      let curBot = band.yBottom
+      for (;;) {
+        const cand = entryRows.filter((r) => r.page === band.page && r.y < curBot - 3 && r.y > curBot - 16)
+        if (!cand.length) break
+        curBot = Math.max(...cand.map((r) => r.y))
+      }
+      band.yTop = curTop
+      band.yBottom = curBot
+    }
+  }
+
   const proseCutByPage = new Map<number, number>()
   for (const b of uniqBands) {
     if (proseCutByPage.has(b.page)) continue
@@ -773,11 +1105,17 @@ function finishGridParse(rawEntries: ParsedEntry[], frags: Frag[]): GridParseRes
   const warnings: string[] = []
   const entries: ParsedEntry[] = []
   const batches = distinctBatches(rawEntries)
-  const seen = new Set<string>()
+  // De-dupe per day, but keep a period's stacked batch rows intact: two
+  // batches can genuinely share subject+type+time in one cell ("A1 CP (L)"
+  // above "A2 CP (L)"). When that happens, require the NEXT occurrence to
+  // carry a different batch tag — otherwise it is a duplicate emitted by an
+  // overlapping band and must be dropped. Rows with no tag never block others.
+  const seen = new Map<string, string | null>()
   for (const e of rawEntries) {
-    const key = `${e.batch ?? ''}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
-    if (seen.has(key)) continue
-    seen.add(key)
+    const key = `${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const prevBatch = seen.get(key)
+    if (prevBatch !== undefined && (e.batch ?? null) === prevBatch) continue
+    seen.set(key, e.batch ?? null)
     entries.push(e)
   }
   const subjects = readLegend(frags)
@@ -912,7 +1250,7 @@ export function parseTimetableFragments(frags: Frag[]): GridParseResult {
   //      halves of a wrapped row should stay ONE class per period ----
   const seen = new Set<string>()
   for (const e of rawEntries) {
-    const key = `${e.batch ?? ''}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const key = `${e.batch ?? '∅'}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
     if (seen.has(key)) continue
     seen.add(key)
     entries.push(e)
