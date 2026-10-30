@@ -1,16 +1,19 @@
 // ============================================================
-// Study tab — Section E (E1–E10). Exposes logic/study.ts:
+// Study tab — Section E (E1–E11). Exposes logic/study.ts:
+//  • Courses: subject cards + opened view Units/Marks/Due (E1, CourseParts)
 //  • "What to revise next" suggestion card (E8)
 //  • Exam countdown plans for upcoming unit tests (E7)
 //  • Coming-up deadlines in words (E6)
 //  • Syllabus units & topics with revise tick-offs (E2–E4)
 //  • Practice questions with spaced repetition boxes (E10)
 //  • Focus timer logging study sessions + streak (E9)
+//  • Marks / marking scheme per subject (E5, MarksPanel)
+//  • CGPA planner (E11, CgpaPlanner)
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../data/store'
-import type { PracticeQuestion, Unit } from '../data/model'
+import type { PracticeQuestion, Subject, Unit } from '../data/model'
 import { todayStr, addDays, formatShort } from '../logic/dates'
 import { slotsForDate } from '../logic/attendance'
 import {
@@ -26,6 +29,8 @@ import {
 } from '../logic/study'
 import { SectionTitle, Sheet, StatusPill } from './ui/parts'
 import SpecialCourses from './SpecialCourses'
+import CgpaPlanner from './CgpaPlanner'
+import { CourseCard, SubjectCourseView } from './CourseParts'
 
 // ---------------- Focus timer (E9) ----------------
 function FocusTimer() {
@@ -259,6 +264,10 @@ export default function Study() {
   const { data, addUnit, deleteUnit } = useApp()
   const today = todayStr()
 
+  // E1: opened course (subject) view — Units / Marks / Due chips.
+  const [openSubjectId, setOpenSubjectId] = useState<string | null>(null)
+  const openSubject = openSubjectId ? data.subjects.find((s) => s.id === openSubjectId) ?? null : null
+
   const suggestion = useMemo(() => {
     const todays = slotsForDate(data, today)
       .map((s) => data.subjects.find((x) => x.id === s.subjectId)?.shortName ?? '')
@@ -282,6 +291,54 @@ export default function Study() {
     }
     return map
   }, [data.units])
+
+  /** The per-subject unit editor block (UnitCards + "add a unit"), reused by
+   *  the opened-course view (E1 "Units" chip). */
+  function unitsEditorFor(subject: Subject) {
+    const units = unitsBySubject.get(subject.id) ?? []
+    return (
+      <div>
+        <SectionTitle>{subject.shortName} UNITS</SectionTitle>
+        {units.length === 0 && <div className="card msg">No units yet — add one below, or upload the syllabus so every unit lists all its topics.</div>}
+        {units.map((u) => (
+          <div key={u.id} className="row" style={{ gap: 4, alignItems: 'stretch' }}>
+            <div className="grow">
+              <UnitCard unit={u} />
+            </div>
+            <button className="icon-btn" aria-label="Delete unit" onClick={() => deleteUnit(u.id)}>🗑</button>
+          </div>
+        ))}
+        <div className="card" style={{ marginTop: 10 }}>
+          <b>Add a unit</b>
+          <div className="row" style={{ marginTop: 8, gap: 6 }}>
+            <input className="grow" placeholder="e.g. Unit 1: Limits" value={newUnitTitle} onChange={(e) => setNewUnitTitle(e.target.value)} />
+          </div>
+          <button
+            className="primary"
+            style={{ marginTop: 8 }}
+            disabled={!newUnitTitle.trim()}
+            onClick={() => {
+              addUnit({ subjectId: subject.id, title: newUnitTitle.trim(), hoursInClass: 0, revisedDate: null, kind: 'unit' })
+              setNewUnitTitle('')
+            }}
+          >
+            Add unit to {subject.shortName}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Opened-subject full-screen view (E1): Units / Marks / Due.
+  if (openSubject) {
+    return (
+      <SubjectCourseView
+        subject={openSubject}
+        onBack={() => setOpenSubjectId(null)}
+        unitsSlot={unitsEditorFor(openSubject)}
+      />
+    )
+  }
 
   return (
     <div className="screen pad">
@@ -351,47 +408,43 @@ export default function Study() {
       <SectionTitle>FOCUS</SectionTitle>
       <FocusTimer />
 
-      {/* E2 syllabus units */}
-      <SectionTitle>SYLLABUS UNITS</SectionTitle>
+      {/* E1 courses: one card per subject; tapping opens Units / Marks / Due */}
+      <SectionTitle>COURSES</SectionTitle>
       {data.subjects.length === 0 && <div className="card msg">Add subjects first (Subjects tab or import the timetable).</div>}
-      {data.subjects.map((s) => {
-        const units = unitsBySubject.get(s.id) ?? []
-        return (
-          <div key={s.id}>
-            {units.length > 0 && <div className="small-label" style={{ marginTop: 10 }}>{s.shortName} — {s.fullName}</div>}
-            {units.map((u) => (
-              <div key={u.id} className="row" style={{ gap: 4, alignItems: 'stretch' }}>
-                <div className="grow">
-                  <UnitCard unit={u} />
-                </div>
-                <button className="icon-btn" aria-label="Delete unit" onClick={() => deleteUnit(u.id)}>🗑</button>
-              </div>
-            ))}
-          </div>
-        )
-      })}
-      <div className="card" style={{ marginTop: 10 }}>
-        <b>Add a unit</b>
-        <div className="row" style={{ marginTop: 8, gap: 6 }}>
-          <select className="grow" value={newUnitSubj} onChange={(e) => setNewUnitSubj(e.target.value)}>
-            {data.subjects.map((s) => (
-              <option key={s.id} value={s.id}>{s.shortName}</option>
-            ))}
-          </select>
-          <input className="grow" placeholder="e.g. Unit 1: Limits" value={newUnitTitle} onChange={(e) => setNewUnitTitle(e.target.value)} />
+      {data.subjects.map((s) => (
+        <div key={s.id} style={{ marginBottom: 8 }}>
+          <CourseCard subject={s} onOpen={() => setOpenSubjectId(s.id)} />
         </div>
-        <button
-          className="primary"
-          style={{ marginTop: 8 }}
-          disabled={!newUnitSubj || !newUnitTitle.trim()}
-          onClick={() => {
-            addUnit({ subjectId: newUnitSubj, title: newUnitTitle.trim(), hoursInClass: 0, revisedDate: null, kind: 'unit' })
-            setNewUnitTitle('')
-          }}
-        >
-          Add unit
-        </button>
-      </div>
+      ))}
+
+      {/* Quick-add a unit for any subject from the main screen */}
+      {data.subjects.length > 0 && (
+        <div className="card" style={{ marginTop: 10 }}>
+          <b>Add a unit</b>
+          <div className="row" style={{ marginTop: 8, gap: 6 }}>
+            <select className="grow" value={newUnitSubj} onChange={(e) => setNewUnitSubj(e.target.value)}>
+              {data.subjects.map((s) => (
+                <option key={s.id} value={s.id}>{s.shortName}</option>
+              ))}
+            </select>
+            <input className="grow" placeholder="e.g. Unit 1: Limits" value={newUnitTitle} onChange={(e) => setNewUnitTitle(e.target.value)} />
+          </div>
+          <button
+            className="primary"
+            style={{ marginTop: 8 }}
+            disabled={!newUnitSubj || !newUnitTitle.trim()}
+            onClick={() => {
+              addUnit({ subjectId: newUnitSubj, title: newUnitTitle.trim(), hoursInClass: 0, revisedDate: null, kind: 'unit' })
+              setNewUnitTitle('')
+            }}
+          >
+            Add unit
+          </button>
+        </div>
+      )}
+
+      {/* E11 CGPA planner (SGPA per semester, CGPA, target planner) */}
+      <CgpaPlanner />
 
       {/* Section H: special courses (links, status, certificates) */}
       <SpecialCourses />

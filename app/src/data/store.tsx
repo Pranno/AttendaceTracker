@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, CourseLink, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
+import type { AppData, CgpaSemester, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
 import { loadData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
 import type { ArchivedSemester } from '../data/storage'
@@ -72,6 +72,14 @@ interface AppApi {
   addQuestion: (unitId: string, q: Omit<PracticeQuestion, 'id'>) => void
   updateQuestion: (unitId: string, q: PracticeQuestion) => void
   removeQuestion: (unitId: string, qid: string) => void
+  // ---- marks & scores (E5) ----
+  /** E5: add a score to a marking-scheme component. */
+  addScore: (s: Omit<Score, 'id'>) => void
+  removeScore: (id: string) => void
+  // ---- E11: CGPA planner semesters ----
+  addSemester: (sem?: Partial<CgpaSemester>) => CgpaSemester
+  updateSemester: (id: string, patch: Partial<CgpaSemester>) => void
+  deleteSemester: (id: string) => void
   // ---- focus sessions (E9 timer log) ----
   addFocusSession: (date: DateStr, minutes: number, kind: 'study' | 'project' | 'break') => void
   // ---- settings ----
@@ -417,6 +425,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       addFocusSession(date, minutes, kind) {
         setRaw((d) => ({ ...d, focusSessions: [...d.focusSessions, { id: newId('fs'), date, minutes, kind }] }))
+      },
+
+      // ---- E5: scores ----
+      addScore(s) {
+        setRaw((d) => ({ ...d, scores: [...d.scores, { ...s, id: newId('score') }] }))
+      },
+
+      removeScore(id) {
+        setRaw((d) => ({ ...d, scores: d.scores.filter((x) => x.id !== id) }))
+      },
+
+      // ---- E11: CGPA planner semesters ----
+      addSemester(sem) {
+        const entry: CgpaSemester = {
+          id: newId('sem'),
+          label: sem?.label ?? `Semester ${(data.cgpaSemesters?.length ?? 0) + 1}`,
+          mode: sem?.mode ?? 'subjects',
+          subjects: sem?.subjects ?? [],
+        }
+        setRaw((d) => ({ ...d, cgpaSemesters: [...(d.cgpaSemesters ?? []), entry] }))
+        return entry
+      },
+
+      updateSemester(id, patch) {
+        setRaw((d) => ({
+          ...d,
+          cgpaSemesters: (d.cgpaSemesters ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
+        }))
+      },
+
+      deleteSemester(id) {
+        setRaw((d) => ({ ...d, cgpaSemesters: (d.cgpaSemesters ?? []).filter((s) => s.id !== id) }))
       },
 
       updateSettings(patch) {

@@ -600,3 +600,29 @@ td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(
 }
 [data-theme='midnight'] .extract-date { color-scheme: dark; }
 
+
+/* ---- Study components (E1/E5/E11) ---- */
+.progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--soft) 20%, transparent);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.score-chip-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  min-width: 0;
+  min-height: 0;
+  color: inherit;
+}
