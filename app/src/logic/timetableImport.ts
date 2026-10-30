@@ -671,6 +671,33 @@ export function parseTimetableFile(text: string, pages?: TextItemLike[][] | null
   return parseTimetableText(text)
 }
 
+/**
+ * Robust file entry point: given the raw text and/or per-page positioned items
+ * extracted from an uploaded file, pick whichever representation can actually
+ * produce entries. PDFs whose `.text()` view is binary junk still parse via
+ * `pages`; pasted/CSV text still parses via `text`. Returns the result plus
+ * which channel produced it (for UI messaging).
+ */
+export function parseTimetableUpload(input: {
+  text?: string
+  pages?: TextItemLike[][] | null
+}): { result: GridParseResult | ImportResult; via: 'grid' | 'text' | 'none' } {
+  const text = input.text ?? ''
+  const pages = input.pages ?? null
+  if (pages && pages.length) {
+    const g = parseTimetablePages(pages)
+    if (g.entries.length > 0) return { result: g, via: 'grid' }
+    // Positioned extraction yielded nothing usable — keep the grid warnings
+    // but still try the line-based reader before giving up.
+    const t = parseTimetableText(text)
+    if (t.entries.length > 0) return { result: t, via: 'text' }
+    return { result: g, via: 'none' }
+  }
+  const t = parseTimetableText(text)
+  if (t.entries.length > 0) return { result: t, via: 'text' }
+  return { result: t, via: 'none' }
+}
+
 /** Core grid reader over positioned fragments (one coordinate space). */
 export function parseTimetableFragments(frags: Frag[]): GridParseResult {
   const warnings: string[] = []

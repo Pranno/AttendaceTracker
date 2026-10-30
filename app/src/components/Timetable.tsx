@@ -69,7 +69,8 @@ export default function Timetable() {
 
   async function onFilePicked(f: File | undefined) {
     if (!f) return
-    const isPdf = f.name.toLowerCase().endsWith('.pdf')
+    const nameLower = f.name.toLowerCase()
+    const isPdf = nameLower.endsWith('.pdf') || nameLower.endsWith('.htm') || nameLower.endsWith('.html')
     let text = ''
     try {
       text = await f.text()
@@ -80,7 +81,13 @@ export default function Timetable() {
     // x/y position — that's what makes the weekday-columns/time-rows grid
     // recoverable. Reading a PDF as plain text yields binary junk and used
     // to produce "Couldn't find weekday columns or time rows".
-    if (isPdf || text.startsWith('%PDF')) {
+    //
+    // Robustness: some browsers/extensions hand out PDF files whose *name*
+    // lost the ".pdf" suffix (e.g. saved as "timetable.pdf.txt") or whose
+    // MIME is mislabelled. Detect the %PDF magic bytes in the content itself
+    // so those still take the positioned-grid path.
+    const looksBinaryPdf = text.startsWith('%PDF') || /%PDF-\d/.test(text.slice(0, 1024))
+    if (isPdf || looksBinaryPdf) {
       try {
         const pdfjs = await import('pdfjs-dist')
         // Bundle the worker locally: vite rewrites this literal import with
@@ -103,8 +110,20 @@ export default function Timetable() {
           setImportText('')
           return
         }
-        // Grid reader found nothing usable — fall through to the text-based
-        // heuristics below with a clear warning.
+        // Grid reader found nothing usable. Before showing a hard error,
+        // give the line-based reader one chance on any readable text we
+        // have (some "PDFs" are actually text exports wearing a PDF mask).
+        if (looksLikeTimetable(text)) {
+          const tr = parseTimetableText(text)
+          if (tr.entries.length > 0) {
+            applyParsed(tr)
+            setImportText(text)
+            return
+          }
+        }
+        // Grid reader found nothing usable — show its warnings, or a clear
+        // generic one, and stop (never silently fall into the text-paste
+        // error which confuses users about what actually went wrong).
         setParseWarn(res.warnings.length
           ? res.warnings
           : ['The PDF grid could not be read. Try pasting the table as text instead (open the PDF, Ctrl/Cmd+A → Copy).'])
@@ -138,6 +157,16 @@ export default function Timetable() {
         setParsed(null)
         return
       }
+    }
+    // Plain-text / CSV upload path. If it doesn't look like a timetable at
+    // all, say so plainly instead of running the grid heuristic and showing
+    // its confusing "weekday columns" message.
+    if (text && !looksLikeTimetable(text) && !/\(/.test(text)) {
+      setParseWarn(['That file does not look like a timetable. Upload the PDF directly, or open it and paste the table as text (Ctrl/Cmd+A → Copy).'])
+      setParsed(null)
+      setAllParsed([])
+      setImportText(text)
+      return
     }
     setImportText(text)
     runParse(text)
