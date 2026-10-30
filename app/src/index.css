@@ -588,6 +588,16 @@ td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(
   display: inline-flex; align-items: center; justify-content: center; font-weight: 900;
 }
 .extract-check.on { background: var(--safe); color: #fff; }
+
+/* ---------- lecture day chips (Timetable → Add a lecture) ---------- */
+.day-chip {
+  border-radius: 999px; padding: 8px 14px; font-weight: 700; font-size: 13px;
+  background: color-mix(in srgb, var(--soft) 12%, var(--card)); color: var(--text);
+  border: 1.5px solid transparent; transition: background 0.2s ease, border-color 0.2s ease;
+}
+.day-chip.on { background: var(--primary); color: #fff; }
+/* ✓ = this lecture already runs on that day — tapping removes it */
+.day-chip.has { background: var(--safe); color: #fff; border-color: color-mix(in srgb, var(--safe) 60%, transparent); }
 .extract-title-input {
   width: 100%; border: none; background: transparent; color: var(--text);
   font-weight: 800; font-size: 14px; font-family: inherit; padding: 0;

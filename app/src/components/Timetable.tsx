@@ -15,7 +15,7 @@ import type { TextItemLike } from '../logic/syllabusReader'
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
 
 export default function Timetable() {
-  const { data, setData, addSubject, removeSubject, addSlot, updateSlot, removeSlotFromToday } = useApp()
+  const { data, setData, addSubject, removeSubject, addSlot, deleteSlot, updateSlot, removeSlotFromToday } = useApp()
   const today = todayStr()
   const myBatch = data.settings.myBatch
 
@@ -269,14 +269,16 @@ export default function Timetable() {
 
   // ---- new lecture form ----
   const [subjectId, setSubjectId] = useState(data.subjects[0]?.id ?? '')
-  const [weekday, setWeekday] = useState(1)
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('10:00')
   const [type, setType] = useState<ClassType>('lecture')
   const [room, setRoom] = useState('')
   const [teacher, setTeacher] = useState('')
   const [batch, setBatch] = useState('')
-  const [copyDays, setCopyDays] = useState<number[]>([])
+  // Day chips: every highlighted day gets this lecture when you press Add.
+  // Tapping a day that already has a matching lecture (added by mistake)
+  // removes it right away — no need to hunt for it and delete it later.
+  const [selectedDays, setSelectedDays] = useState<number[]>([1])
 
   function submitSubject() {
     if (!shortName.trim()) return
@@ -285,11 +287,40 @@ export default function Timetable() {
     setFullName('')
   }
 
+  const enabledWeekdays = WEEKDAYS.filter((w) => w !== 7 || data.settings.sundayClasses)
+
+  /** A slot "matches" the form when it's the same subject at the same start
+   *  time on that weekday — i.e. exactly what adding would duplicate. */
+  function matchingSlotOn(wd: number) {
+    const sid = subjectId || data.subjects[0]?.id
+    if (!sid) return undefined
+    // declared below (allActiveSlots) — function declarations hoist, and this
+    // only runs during render after that const has been initialised.
+    return allActiveSlots.find(
+      (s) => s.weekday === wd && s.subjectId === sid && s.startTime === startTime,
+    )
+  }
+
+  function toggleDay(wd: number) {
+    const existing = matchingSlotOn(wd)
+    if (existing) {
+      // Already has this lecture: remove it and drop the highlight.
+      // Past occurrences keep their history; only future copies vanish.
+      if (existing.validFrom <= today) removeSlotFromToday(existing.id, today)
+      else deleteSlot(existing.id)
+      setSelectedDays((sel) => sel.filter((x) => x !== wd))
+      return
+    }
+    setSelectedDays((sel) => (sel.includes(wd) ? sel.filter((x) => x !== wd) : [...sel, wd]))
+  }
+
   function submitLecture() {
     const sid = subjectId || data.subjects[0]?.id
-    if (!sid) return
-    const days = copyDays.length > 0 ? copyDays : [weekday]
-    for (const wd of days) {
+    if (!sid || selectedDays.length === 0) return
+    for (const wd of selectedDays) {
+      // Skip days that already carry this class (belt & braces — the chip
+      // tap normally handles those by removing instead of adding).
+      if (matchingSlotOn(wd)) continue
       addSlot({
         subjectId: sid,
         weekday: wd,
@@ -303,11 +334,6 @@ export default function Timetable() {
         validUntil: null,
       })
     }
-    setCopyDays([])
-  }
-
-  function toggleCopy(wd: number) {
-    setCopyDays((c) => (c.includes(wd) ? c.filter((x) => x !== wd) : [...c, wd]))
   }
 
   const allActiveSlots = data.slots.filter((s) => s.validUntil === null || s.validUntil >= today)
@@ -457,14 +483,34 @@ export default function Timetable() {
           ))}
         </select>
 
-        <label>Day{data.settings.sundayClasses ? '' : ' (Sunday off — turn on in Settings)'}</label>
-        <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}>
-          {WEEKDAYS.filter((w) => w !== 7 || data.settings.sundayClasses).map((w) => (
-            <option key={w} value={w}>
-              {weekdayName(w)}
-            </option>
-          ))}
-        </select>
+        <label>Days{data.settings.sundayClasses ? '' : ' (Sunday off — turn on in Settings)'}</label>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          {enabledWeekdays.map((w) => {
+            const has = !!matchingSlotOn(w)
+            const sel = selectedDays.includes(w)
+            return (
+              <button
+                key={w}
+                className={has ? 'day-chip has on' : sel ? 'day-chip on' : 'day-chip'}
+                onClick={() => toggleDay(w)}
+                title={
+                  has
+                    ? 'This lecture already runs here — tap to remove it'
+                    : sel
+                      ? 'Selected — tap to deselect'
+                      : 'Tap to also add this lecture here'
+                }
+              >
+                {weekdayName(w)}
+                {has ? ' ✓' : ''}
+              </button>
+            )
+          })}
+        </div>
+        <div className="msg" style={{ marginTop: 6 }}>
+          Highlighted days get this lecture. A day with ✓ already has it — tap it
+          to remove that copy, tap again to add it back.
+        </div>
 
         <div className="field-row">
           <div className="grow">
@@ -503,24 +549,13 @@ export default function Timetable() {
           placeholder={data.settings.myBatch || 'A1'}
         />
 
-        <label>Also copy to other days</label>
-        <div className="row" style={{ flexWrap: 'wrap' }}>
-          {WEEKDAYS.filter((w) => w !== weekday && (w !== 7 || data.settings.sundayClasses)).map(
-            (w) => (
-              <button
-                key={w}
-                className={copyDays.includes(w) ? 'present on' : ''}
-                onClick={() => toggleCopy(w)}
-              >
-                {weekdayName(w)}
-              </button>
-            ),
-          )}
-        </div>
-
         <div style={{ marginTop: 12 }}>
-          <button className="primary" onClick={submitLecture} disabled={data.subjects.length === 0}>
-            Add lecture
+          <button
+            className="primary"
+            onClick={submitLecture}
+            disabled={data.subjects.length === 0 || selectedDays.length === 0}
+          >
+            Add lecture{selectedDays.length > 0 ? ` (${selectedDays.map(weekdayName).join(', ')})` : ''}
           </button>
         </div>
       </div>

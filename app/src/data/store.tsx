@@ -21,6 +21,9 @@ interface AppApi {
    *  clear the override and fall back to the global threshold. */
   updateSubject: (id: string, patch: Partial<Omit<Subject, 'id'>> & { thresholdOverride?: number | null }) => void
   addSlot: (slot: Omit<Slot, 'id'>) => void
+  /** Hard-delete a slot. Use for lectures added by mistake that haven't
+   *  happened yet — no attendance history to preserve. */
+  deleteSlot: (id: string) => void
   updateSlot: (id: string, patch: Partial<Slot>) => void
   /** A8: removing a class applies from today onward; past keeps what it had. */
   removeSlotFromToday: (id: string, today: DateStr) => void
@@ -150,6 +153,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       addSlot(slot) {
         setRaw((d) => ({ ...d, slots: [...d.slots, { ...slot, id: newId('slot') }] }))
+      },
+
+      deleteSlot(id) {
+        setRaw((d) => ({
+          ...d,
+          slots: d.slots.filter((s) => s.id !== id),
+          marks: d.marks.filter((m) => m.slotId !== id),
+          conversions: d.conversions.filter((c) => c.slotId !== id),
+        }))
       },
 
       updateSlot(id, patch) {
