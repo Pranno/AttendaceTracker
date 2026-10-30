@@ -456,6 +456,24 @@ export function stitchCellFrags(frags: Frag[]): string[] {
   const out: string[] = []
   const pushLine = (fs: Frag[]) => {
     const ln = fs.map((f) => f.str.trim()).filter(Boolean).join(' ')
+    // One output LINE per source fragment when any fragment holds a real
+    // entry start. Stacked cells put each batch entry on its own baseline
+    // ("A1 CP (P) DTM" at y=221, "A2 FE (P) PS 2408" at y=193); joining the
+    // whole visual band into one string loses which entry a wrapped room /
+    // teacher continuation below belongs to. Per-fragment lines keep the
+    // ownership exact — a continuation attaches to the entry line directly
+    // above it in the same column.
+    const entryFrags = fs.filter((f) => ENTRY_RE.test(normalizeTypeTok(f.str.trim())))
+    if (entryFrags.length > 1) {
+      for (const f of entryFrags) {
+        for (const p of splitEntryLine(f.str.trim())) {
+          out.push(p)
+          lineOwners.push(f)
+          lineReps.push(f)
+        }
+      }
+      return
+    }
     for (const p of splitEntryLine(ln)) {
       // the fragment holding this piece's subject code owns continuations
       const subj = p.match(/^[A-E](?:[1-9])?[.\s-]+([A-Z][A-Z0-9]*)|^[A-Z][A-Z0-9]*/)?.[1] ?? ''
@@ -941,6 +959,46 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   // under that page's lowest time label is prose, not a class. Cut there — per
   // page, because every page has its own y origin (a legend page's bottom row
   // can sit at the same y as a grid page's first period).
+  // ---- stacked batch rows ------------------------------------------------
+  // Cells can hold one entry per text baseline (A1 at y=334.5, A2 at 320.7,
+  // A3 at 306.9 in the same Monday column). The time label sits on ONE of
+  // those baselines (8:00–9:00 at 320.7), so with band bottoms clamped to
+  // band tops only that middle row is inside the box and A1/A3 entries are
+  // silently dropped — their batch tags never reach distinctBatches(). For
+  // every band, extend its top/bottom over consecutive entry baselines that
+  // stack into it: a baseline qualifies when it holds an entry start AND
+  // either touches the band directly or attaches to the previously accepted
+  // baseline while sharing a day-column x-band with it.
+  {
+    const entryStartFrag = (f: Frag): boolean =>
+      ENTRY_RE.test(normalizeTypeTok(f.str.trim()))
+    for (const b of uniqBands) {
+      const cand = frags.filter((f) => f.page === b.page && entryStartFrag(f))
+      let curTop = b.yTop
+      for (;;) {
+        const next = cand.filter(
+          (f) => f.y <= curTop - 7 && f.y >= curTop - 21 &&
+            f.y > Math.max(b.yBottom, proseCutGuess(b, frags)) - 1 &&
+            dayColOfX(f.x, dayCols) === dayColOfX(f.x + 40, dayCols),
+        )
+        if (!next.length) break
+        curTop = Math.min(...next.map((f) => f.y))
+      }
+      let curBot = b.yBottom
+      for (;;) {
+        const next = cand.filter(
+          (f) => f.y >= curBot + 7 && f.y <= curBot + 21 &&
+            f.y < Math.min(b.yTop, curTop) - 6 ||
+            (f.y >= curBot + 7 && f.y <= curBot + 21 && f.y < b.yTop + 6),
+        )
+        if (!next.length) break
+        curBot = Math.max(...next.map((f) => f.y))
+      }
+      if (curTop > b.yTop) b.yTop = curTop
+      if (curBot < b.yBottom) b.yBottom = curBot
+    }
+  }
+
   const proseCutByPage = new Map<number, number>()
   for (const b of uniqBands) {
     if (proseCutByPage.has(b.page)) continue
