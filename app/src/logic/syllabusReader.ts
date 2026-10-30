@@ -121,7 +121,7 @@ export function groupItemsIntoLines(items: TextItemLike[], page = 0): Line[] {
     let ln: Line | undefined
     for (const cand of lines) {
       if (cand.page !== page) continue
-      if (Math.abs(cand.y - y) <= 3) { ln = cand; break }
+      if (Math.abs(cand.y - y) <= 5) { ln = cand; break }
     }
     if (!ln) {
       ln = { y: Math.round(y), page, items: [] }

@@ -960,42 +960,38 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   // page, because every page has its own y origin (a legend page's bottom row
   // can sit at the same y as a grid page's first period).
   // ---- stacked batch rows ------------------------------------------------
-  // Cells can hold one entry per text baseline (A1 at y=334.5, A2 at 320.7,
-  // A3 at 306.9 in the same Monday column). The time label sits on ONE of
-  // those baselines (8:00–9:00 at 320.7), so with band bottoms clamped to
-  // band tops only that middle row is inside the box and A1/A3 entries are
-  // silently dropped — their batch tags never reach distinctBatches(). For
-  // every band, extend its top/bottom over consecutive entry baselines that
-  // stack into it: a baseline qualifies when it holds an entry start AND
-  // either touches the band directly or attaches to the previously accepted
-  // baseline while sharing a day-column x-band with it.
+  // Cells hold one entry per text baseline: in the 8:00-9:00 Monday cell the
+  // three batches sit at y=334.5 (A1), 320.7 (A2) and 306.9 (A3) while the
+  // time label itself sits on just ONE of those baselines. With bands clamped
+  // to their own label row, only that middle baseline falls inside the box
+  // and the other batch rows are silently dropped (their tags never reach
+  // distinctBatches()). Assign every entry-bearing baseline to exactly ONE
+  // period band: the band whose label row is vertically closest (within ~2
+  // periods; ties go to the upper band). This keeps multi-row cells intact
+  // without ever letting a band swallow the next period's rows.
   {
-    const entryStartFrag = (f: Frag): boolean =>
-      ENTRY_RE.test(normalizeTypeTok(f.str.trim()))
-    for (const b of uniqBands) {
-      const cand = frags.filter((f) => f.page === b.page && entryStartFrag(f))
-      let curTop = b.yTop
-      for (;;) {
-        const next = cand.filter(
-          (f) => f.y <= curTop - 7 && f.y >= curTop - 21 &&
-            f.y > Math.max(b.yBottom, proseCutGuess(b, frags)) - 1 &&
-            dayColOfX(f.x, dayCols) === dayColOfX(f.x + 40, dayCols),
-        )
-        if (!next.length) break
-        curTop = Math.min(...next.map((f) => f.y))
+    const entryBaseYs = new Map<number, Set<number>>()
+    for (const f of frags) {
+      if (!ENTRY_RE.test(normalizeTypeTok(f.str.trim()))) continue
+      let s = entryBaseYs.get(f.page)
+      if (!s) entryBaseYs.set(f.page, (s = new Set()))
+      s.add(Math.round(f.y * 2) / 2) // quantise so near-identical baselines merge
+    }
+    for (const [pg, ys] of entryBaseYs) {
+      const bandsHere = uniqBands.filter((b) => b.page === pg)
+      if (!bandsHere.length) continue
+      for (const y of ys) {
+        if (bandsHere.some((b) => Math.abs(b.yTop - y) <= 3)) continue // label row itself
+        let best: Band | undefined
+        let bestD = Infinity
+        for (const b of bandsHere) {
+          const d = Math.abs(b.yTop - y)
+          if (d < bestD || (d === bestD && b.yTop > (best?.yTop ?? -Infinity))) { best = b; bestD = d }
+        }
+        if (!best || bestD > 45) continue
+        best.yTop = Math.max(best.yTop, y)
+        best.yBottom = Math.min(best.yBottom, y)
       }
-      let curBot = b.yBottom
-      for (;;) {
-        const next = cand.filter(
-          (f) => f.y >= curBot + 7 && f.y <= curBot + 21 &&
-            f.y < Math.min(b.yTop, curTop) - 6 ||
-            (f.y >= curBot + 7 && f.y <= curBot + 21 && f.y < b.yTop + 6),
-        )
-        if (!next.length) break
-        curBot = Math.max(...next.map((f) => f.y))
-      }
-      if (curTop > b.yTop) b.yTop = curTop
-      if (curBot < b.yBottom) b.yBottom = curBot
     }
   }
 
