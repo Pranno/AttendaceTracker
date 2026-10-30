@@ -8,8 +8,9 @@ import { useApp } from '../data/store'
 import type { ClassType, DateStr } from '../data/model'
 import { newId, slotMatchesBatch } from '../data/model'
 import { formatShort, monthKey, todayStr, weekdayName } from '../logic/dates'
-import { parseTimetableText, filterByBatch, entriesToSlots, distinctBatches, keepOnlyBatch } from '../logic/timetableImport'
-import type { ParsedEntry } from '../logic/timetableImport'
+import { parseTimetableText, parseTimetablePages, filterByBatch, entriesToSlots, distinctBatches, keepOnlyBatch } from '../logic/timetableImport'
+import type { GridParseResult, ImportResult, ParsedEntry } from '../logic/timetableImport'
+import type { TextItemLike } from '../logic/syllabusReader'
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
 
@@ -30,14 +31,21 @@ export default function Timetable() {
   const [allParsed, setAllParsed] = useState<ParsedEntry[]>([]) // pre-filter, for the batch prompt (A3)
   const [parseWarn, setParseWarn] = useState<string[]>([])
   const [hiddenOther, setHiddenOther] = useState(0)
+  // Legend subjects (short → full name) read from the uploaded PDF's
+  // abbreviation table; used when confirming the import.
+  const [legendSubjects, setLegendSubjects] = useState<{ short: string; full: string }[]>([])
 
-  function runParse(text: string) {
-    const res = parseTimetableText(text)
+  function applyParsed(res: ImportResult | GridParseResult, legend?: { short: string; full: string }[]) {
     setAllParsed(res.entries)
     const mine = filterByBatch(res.entries, myBatch)
     setHiddenOther(res.entries.length - mine.length)
     setParseWarn(res.warnings)
     setParsed(mine.length > 0 ? mine : res.entries)
+    setLegendSubjects(legend ?? [])
+  }
+
+  function runParse(text: string) {
+    applyParsed(parseTimetableText(text))
   }
 
   // A3: if the pasted timetable contains batches and none is chosen yet, ask now.
@@ -50,27 +58,86 @@ export default function Timetable() {
     setParsed(kept)
   }
 
+  // True if the text looks like a grid timetable (day names + time ranges)
+  // rather than PDF binary junk — used to decide whether the plain-text
+  // fallback after a failed pdfjs load is worth parsing.
+  function looksLikeTimetable(text: string): boolean {
+    const dayRe = /^(mon|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)?\b/mi
+    const timeRe = /\b\d{1,2}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}/
+    return dayRe.test(text) && timeRe.test(text)
+  }
+
   async function onFilePicked(f: File | undefined) {
     if (!f) return
-    let text = await f.text()
-    // A1: PDFs can't be read as plain text — extract what we can instead of
-    // silently failing. Ask the user to copy-paste if nothing usable comes out.
-    if (f.name.toLowerCase().endsWith('.pdf') || text.startsWith('%PDF')) {
-      const strings = Array.from(
-        new Set(text.match(/\(([A-F][1-9]?)\)\s*[A-Z]{2,6}\s*\d{0,4}/g) ?? []),
-      )
-      if (strings.length >= 3) {
-        setParseWarn([
-          `Extracted ${strings.length} class codes from the PDF’s text layer — paste the full table (open it, Ctrl/Cmd+A → Copy) for days and times.`,
-        ])
+    const isPdf = f.name.toLowerCase().endsWith('.pdf')
+    let text = ''
+    try {
+      text = await f.text()
+    } catch {
+      text = ''
+    }
+    // A1: real PDFs must be read with pdfjs so every text item keeps its
+    // x/y position — that's what makes the weekday-columns/time-rows grid
+    // recoverable. Reading a PDF as plain text yields binary junk and used
+    // to produce "Couldn't find weekday columns or time rows".
+    if (isPdf || text.startsWith('%PDF')) {
+      try {
+        const pdfjs = await import('pdfjs-dist')
+        // Bundle the worker locally: vite rewrites this literal import with
+        // the `?url` suffix into a real file URL at build time. No CDN
+        // dependency, works offline.
+        // @ts-ignore -- vite-only "?url" import suffix
+        const workerMod = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url" as string)) as unknown as { default?: string }
+        pdfjs.GlobalWorkerOptions.workerSrc = workerMod.default ?? ''
+        const data = new Uint8Array(await f.arrayBuffer())
+        const doc = await pdfjs.getDocument({ data, isEvalSupported: false }).promise
+        const pages: TextItemLike[][] = []
+        for (let i = 1; i <= doc.numPages; i++) {
+          const page = await doc.getPage(i)
+          const tc = await page.getTextContent()
+          pages.push(tc.items as unknown as TextItemLike[])
+        }
+        const res = parseTimetablePages(pages)
+        if (res.entries.length > 0) {
+          applyParsed(res, res.subjects)
+          setImportText('')
+          return
+        }
+        // Grid reader found nothing usable — fall through to the text-based
+        // heuristics below with a clear warning.
+        setParseWarn(res.warnings.length
+          ? res.warnings
+          : ['The PDF grid could not be read. Try pasting the table as text instead (open the PDF, Ctrl/Cmd+A → Copy).'])
         setParsed(null)
         setAllParsed([])
-        setImportText(strings.join('\n'))
+        return
+      } catch {
+        // pdfjs failed (corrupt file / unsupported encoding). Last resort:
+        // regex-extract class codes from whatever raw text we got.
+        const strings = Array.from(
+          new Set(text.match(/\(([A-F][1-9]?)\)\s*[A-Z]{2,6}\s*\d{0,4}/g) ?? []),
+        )
+        if (strings.length >= 3) {
+          setParseWarn([
+            `Extracted ${strings.length} class codes from the PDF’s text layer — paste the full table (open it, Ctrl/Cmd+A → Copy) for days and times.`,
+          ])
+          setParsed(null)
+          setAllParsed([])
+          setLegendSubjects([])
+          setImportText(strings.join('\n'))
+          return
+        }
+        if (looksLikeTimetable(text)) {
+          // e.g. the user picked a .txt that starts with %PDF by mistake,
+          // or an export that is actually text — give the text parser a shot.
+          setImportText(text)
+          runParse(text)
+          return
+        }
+        setParseWarn(['This PDF has no readable text layer. Open it, press Ctrl/Cmd+A → Copy, then paste here.'])
+        setParsed(null)
         return
       }
-      setParseWarn(['This PDF has no readable text layer. Open it, press Ctrl/Cmd+A → Copy, then paste here.'])
-      setParsed(null)
-      return
     }
     setImportText(text)
     runParse(text)
@@ -82,12 +149,20 @@ export default function Timetable() {
       // A6: subjects are created from the confirmed timetable.
       const subjects = [...d.subjects]
       const byShort = new Map(subjects.map((s) => [s.shortName.toUpperCase(), s.id]))
+      // Legend full names from the uploaded PDF (e.g. VACO → "Value added
+      // career orientation I") — enrich existing/created subjects with them.
+      const legendFull = new Map(legendSubjects.map((l) => [l.short.toUpperCase(), l.full]))
       for (const e of parsed) {
         const key = e.subjectShort.toUpperCase()
         if (!byShort.has(key)) {
-          const subj = { id: newId('subj'), shortName: key, fullName: key, nicknames: [] }
+          const subj = { id: newId('subj'), shortName: key, fullName: legendFull.get(key) ?? key, nicknames: [] }
           subjects.push(subj)
           byShort.set(key, subj.id)
+        } else if (legendFull.has(key)) {
+          const i = subjects.findIndex((s) => s.id === byShort.get(key))
+          if (i >= 0 && subjects[i].fullName === subjects[i].shortName) {
+            subjects[i] = { ...subjects[i], fullName: legendFull.get(key)! }
+          }
         }
       }
       const { slots, unmatched } = entriesToSlots(parsed, byShort, today)
