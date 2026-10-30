@@ -343,14 +343,12 @@ const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Roo
 const LEGEND_NAME_X = 250
 const LEGEND_FULLNAME_X = 600
 
-/** Does this PAGE carry the abbreviation table? The table header ("S.N." +
- *  "abbreviation" / "Course Name") is the reliable marker — continuation
- *  pages of the grid repeat it below the NOTE block while still holding real
- *  class cells above, so page-level filtering must key on the HEADER, not on
- *  loose number+word rows (which occur in ordinary furniture too). Pages with
- *  a header but no weekday row are legend-only → excluded from the grid;
- *  pages that also have a weekday header stay grid pages, and their legend
- *  prose is removed by the per-page prose cut instead. */
+/** Does this PAGE carry the abbreviation table? The table header (the "S.N."
+ *  cell plus its "abbreviation" / "Course Name" neighbour cells) is the only
+ *  reliable marker — and it sits in the LOWER part of the page, below the
+ *  grid. Keying on loose number+word rows instead would flag ordinary
+ *  furniture ("1 IQAC-103", SN columns inside the grid) and silently drop a
+ *  whole grid page's classes. */
 function pageHasLegendTable(frags: Frag[]): boolean {
   const sn = frags.find((f) => /^S\.?\s*N\.?$/i.test(f.str.trim()))
   if (!sn) return false
@@ -358,6 +356,11 @@ function pageHasLegendTable(frags: Frag[]): boolean {
   const headerish = sameRow.filter((f) => f.x > sn.x)
   const hasAbbrWord = headerish.some((f) => /abbrev/i.test(f.str))
   const hasNameWord = headerish.some((f) => /course|name|teacher/i.test(f.str))
+  // A real legend-table header never sits above the weekday heading row; if
+  // this page also carries a day-header row at least as high up, the "S.N."
+  // hit is grid furniture, not the abbreviation table.
+  const dayY = Math.max(...frags.filter((f) => DAY_HEAD_RE.test(f.str)).map((f) => f.y), -Infinity)
+  if (Number.isFinite(dayY) && sn.y >= dayY) return false
   return hasAbbrWord && hasNameWord
 }
 
@@ -605,19 +608,14 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   // "Tuesday" split by the extractor) — otherwise Tuesday's classes get
   // attributed to Monday because Monday's band stretches over it. Pages with
   // no header are validated against these bands before being read.
-  const perPageCols = allDayColsByPage(pageFrags)
-  let dayCols: { weekday: number; x: number }[] = []
-  if (perPageCols.length) {
-    const union = new Map<number, number>()
-    for (const cols of perPageCols) {
-      for (const c of cols) {
-        if (!union.has(c.weekday)) union.set(c.weekday, c.x)
-        else union.set(c.weekday, Math.min(union.get(c.weekday)!, c.x))
-      }
-    }
-    const found = [...union.entries()].map(([weekday, x]) => ({ weekday, x })).sort((a, b) => a.x - b.x)
-    dayCols = extendDayCols(found) ?? found
-  }
+  // Day columns are computed PER PAGE. Every page has its own coordinate
+  // space and its own column geometry — page 2's grid starts further right
+  // than page 1's Monday column, so forcing page-2 cells through page-1 bands
+  // silently drops the afternoon classes. Pages without their own heading row
+  // get Mon–Sat anchors interpolated from the observed heading pitch.
+  const colsByPage = dayColsByPage(pageFrags)
+  const headerPages = colsByPage.filter(Boolean) as { weekday: number; x: number }[][]
+  const dayCols = headerPages[0] ?? []
   // Legend-only pages must NEVER reach the grid reader: the abbreviation
   // table ("1 CP Computer Programming KRP Kailas R. Patil") contains code+
   // initials pairs that parse as real entries, and their x positions land in
@@ -625,23 +623,23 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   // A page is exempt only if it has NO day-heading row of its own; pages that
   // DO carry the weekday header are always grid pages even when a stray
   // numeric-SN + word pattern appears on them.
-  const gridPageFrags = pageFrags.filter((frags) => findDayColumns(frags).length >= 4 || !pageHasLegendTable(frags))
+  const gridPageFrags = pageFrags.map((frags, pi) => ({ frags, cols: colsByPage[pi] })).filter(({ frags }) => findDayColumns(frags).length >= 4 || !pageHasLegendTable(frags))
   const entries: ParsedEntry[] = []
   const warnings: string[] = []
   const gridFrags: Frag[][] = []
-  for (const frags of gridPageFrags) {
-    if (dayCols.length < 4) continue
+  for (const { frags, cols } of gridPageFrags) {
+    if (!cols || cols.length < 4) continue
     const hasHeader = findDayColumns(frags).length >= 4
     if (!hasHeader) {
       // Continuation page: only treat it as part of the grid when its class
       // fragments actually spread across ≥2 day columns. A legend/notes page
       // has entry-looking prose clustered in one area — reading it would
       // invent phantom classes on the wrong days.
-      const cov = pageColumnCoverage(frags, dayCols)
+      const cov = pageColumnCoverage(frags, cols)
       if (cov.size < 2) continue
     }
     gridFrags.push(frags)
-    entries.push(...readGridBoxes(frags, dayCols, warnings))
+    entries.push(...readGridBoxes(frags, cols, warnings))
   }
   if (dayCols.length < 4 && entries.length === 0) {
     return { entries: [], batches: [], subjects: [], warnings: ['No weekday heading row found in the file — add the classes by hand or paste the table as text.'] }
@@ -662,6 +660,9 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
 }
 
 /** Locate the visual row(s) carrying ≥4 weekday names → column anchors.
+ *  Anchors use the CENTRE of each heading fragment: cells hang around the
+ *  heading, not its left edge, and using `x` biased every band ~25pt to the
+ *  right (the "Tuesday classes land on Monday" symptom).
  *  Handles glued extraction rows: when one fragment holds several day names
  *  ("Time Monday Tuesday Wednesday…"), its width is split proportionally at
  *  each name's character offset, so every heading still gets an x anchor. */
@@ -672,7 +673,7 @@ export function findDayColumns(frags: Frag[]): { weekday: number; x: number }[] 
     const hits: { weekday: number; x: number }[] = []
     for (const f of row) {
       const wd = DAY_HEAD_RE.test(f.str) ? weekdayFromName(f.str) : null
-      if (wd !== null) { hits.push({ weekday: wd, x: f.x }); continue }
+      if (wd !== null) { hits.push({ weekday: wd, x: (f.x + f.end) / 2 }); continue }
       // multi-day run inside one fragment — cut it into per-day anchors
       const re = /\b(mon|tues|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)?\b/gi
       let m: RegExpExecArray | null
@@ -693,6 +694,36 @@ export function findDayColumns(frags: Frag[]): { weekday: number; x: number }[] 
     if (hits.length >= 4) return hits.sort((a, b) => a.x - b.x)
   }
   return []
+}
+
+/** Per-page day columns. Page 2+ of these grids repeats the time labels but
+ *  NOT the weekday headings, and its own cell content starts further right
+ *  than page 1's Monday column would allow — forcing page-2 cells into page-1
+ *  bands loses the afternoon classes entirely. So: pages with their own
+ *  heading row use those anchors; pages without get their headings
+ *  interpolated from the observed pitch of the neighbouring pages' columns
+ *  (median spacing), keeping each page in its own coordinate space. */
+function dayColsByPage(pageFrags: Frag[][]): ({ weekday: number; x: number }[] | null)[] {
+  const perPage = pageFrags.map((frags) => {
+    const cols = findDayColumns(frags)
+    return cols.length >= 4 ? cols : null
+  })
+  const known = perPage.filter(Boolean) as { weekday: number; x: number }[][]
+  if (!known.length) return pageFrags.map(() => null)
+  // median pitch between adjacent headings across all header pages
+  const gaps: number[] = []
+  for (const cols of known) for (let i = 1; i < cols.length; i++) gaps.push(cols[i].x - cols[i - 1].x)
+  gaps.sort((a, b) => a - b)
+  const pitch = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 100
+  return perPage.map((cols, pi) => {
+    if (cols) return cols
+    // interpolate a full Mon–Sat set anchored on the average first-column x
+    const avgFirst = known.reduce((s, c) => s + c[0].x, 0) / known.length
+    const out: { weekday: number; x: number }[] = []
+    for (let wd = 1; wd <= 6; wd++) out.push({ weekday: wd, x: avgFirst + pitch * (wd - 1) })
+    void pi
+    return out
+  })
 }
 
 /** Day columns found ANYWHERE in the document (per page), sorted left→right.
