@@ -976,66 +976,61 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
     // period label sits at just one of them. Grouped rows would glue those
     // three batches into one line and lose their tags entirely.
     const baseRow = (f: Frag): number => Math.round(f.y * 2) / 2
+    // Entry-bearing baselines are measured on GROUPED visual rows just like
+    // the cell reader does — but with a TIGHT tolerance. pdf.js stacks batch
+    // rows ~6.9pt apart ("A1 FE (P) PS" at y=334.5, "8:00 - 9:00 A2 WAD…" at
+    // 320.7); grouping with ±3 would glue those two rows into one line whose
+    // text starts with "A1 …", so the whole row gets attributed to whichever
+    // band owns the top fragment and the period label's own baseline never
+    // reaches its band. With ±2 every batch row stays its own line: the ones
+    // starting with an entry pattern mark baselines; label rows (starting
+    // with the time range) don't match ENTRY_RE and stay neutral.
     interface ERow { page: number; y: number; frags: Frag[] }
     const eRows: ERow[] = []
     for (const f of frags) {
-      if (!ENTRY_RE.test(normalizeTypeTok(f.str.trim()))) continue
-      let r = eRows.find((x) => x.page === f.page && Math.abs(x.y - baseRow(f)) <= 0.6)
+      let r = eRows.find((x) => x.page === f.page && Math.abs(x.y - f.y) <= 2)
       if (!r) { r = { page: f.page, y: baseRow(f), frags: [] }; eRows.push(r) }
       r.frags.push(f)
     }
-    eRows.sort((a, b) => a.page - b.page || b.y - a.y)
-
-    // ---- assign each entry baseline to exactly ONE period band ----
-    // The time label sits on ONE of the stacked baselines (e.g. the 8:00-9:00
-    // label at y=320.7 between A1@334.5 and A3@306.9). Two rules keep every
-    // row inside the right period:
-    //  * a baseline within ~half the label pitch belongs to the band whose
-    //    label it touches (that IS the band's own cell block);
-    //  * otherwise it belongs to the band whose label is the CLOSEST one
-    //    below it in reading order (PDF y grows up, so "below" = larger y) —
-    //    never to a label above, which would push another period's rows into
-    //    this band (the duplicate-class symptom).
-    const labelYsByPage = new Map<number, number[]>()
-    for (const b of uniqBands) {
-      const arr = labelYsByPage.get(b.page) ?? []
-      if (!arr.some((y) => Math.abs(y - b.yTop) < 1)) arr.push(b.yTop)
-      labelYsByPage.set(b.page, arr)
+    /** Does this joined line START with a real class entry? ENTRY_RE alone is
+     *  anchored only at "^" and every optional group can match empty, so it
+     *  fires on any uppercase word anywhere ("Short Break", wrapped rooms).
+     *  Require the subject code + type marker to begin within the first few
+     *  characters (after an optional batch tag). */
+    const startsWithEntry = (ln: string): boolean => {
+      const m = ENTRY_RE.exec(ln)
+      return !!m && m.index <= 4 && /\(\s*[LPTS]\s*\)|\([LPTS][A-Za-z(]/.test(ln.slice(m.index, m.index + 40))
     }
-    const nearestLabelAbove = (pg: number, y: number): number | null => {
-      const ls = labelYsByPage.get(pg)
-      if (!ls) return null
-      let best: number | null = null
-      for (const l of ls) if (l > y + 0.01 && (best === null || l < best)) best = l
-      return best
-    }
-    for (const r of eRows) {
-      const cand = uniqBands.filter((b) => b.page === r.page)
-      if (!cand.length) continue
-      let best: Band | undefined
-      let bestD = Infinity
-      for (const b of cand) {
-        // touching the label row (own cell block) always wins
-        const d = Math.min(Math.abs(b.yTop - r.y), Math.abs(b.yBottom - r.y))
-        const owns = d <= 8
-        // distance to the closest label strictly above this baseline
-        const nl = nearestLabelAbove(r.page, r.y)
-        const dAbove = nl === null ? Infinity : nl - r.y
-        const score = owns ? d : dAbove
-        if (score === Infinity) continue
-        if (owns) {
-          // among bands sharing this label row prefer the one already spanning it
-          if (!best || bestD > score || (bestD === score && b.yTop > best.yTop)) { best = b; bestD = score }
-        } else if (dAbove !== Infinity) {
-          // only accept if no band claims ownership by proximity to label
-          const claimed = cand.some((o) => Math.min(Math.abs(o.yTop - r.y), Math.abs(o.yBottom - r.y)) <= 8)
-          if (claimed) continue
-          if (!best || score < bestD - 0.001 || (Math.abs(score - bestD) <= 0.001 && b.yTop > best.yTop)) { best = b; bestD = score }
-        }
+    const entryRows = eRows.filter((r) => {
+      const ln = normalizeTypeTok(
+        [...r.frags].sort((a, b) => a.x - b.x).map((f) => f.str.trim()).filter(Boolean).join(' '),
+      )
+      return !!ln && startsWithEntry(ln)
+    })
+    // Anchor each period band's box over its stacked batch rows. The time
+    // label sits on ONE baseline of the block (e.g. 8:00-9:00 at y=320.7 with
+    // A1@334.5 above and A3@306.9 below), so grow BOTH ways from the label —
+    // but never past the next period's own cell block. Consecutive entry rows
+    // are ~6.9pt apart; a gap of more than two pitches (~16pt) means the cell
+    // ended and the next block began, so growth stops there. This is what
+    // keeps the previous period's lowest batch row from being swallowed by
+    // the band below (the duplicate-class symptom).
+    const sortedBands = [...uniqBands].sort((a, b) => a.page - b.page || b.yTop - a.yTop)
+    for (const band of sortedBands) {
+      let curTop = band.yTop
+      for (;;) {
+        const cand = entryRows.filter((r) => r.page === band.page && r.y > curTop + 3 && r.y < curTop + 16)
+        if (!cand.length) break
+        curTop = Math.min(...cand.map((r) => r.y))
       }
-      if (!best || bestD > 60) continue
-      best.yTop = Math.max(best.yTop, r.y)
-      best.yBottom = Math.min(best.yBottom, r.y)
+      let curBot = band.yBottom
+      for (;;) {
+        const cand = entryRows.filter((r) => r.page === band.page && r.y < curBot - 3 && r.y > curBot - 16)
+        if (!cand.length) break
+        curBot = Math.max(...cand.map((r) => r.y))
+      }
+      band.yTop = curTop
+      band.yBottom = curBot
     }
   }
 
