@@ -66,31 +66,59 @@ export interface SyllabusParseResult {
 export interface TextItemLike {
   str: string
   transform: number[]
+  width?: number
 }
 
-interface LineItem {
+export interface LineItem {
   x: number
   end: number
   str: string
+  /** Raw vertical position before rounding (used by the timetable grid
+   *  reader, which needs sub-pixel y values for band boundaries). */
+  rawY?: number
 }
-interface Line {
+export interface Line {
   y: number
+  /** Which page (0-based) this line came from — sections never span pages. */
+  page: number
   items: LineItem[]
 }
 
 /** Group pdfjs text items into visual lines (same baseline y), sorted top→down,
- *  items left→right. Rows that are within 2px of each other merge — table cell
- *  text often sits a pixel or two off the header baseline. */
-export function groupItemsIntoLines(items: TextItemLike[]): Line[] {
-  const real = items.filter((it) => it.str && it.str.trim())
+ *  items left→right. Rows that are within 3px of each other merge — table cell
+ *  text often sits a pixel or two off the header baseline (e.g. superscript "th"
+ *  in "12th edition" lands on its own near-baseline otherwise).
+ *
+ *  `page` is the 0-based index of THIS batch's page. Every PDF page restarts
+ *  its y-axis at the bottom, so the same rounded y on two different pages is
+ *  not the same visual line — merging them would interleave content from both
+ *  pages. Callers with several pages must pass a distinct `page` per batch
+ *  (see parseSyllabusPages) or concatenate batches only after grouping. */
+export function groupItemsIntoLines(items: TextItemLike[], page = 0): Line[] {
+  // Guard against items with missing/short transform arrays (see timetable
+  // reader): such items are dropped rather than crashing the grouping.
+  const real = items.filter(
+    (it) => it.str && it.str.trim() && Array.isArray(it.transform) && it.transform.length >= 6,
+  )
+  // sort by descending y so the first row anchors each band
+  const sorted = [...real].sort((a, b) => b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4])
   const lines: Line[] = []
-  for (const it of real) {
-    const y = Math.round(it.transform[5])
+  for (const it of sorted) {
+    const y = it.transform[5]
     const w = (it.width ?? 0) || Math.max(1, it.str.length * 4)
-    const entry = { x: Math.round(it.transform[4]), end: Math.round(it.transform[4]) + Math.round(w), str: it.str }
-    let ln = lines.find((l) => Math.abs(l.y - y) <= 2)
+    const entry = {
+      x: Math.round(it.transform[4]),
+      end: Math.round(it.transform[4]) + Math.round(w),
+      str: it.str,
+      rawY: y,
+    }
+    let ln: Line | undefined
+    for (const cand of lines) {
+      if (cand.page !== page) continue
+      if (Math.abs(cand.y - y) <= 3) { ln = cand; break }
+    }
     if (!ln) {
-      ln = { y, items: [] }
+      ln = { y: Math.round(y), page, items: [] }
       lines.push(ln)
     }
     ln.items.push(entry)
@@ -104,7 +132,7 @@ export function groupItemsIntoLines(items: TextItemLike[]): Line[] {
  *  same y on two different pages is not the same line. */
 export function parseSyllabusPages(pages: TextItemLike[][]): SyllabusParseResult {
   const allLines: Line[] = []
-  for (const pg of pages) allLines.push(...groupItemsIntoLines(pg))
+  pages.forEach((pg, pi) => allLines.push(...groupItemsIntoLines(pg, pi)))
   return parseSyllabusLines(allLines)
 }
 
@@ -116,11 +144,16 @@ export function linesFromPlainText(text: string): Line[] {
     .split(/\r?\n/)
     .map((t) => t.trim())
     .filter(Boolean)
-    .map((t, i) => ({ y: 1000 - i, items: [{ x: 0, end: t.length * 6, str: t }] }))
+    .map((t, i) => ({ y: 1000 - i, page: 0, items: [{ x: 0, end: t.length * 6, str: t }] }))
 }
 
 // ---------------- S2: repeated page furniture ----------------
 
+/** Header/footer fragments that repeat on every page. Matched against each
+ *  fragment of a line, not the joined line — because grouping merges the whole
+ *  header band ("Vishwakarma University, Pune" + "Issue 01…" + running title)
+ *  into one visual line. A line is furniture when EVERY fragment is furniture
+ *  (so real content sharing a baseline with the running title survives). */
 const FURNITURE_PATTERNS: RegExp[] = [
   /Vishwakarma University/i,
   /Issue\s*\d+\s*[:.]?\s*Rev\s*No/i,
@@ -137,25 +170,69 @@ export function isFurnitureLine(line: string): boolean {
   return FURNITURE_PATTERNS.some((re) => re.test(t))
 }
 
+/** True when every fragment of the line matches a furniture pattern. */
+function isFurnitureItems(items: { str: string }[]): boolean {
+  const frags = items.map((it) => it.str.trim()).filter(Boolean)
+  if (frags.length === 0) return true
+  return frags.every((f) => isFurnitureLine(f))
+}
+
 // ---------------- Column model ----------------
 
 /** Fixed x boundaries between table columns (measured on the Sem-1 PDF).
- *  A text item belongs to the last column whose start is ≤ its x. */
+ *  A text item belongs to the LAST column whose start is ≤ its start — the
+ *  old rule. The new rule additionally lets a WIDE fragment belong to the
+ *  column where most of its width lands, which is what happens with merged
+ *  table cells ("UNIT NO.01 <tab> TITLE <tab> 08 Hours" all printed as one
+ *  long fragment starting in the Unit column). */
 const COL_BOUNDS = [0, 34, 144, 328, 507, 533, 545, Infinity]
-const colOf = (x: number): number => {
-  for (let i = COL_BOUNDS.length - 1; i >= 0; i--) if (x >= COL_BOUNDS[i]) return i
-  return 0
+
+/** Fraction of an item's horizontal span that falls inside [a, b]. */
+function overlapFrac(x: number, end: number, a: number, b: number): number {
+  const w = Math.max(1, end - x)
+  const ov = Math.max(0, Math.min(end, b) - Math.max(x, a))
+  return ov / w
 }
 
+/** The column a fragment belongs to: its start column, or — when more than
+ *  half of its width lies to the right of the next boundary — that later
+ *  column. Returns the last plausible column for very wide fragments only
+ *  up to the column containing ≥50% of the width. */
+export function colOfFragment(x: number, end: number): number {
+  let best = 0
+  let bestFrac = -1
+  for (let c = 0; c < COL_BOUNDS.length - 1; c++) {
+    const a = COL_BOUNDS[c]
+    const b = COL_BOUNDS[c + 1] === 0 ? Infinity : COL_BOUNDS[c + 1]
+    if (!Number.isFinite(b) && c === COL_BOUNDS.length - 2) {
+      // last open-ended column: takes everything from its start onward
+      if (x >= a) return c
+      continue
+    }
+    const f = overlapFrac(x, end, a, b)
+    if (f > bestFrac) {
+      bestFrac = f
+      best = c
+    }
+  }
+  const startCol = (() => {
+    for (let i = COL_BOUNDS.length - 1; i >= 0; i--) if (x >= COL_BOUNDS[i]) return i
+    return 0
+  })()
+  // prefer the majority-width column, but never move LEFT of the start column
+  return Math.max(startCol, best)
+}
+
+/** Column band edges from the fixed grid. */
+const bandEdge = (col: number): number => (col >= COL_BOUNDS.length - 1 ? Infinity : COL_BOUNDS[col])
+
 /** Items of a line that lie inside columns [c0, c1], joined in reading order.
- *  Fragments closer than 14px are considered one word (pdfjs splits bold/
- *  italic runs mid-word, e.g. "Bay's Theorem"). */
+ *  An item counts when its assigned column (see colOfFragment) is in range. */
 function cellText(line: Line, c0: number, c1: number): string {
   const parts: string[] = []
   for (const it of line.items) {
-    const c = colOf(it.x)
-    if (c < c0 || c > c1) continue
-    parts.push(it.str)
+    const c = colOfFragment(it.x, it.end)
+    if (c >= c0 && c <= c1) parts.push(it.str)
   }
   return joinFragments(parts)
 }
@@ -179,74 +256,194 @@ function joinFragments(parts: string[]): string {
 
 // ---------------- S3: subject headers ----------------
 
-const SUBJECT_CODE_RE = /^([A-Z]{2,}[A-Z0-9]*\d{4,}[A-Z0-9]*):\s*(.+)$/
+const SUBJECT_CODE_RE = /^([A-Z][A-Z0-9/_-]{4,}\d[A-Z0-9]*)\s*:\s*(.+)$/
+/** Bare course code as it appears in the programme-structure grid (no colon). */
+const BARE_CODE_RE = /^[A-Z][A-Z0-9/_-]{4,}\d[A-Z0-9]*$/
 
 // ---------------- S5/S6/S7/S8: unit headers ----------------
 
-const UNIT_HEAD_RE = /^unit\s*(?:no)?\.?\s*(\d+)\b(.*)$/i
-/** S6: "Unit" alone on one line, "No.01" on the next. */
+/** S5 — every spelling the document uses for a unit header on ONE line:
+ *  "UNIT NO.01", "Unit No.01", "Unit No 1", "Unit No. 01 …". */
+const UNIT_HEAD_RE = /^unit\s*(?:no\.?|number)?\s*(\d+)\b(.*)$/i
+/** S6: "Unit" alone on one line, "No.01 …" on the next. */
 const UNIT_SPLIT_RE = /^no\.?\s*(\d+)\b(.*)$/i
+/** "Unit No" with the number in the NEXT table column. */
+const UNIT_NOCOL_RE = /^unit\s*(?:no\.?|number)?$/i
 
 /** S7: hours = the number next to the word "Hours"; if the word is missing,
  *  the first lone number ≥ 2 in the tail. */
 function extractHours(tail: string): { hours: number | null; rest: string; ambiguous: boolean } {
-  let m = tail.match(/(\d+(?:\.\d+)?)\s*(?:-\s*\d+\s*)?hours?/i)
-  if (m) return { hours: Number.parseInt(m[1], 10), rest: tail.replace(m[0], ''), ambiguous: false }
-  m = tail.match(/hours?\s*[:\-]?\s*(\d+(?:\.\d+)?)/i)
-  if (m) return { hours: Number.parseFloat(m[1]), rest: tail.replace(m[0], ''), ambiguous: false }
-  m = tail.match(/(?:^|\s)(\d{1,2})(?=\s|$)/)
-  if (m) return { hours: Number.parseInt(m[1], 10), rest: tail.replace(m[0], ' '), ambiguous: true }
-  return { hours: null, rest: tail, ambiguous: false }
+  const t = tail.trim()
+  let m = t.match(/(\d+(?:\.\d+)?)\s*(?:-\s*\d+\s*)?(?:hrs?|hours?|hr\.?\/week)/i)
+  if (m) return { hours: Number.parseInt(m[1], 10), rest: t.replace(m[0], ' '), ambiguous: false }
+  m = t.match(/(?:hrs?|hours?)\s*[:\-]?\s*(\d+(?:\.\d+)?)/i)
+  if (m) return { hours: Number.parseFloat(m[1]), rest: t.replace(m[0], ' '), ambiguous: false }
+  m = t.match(/(?:^|\s)(\d{1,2})(?=\s|$)/)
+  if (m) return { hours: Number.parseInt(m[1], 10), rest: t.replace(m[0], ' '), ambiguous: true }
+  return { hours: null, rest: t, ambiguous: false }
 }
 
 /** S9: drop table-column leftovers beside the unit text. */
 function cleanUnitTitle(s: string): string {
   return s
     .replace(/\b(CO|BT|BTL|POs?|PSOs?)\b/g, ' ')
-    .replace(/\b\d{1,2}\b(?=(\s+\d{1,2}\b)*\s*$)/g, ' ') // trailing bare numbers
-    .replace(/\(\s*\)/g, '')
     .replace(/\s+/g, ' ')
     .replace(/[\s.,:;-]+$/, '')
     .trim()
 }
 
+/** A title cell must look like a heading: mostly capital words, not a sentence. */
+function looksLikeHeading(s: string): boolean {
+  const t = s.replace(/^(?:title|course content)\s*:/i, '').trim()
+  if (!t || t.length > 90) return false
+  const words = t.split(/\s+/).filter((w) => /[A-Za-z]/.test(w))
+  if (words.length === 0 || words.length > 8) return false
+  const caps = words.filter((w) => /^[A-Z]/.test(w)).length
+  return caps >= Math.ceil(words.length * 0.6)
+}
+
 // ---------------- S10–S16: topic splitting ----------------
 
-/** S10: join a word broken across lines with a hyphen. */
+/** S10: join a word broken across lines with a hyphen. In this syllabus every
+ *  "x- y" (hyphen + space) is a wrap artifact — real compounds print tight
+ *  ("peer-to-peer") — so "Server- Side" → "ServerSide". Applied to the joined
+ *  buffer before splitting, and per-piece as a safety net. */
 function dehyphenate(text: string): string {
-  return text.replace(/(\w)-\s+(\w)/g, (_all, a, b) => `${a}${String(b).toLowerCase() === String(b) ? b : b.toLowerCase()}`)
+  return text.replace(/([A-Za-z0-9])-\s+([A-Za-z0-9])/g, (_all, a, b) => `${a}${b}`)
 }
 
-/** S11: split at commas/semicolons outside brackets, and at ". Word". */
-export function splitTopics(text: string): string[] {
-  const parts: string[] = []
+/** Depth-aware split helper: returns the separator positions in `text` that
+ *  lie outside brackets. A comma between two bare words with no space after it
+ *  ("Multilevel,Hierarchical") is a missing-space typo inside one topic — keep
+ *  it and normalise to ", ". */
+function splitPoints(text: string, seps: RegExp): number[] {
+  const pts: number[] = []
   let depth = 0
-  let cur = ''
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
-    if (ch === '(' || ch === '[') depth++
-    else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1)
-    if (depth === 0 && (ch === ',' || ch === ';')) {
-      parts.push(cur)
-      cur = ''
-      continue
+    if (ch === '(' || ch === '[' || ch === '{') depth++
+    else if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1)
+    if (depth > 0) continue
+    if (seps.test(ch)) {
+      const prevCh = text[i - 1] ?? ''
+      const nextCh = text[i + 1] ?? ''
+      if (ch === ',' && nextCh !== ' ' && /[A-Za-z]/.test(prevCh) && /[A-Za-z]/.test(nextCh)) continue
+      pts.push(i)
     }
-    if (depth === 0 && ch === '.' && /\s/.test(text[i + 1] ?? '') && /[A-Z]/.test(text[i + 2] ?? '')) {
-      parts.push(cur)
-      cur = ''
-      i += 1
-      continue
-    }
-    cur += ch
   }
-  parts.push(cur)
-  return parts.map(cleanTopic).filter(Boolean)
+  return pts
 }
 
-/** S16: remove a stray ".," and a final full stop, remove a leading "and".
- *  Change no other words. */
+/** Insert a space after commas that lack one ("Multilevel,Hierarchical"). */
+function fixCommaSpacing(s: string): string {
+  return s.replace(/,([^\s),\]])/g, ', $1')
+}
+
+/** Cut `text` at the given positions, dropping the separator char. */
+function cutAt(text: string, pts: number[]): string[] {
+  const parts: string[] = []
+  let start = 0
+  for (const c of pts) {
+    parts.push(text.slice(start, c))
+    start = c + 1
+  }
+  parts.push(text.slice(start))
+  return parts
+}
+
+/** S11/S12: split one buffer line into topic candidates. Split at commas and
+ *  semicolons outside brackets, and at ". Word" sentence joins (skipping
+ *  abbreviations like "e.g."). A piece that opens brackets closed only in a
+ *  later piece ("Concept, Modes and Types (Single, Multiple, …)") is rejoined
+ *  with the following pieces until the brackets balance. */
+function splitLinePieces(line: string): string[] {
+  // S11: a comma that sits BEFORE an opening bracket belongs to the same topic
+  // as everything inside that bracket — "Inheritance: Concept, Modes and Types
+  // (Single, Multiple, Multilevel, Hierarchical)" is ONE topic, so we must not
+  // cut at the comma in front of "(Single". Drop such commas from the split
+  // set; commas inside the brackets are already protected by depth tracking.
+  // (The opening bracket itself sits at p+1 — "Types (Single" — so check for
+  // it directly; the old regex required a space first and missed every case.)
+  const pts = splitPoints(line, /[,;]/).filter((p) => line[p + 1] !== '(' && line[p + 1] !== '[' && line[p + 1] !== '{')
+  const dotPts: number[] = []
+  let depth = 0
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '(' || ch === '[' || ch === '{') depth++
+    else if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1)
+    if (depth > 0) continue
+    if (ch === '.' && /\s/.test(line[i + 1] ?? '') && /[A-Z]/.test(line[i + 2] ?? '')) {
+      const before = line.slice(Math.max(0, i - 6), i + 1).toLowerCase()
+      if (!/(?:\s|^)(?:e|i|vs|approx|no|dept|engg?|etc)\.\s*$/.test(before)) dotPts.push(i)
+    }
+  }
+  const all = [...pts, ...dotPts].sort((a, b) => a - b)
+  const raw = cutAt(line, all)
+  // Rejoin pieces whose brackets don't balance. A piece that opens more
+  // brackets than it closes ("Modes and Types (Single") is only the FIRST
+  // half of its topic — glue it to following pieces until depth returns to
+  // zero ("… (Single, Multiple, Multilevel, Hierarchical)"). Pieces that are
+  // already balanced stay separate topics.
+  const out: string[] = []
+  for (const p of raw) {
+    const prev = out[out.length - 1]
+    if (prev !== undefined && bracketDepth(prev) > 0) {
+      const glue = /[A-Za-z0-9]$/.test(prev) && /^[A-Za-z0-9]/.test(p.trimStart()) ? ' ' : ''
+      out[out.length - 1] = prev + glue + p
+      continue
+    }
+    out.push(p)
+  }
+  return out.map(cleanTopic).filter(Boolean)
+}
+
+function bracketDepth(s: string): number {
+  let d = 0
+  for (const c of s) {
+    if (c === '(' || c === '[' || c === '{') d++
+    else if (c === ')' || c === ']' || c === '}') d = Math.max(0, d - 1)
+  }
+  return d
+}
+
+/** Public helper used by tests and the review screen: split a run of topic
+ *  text into individual topic names applying S10–S12. */
+export function splitTopics(text: string): string[] {
+  const out: string[] = []
+  for (const piece of splitLinePieces(dehyphenate(text))) out.push(piece)
+  return out
+}
+
+// ---------------- S14: group headings ----------------
+
+/** S14: a short phrase ending with ":" that labels the topics after it
+ *  ("Astronomy:", "Mathematics:"). Long phrases are sentences with a colon —
+ *  keep them as topics. */
+function isGroupHeading(s: string): boolean {
+  const t = s.trim()
+  if (!t.endsWith(':')) return false
+  const body = t.slice(0, -1).trim()
+  if (!body || body.length > 30) return false
+  if (wordCount(body) > 3) return false
+  return /^[A-Z]/.test(body)
+}
+
+/** Pieces of a joined buffer line, keeping a leading group heading separate. */
+function piecesWithGroup(line: string): { group?: string; rest: string[] } {
+  const m = line.match(/^(\s*[A-Za-z][^,:;]{0,30}:)(\s[\s\S]*)?$/)
+  if (m && isGroupHeading(m[1])) {
+    const restText = (m[2] ?? '').trim()
+    const rest = restText ? splitLinePieces(dehyphenate(restText)) : []
+    return { group: cleanTopic(m[1].slice(0, -1)), rest }
+  }
+  return { rest: splitLinePieces(dehyphenate(line)) }
+}
+
+/** S16: remove a stray ".,", normalise missing comma spaces, drop a final full
+ *  stop, remove a leading "and". Change no other words. */
 function cleanTopic(s: string): string {
   let t = s.replace(/\s+/g, ' ').trim()
+  t = fixCommaSpacing(t)
   t = t.replace(/\.\s*,/g, ',').replace(/,\s*\.(?=\s|$)/g, '')
   t = t.replace(/\.\s*\.$/g, '.')
   t = t.replace(/[.,;:\s]+$/, '')
@@ -261,55 +458,203 @@ const NUM_ITEM_RE = /^(?:\d{1,2})[.)]\s+/
 
 // ---------------- Main parse ----------------
 
-interface Block {
-  kind: 'subject' | 'springboard' | 'content' | 'other'
-  head?: { code: string; name: string }
-  lines: Line[]
-}
-
-/** S4: where a Course Content section ends. */
-const CONTENT_END_RE = /^(text\s*books?.*|reference books.*|weblink.*|evaluation scheme|course objectives|course outcomes|list of experiments|mapping of|articulation|weightage|scheme of examination|semester registration|distribution of marks|ble per course)/i
+/** Where a Course Content section ends. */
+const CONTENT_END_RE = /^(text\s*books?.*|reference books.*|weblink.*|evaluation scheme|course objectives|course outcomes|list of experiments|mapping of|articulation|weightage|scheme of examination|semester registration|distribution of marks)/i
 /** Where a Springboard table ends. */
-const SPRINGBOARD_END_RE = /^(text\s*books|reference books|course objectives|course outcomes|list of experiments|evaluation scheme|mapping of|articulation|weightage|scheme of examination|co )/i
+const SPRINGBOARD_END_RE = /^(text\s*books|reference books|course objectives|course outcomes|list of experiments|evaluation scheme|mapping of|articulation|weightage|scheme of examination|projects on infosys|springboard courses?[:\s]|infosys springboard courses?[:\s])/i
 
 interface Section {
   kind: 'content' | 'springboard'
-  start: number
+  page: number
+  start: number // index into kept lines
   end: number // exclusive
 }
 
+/** A course code never contains lowercase letters — that kills false hits on
+ *  wrapped URLs (".../toc/lex_auth_0135...") and long mixed-case words. */
+const CODE_TOKEN_RE = /^[A-Z][A-Z0-9/_-]{4,}\d[A-Z0-9]*$/
+const COLON_CODE_RE = /([A-Z][A-Z0-9/_-]{4,}\d[A-Z0-9]*)\s*:\s*(.*)/
+/** Words that are never part of a course title — guards the grid-row name
+ *  pick-up against random body text that happens to share a line. */
+const NOT_A_TITLE_RE = /(springboard|wingspan|outcome|outcome|board of studies|taxonomy|affinity|http|https|course type|semester|lecture|tutorial|practical|marks|credits|scheme)/i
+
 export function parseSyllabusLines(lines: Line[]): SyllabusParseResult {
-  const kept = lines.filter((l) => !isFurnitureLine(cellText(l, 0, 6)))
+  const kept = lines.filter((l) => !isFurnitureItems(l.items))
   if (kept.length === 0) return { subjects: [], scanned: true }
 
-  // ---- locate subject headers and sections across the whole document ----
-  const heads: { idx: number; code: string; name: string }[] = []
+  // ---- S3: subject headers. The syllabus pages each start with a title line
+  // "CODE: Full Name" (or "CODE:Name" with no space). The programme-structure
+  // grid also contains bare codes — those rows are only accepted when the name
+  // sits immediately right of the code in the same line; otherwise the code is
+  // remembered and unlocked later by its colon header (never dropped, so order
+  // follows the document). Deduplicated by code; first occurrence wins. ----
+  interface Head {
+    idx: number // kept-line index of the subject's FIRST line (title or grid row)
+    titleIdx: number // kept-line index of its "CODE: Name" title, -1 until seen
+    detailStart: number // first content line after the title, -1 until seen
+    gridName: string // name collected from the programme-structure grid rows
+    titleName: string // name from the colon title line
+    code: string // course code, e.g. "BTECS26103"
+  }
+  const heads: Head[] = []
+  const headByCode = new Map<string, number>() // code -> index into heads
+  const mkHead = (idx: number, code = ''): Head => ({ idx, titleIdx: -1, detailStart: -1, gridName: '', titleName: '', code })
+
+  // The programme-structure grid lives on its own page(s), delimited by the
+  // "Programme Structure" heading and the semester column header ("SEM-I").
+  // Bare codes OUTSIDE that region are never subject anchors — they're stray
+  // references in body text and must not create a phantom head that bounds
+  // other subjects' section windows. Detect anchors per PAGE: a page counts as
+  // a grid page only if it has BOTH the exact "Programme Structure" line (as a
+  // standalone fragment — cover/running titles like "Programme Structure &
+  // Syllabus" don't qualify) and a "SEM-*" column header.
+  const gridPages = new Set<number>()
+  for (const l of kept) {
+    const soloHeading = l.items.some((it) => /^programme structure$/i.test(it.str.trim()))
+    const semCol = l.items.some((it) => /^SEM[- ]?\w+$/.test(it.str.trim()))
+    if (soloHeading) gridPages.add(l.page)
+    if (semCol && gridPages.has(l.page)) { /* confirmed pair */ } else if (semCol) gridPages.add(-l.page - 1)
+  }
+  // keep only pages where both markers occurred
+  const confirmed = new Set<number>()
+  for (const p of gridPages) {
+    if (p < 0) continue
+    const hasH = kept.some((l) => l.page === p && l.items.some((it) => /^programme structure$/i.test(it.str.trim())))
+    const hasS = kept.some((l) => l.page === p && l.items.some((it) => /^SEM[- ]?\w+$/.test(it.str.trim())))
+    if (hasH && hasS) confirmed.add(p)
+  }
+  const inGridRegion = (page: number) => confirmed.has(page)
+
+  // pass 1 — title lines "CODE: Full Name". These anchor each subject and give
+  // its official name. Codes seen earlier in the grid keep the grid's position
+  // as idx (so ordering follows the document), but sections are located AFTER
+  // the title line via detailStart.
+  for (let i = 0; i < kept.length; i++) {
+    const items = kept[i].items
+    for (const it of items) {
+      const m = it.str.trim().match(COLON_CODE_RE)
+      if (!m || !CODE_TOKEN_RE.test(m[1])) continue
+      const code = m[1]
+      const name = cleanUnitTitle(m[2]).replace(/[:\u2013-]+$/, '').trim()
+      let hi = headByCode.get(code)
+      if (hi === undefined) {
+        hi = heads.length
+        headByCode.set(code, hi)
+        heads.push(mkHead(i, code))
+      }
+      const h = heads[hi]
+      if (name) {
+        h.titleName = h.titleName || name
+        h.titleIdx = i
+        h.detailStart = i + 1
+      } else if (h.titleIdx === -1) {
+        // "CODE:" with the name on a following fragment/line — handled below
+        if (h.titleIdx === -1) h.titleIdx = i
+        if (h.detailStart === -1) h.detailStart = i + 1
+      }
+      break
+    }
+  }
+
+  // pass 2 — bare codes in the programme-structure grid. The course name sits
+  // in the "Tentative Course Name" column band (x ≈ 195–340); rows wrap over
+  // several baselines, so continuation lines (no code, name-band text) extend
+  // the previous grid row's name.
+  let lastGridHi = -1
+  for (let i = 0; i < kept.length; i++) {
+    const items = kept[i].items
+    let codeTok = ''
+    let codeX = -1
+    for (const it of items) {
+      const s = it.str.trim()
+      if (CODE_TOKEN_RE.test(s) && !COLON_CODE_RE.test(s)) {
+        codeTok = s
+        codeX = it.x
+        break
+      }
+    }
+    if (codeTok) {
+      // bare codes only anchor subjects inside the programme-structure grid;
+      // elsewhere they are stray references in body text — ignore the line as
+      // a head, but keep continuation handling off for it too.
+      if (!inGridRegion(kept[i].page)) { lastGridHi = -1; continue }
+      let hi = headByCode.get(codeTok)
+      if (hi === undefined) {
+        hi = heads.length
+        headByCode.set(codeTok, hi)
+        heads.push(mkHead(i, codeTok))
+      }
+      const h = heads[hi]
+      h.idx = Math.min(h.idx, i)
+      // name fragments on this line inside the course-name band, right of code
+      const nm = items
+        .filter((it) => it.x >= 195 && it.x <= 340 && /[A-Za-z]/.test(it.str) && colOfFragment(it.x, it.end) !== colOfFragment(codeX, codeX + 1))
+        .map((it) => it.str.trim())
+        .join(' ')
+      if (nm && !NOT_A_TITLE_RE.test(nm)) h.gridName = joinFragments([h.gridName, nm])
+      lastGridHi = hi
+      continue
+    }
+    // continuation line of a wrapped grid row: short name-band text, no other columns
+    if (lastGridHi >= 0) {
+      const bandItems = items.filter((it) => it.x >= 195 && it.x <= 340 && /[A-Za-z]/.test(it.str))
+      const otherItems = items.filter((it) => !(it.x >= 195 && it.x <= 340) && /[A-Za-z]{2,}/.test(it.str))
+      if (bandItems.length > 0 && otherItems.length === 0) {
+        const nm = bandItems.map((it) => it.str.trim()).join(' ')
+        if (nm && !NOT_A_TITLE_RE.test(nm)) heads[lastGridHi].gridName = joinFragments([heads[lastGridHi].gridName, nm])
+      }
+    }
+  }
+
+  // resolve names: title wins, grid fills gaps (e.g. "BTECES26105:" printed
+  // without its name on the title line).
+  for (const h of heads) {
+    if (!h.titleName && h.gridName) h.titleName = h.gridName
+    if (!h.gridName && h.titleName) h.gridName = h.titleName
+  }
+  // subjects whose name never materialised anywhere are dropped
+  // A code needs BOTH a programme-structure grid row AND its own "CODE: Name"
+  // title page to be a real subject. Grid-only codes (e.g. BTECES26107
+  // "Induction Training") have no detail pages; titled-but-not-in-grid tokens
+  // are stray references in body text. Either alone is noise that would bound
+  // windows and steal neighbouring subjects' sections.
+  const realHeads = heads.filter((h) => h.titleIdx !== -1 && h.gridName)
+  realHeads.sort((a, b) => a.idx - b.idx)
+  heads.length = 0
+  heads.push(...realHeads)
+
+  // ---- locate Course Content / Springboard sections (never across pages) ----
   const sections: Section[] = []
   for (let i = 0; i < kept.length; i++) {
     const full = cellText(kept[i], 0, 6)
-    const m = full.match(SUBJECT_CODE_RE)
-    if (m) {
-      heads.push({ idx: i, code: m[1], name: cleanUnitTitle(m[2]) })
+    if (/^course content\b/i.test(full) || /^title:\s*course content$/i.test(full)) {
+      sections.push({ kind: 'content', page: kept[i].page, start: i + 1, end: findEnd(kept, i + 1, kept[i].page, CONTENT_END_RE) })
       continue
     }
-    if (/^(course content)/i.test(full)) {
-      sections.push({ kind: 'content', start: i + 1, end: findEnd(kept, i + 1, CONTENT_END_RE) })
-      continue
-    }
-    if (/^(infosys springboard courses?\b|springboard courses?\b)/i.test(full)) {
-      sections.push({ kind: 'springboard', start: i, end: findEnd(kept, i + 1, SPRINGBOARD_END_RE) })
+    if (/^(infosys springboard courses?[!:\s]*|springboard courses?[!:\s]*)/i.test(full)) {
+      sections.push({ kind: 'springboard', page: kept[i].page, start: i + 1, end: findEnd(kept, i + 1, kept[i].page, SPRINGBOARD_END_RE) })
       continue
     }
   }
 
   const subjects: ParsedSyllabusSubject[] = []
-  for (let h = 0; h < heads.length; h++) {
-    const from = heads[h].idx
-    const to = h + 1 < heads.length ? heads[h + 1].idx : kept.length
+  // Section windows follow the TITLED heads (the "CODE: Name" detail-page
+  // titles) only. A bare code seen in the programme-structure grid that never
+  // gets a title line ("BTECES26107 Induction Training") must not bound any
+  // window — otherwise it truncates the real subject before it and becomes a
+  // catch-all swallowing every later section. Grid-only codes are reported as
+  // subjects with empty units/links unless they own content pages.
+  const titledHeads = heads.filter((hh) => hh.titleIdx !== -1).sort((a, b) => a.idx - b.idx)
+  for (let h = 0; h < titledHeads.length; h++) {
+    // Window starts at the TITLE line, not the grid row: a stray bare code or
+    // section header printed on the detail page BEFORE the title would land in
+    // [idx, titleIdx) and, being first, steal that subject's sections.
+    const from = Math.max(titledHeads[h].titleIdx, titledHeads[h].detailStart - 1)
+    const to = h + 1 < titledHeads.length ? titledHeads[h + 1].idx : kept.length
     const subj: ParsedSyllabusSubject = {
-      code: heads[h].code,
-      fullName: heads[h].name,
-      shortName: guessShortName(heads[h].name),
+      code: titledHeads[h].code,
+      fullName: titledHeads[h].titleName,
+      shortName: guessShortName(titledHeads[h].titleName),
       units: [],
       links: [],
     }
@@ -322,15 +667,35 @@ export function parseSyllabusLines(lines: Line[]): SyllabusParseResult {
     }
     subjects.push(subj)
   }
+  // grid-only codes without a title line: report them only when they actually
+  // own sections (rare); otherwise drop so callers see exactly the subjects
+  // this document details.
+  for (const hh of heads) {
+    if (hh.titleIdx !== -1) continue
+    const nextTitled = titledHeads.find((t) => t.idx > hh.idx)
+    const to = nextTitled ? nextTitled.idx : kept.length
+    const subj: ParsedSyllabusSubject = { code: hh.code, fullName: hh.titleName || hh.gridName, shortName: guessShortName(hh.titleName || hh.gridName), units: [], links: [] }
+    for (const sec of sections) {
+      if (sec.start >= hh.idx && sec.end <= to) {
+        const slice = kept.slice(sec.start, sec.end)
+        if (sec.kind === 'content') subj.units.push(...parseCourseContent(slice))
+        else subj.links.push(...parseSpringboardTable(slice))
+      }
+    }
+    if (subj.units.length > 0 || subj.links.length > 0) subjects.push(subj)
+  }
+  subjects.sort((a, b) => heads.findIndex((hh) => hh.code === a.code) - heads.findIndex((hh) => hh.code === b.code))
 
   return { subjects, scanned: false }
 }
 
-function findEnd(kept: Line[], from: number, endRe: RegExp): number {
+function findEnd(kept: Line[], from: number, page: number, endRe: RegExp): number {
   for (let j = from; j < kept.length; j++) {
+    if (kept[j].page !== page) return j // sections never span pages
     const full = cellText(kept[j], 0, 6)
     if (endRe.test(full)) return j
     if (SUBJECT_CODE_RE.test(full)) return j
+    if (BARE_CODE_RE.test(full)) return j
   }
   return kept.length
 }
@@ -465,7 +830,7 @@ function rebuildLinks(lines: Line[], c0: number, c1: number): { urls: Map<number
     while (!/(overview|_shared)$/.test(acc) && /(\/|on|com|app|toc|auth_|_shared|[0-9])$/.test(acc) && j < lines.length) {
       const nf = cellText(lines[j], c0, c1)
       if (!nf || !/^[a-z0-9_\/.-]/i.test(nf)) break
-      const cont = lines[j].items.find((it) => colOf(it.x) >= c0 && colOf(it.x) <= c1)?.str
+      const cont = lines[j].items.find((it) => colOfFragment(it.x, it.end) >= c0 && colOfFragment(it.x, it.end) <= c1)?.str
       if (!cont) break
       acc += cont.trim()
       used.add(j)

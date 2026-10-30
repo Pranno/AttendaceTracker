@@ -11,8 +11,9 @@ import { parseSyllabusLines, groupItemsIntoLines, guessShortName, splitTopics } 
 
 type Item = { str: string; transform: number[]; width?: number }
 const pages = JSON.parse(readFileSync(new URL('./__fixtures__/syllabus-sem1.json', import.meta.url), 'utf8')) as Item[][]
-const items = pages.flat()
-const result = parseSyllabusLines(groupItemsIntoLines(items))
+// Group each page separately — PDF y-coordinates restart on every page, so
+// flat items would interleave lines from different pages (see S2/page model).
+const result = parseSyllabusLines(pages.flatMap((pg, i) => groupItemsIntoLines(pg, i)))
 
 describe('syllabus reader — Semester 1 acceptance', () => {
   it('is not a scanned file (has selectable text)', () => {
