@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+// ---- Release signing via android/app/signing.properties (Path 1: share APK with friends) ----
+// signing.properties is gitignored — keep it and the keystore somewhere safe.
+// If the file is missing, release builds fall back to debug signing so CI/first runs don't break.
+def signingProps = new Properties()
+def signingPropsFile = file('signing.properties')
+if (signingPropsFile.exists()) {
+    signingPropsFile.withInputStream { signingProps.load(it) }
+}
+
 android {
     namespace "com.attendancetracker.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +16,8 @@ android {
         applicationId "com.attendancetracker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +25,39 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (signingPropsFile.exists()) {
+                storeFile file(signingProps.getProperty('storeFile'))
+                storePassword signingProps.getProperty('storePassword')
+                keyAlias signingProps.getProperty('keyAlias')
+                keyPassword signingProps.getProperty('keyPassword')
+            } else {
+                // Fallback so `assembleRelease` still works before you create a keystore.
+                // DO NOT distribute APKs signed this way as your "final" releases —
+                // once friends install them, switching to your real keystore requires uninstall.
+                storeFile file(System.getenv('HOME') + '/.android/debug.keystore')
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+    }
+
+    // Names the output e.g. attendance-tracker-1.0-release.apk instead of app-release.apk
+    applicationVariants.all { variant ->
+        if (variant.name == 'release') {
+            variant.outputs.each { output ->
+                output.outputFileName = "attendance-tracker-${variant.versionName}-release.apk"
+            }
         }
     }
 }
