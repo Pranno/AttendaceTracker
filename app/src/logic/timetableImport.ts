@@ -335,6 +335,41 @@ const BREAK_TEXT_RE = /short\s*h?break|lunch|tea\s*break|\bbreak\b/i
 /** NOTE/legend prose that sits below the grid and bleeds into the last band. */
 const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Room|Batch-Course|Course\s*Type|Theory Lecture|Practical Lecture|Tutorial Course|Course:|\bAbbreviation\b|abbreviation|Faculty Member|Online\s+Session|Online|\(?\s*SATKAA|\bSession\s*\)?\s*$|R\.\s*Patil|Kailas/i
 
+/** Legend-table column bands (PDF points): SN + abbreviation left of 250,
+ *  course name 250–470, teacher initials 470–600, teacher names ≥600. Used
+ *  to keep legend-page fragments out of the grid entirely — otherwise a row
+ *  like "1 CP Computer Programming KRP Kailas R. Patil" becomes phantom
+ *  classes on Monday during the continuation-page coverage check. */
+const LEGEND_NAME_X = 250
+const LEGEND_FULLNAME_X = 600
+
+/** Does this PAGE carry the abbreviation table? (a numeric SN at the far
+ *  left sitting on the same row as a course-name word in the middle column).
+ *  Page-level detection is safe: grid pages never put prose words at x≈274
+ *  next to bare numbers at x≈92. Only whole legend pages get filtered; inside
+ *  grid pages the NOTE block is handled by PROSE_RE / the per-page prose cut. */
+function pageHasLegendTable(frags: Frag[]): boolean {
+  for (const f of frags) {
+    if (!/^\d{1,2}$/.test(f.str.trim()) || f.x > 110) continue
+    const sameRow = frags.filter((o) => Math.abs(o.y - f.y) <= 8 && o.x >= LEGEND_NAME_X && o.x < LEGEND_FULLNAME_X)
+    if (sameRow.some((o) => /^[A-Za-z][A-Za-z&,.']{3,}$/.test(o.str.trim()))) return true
+  }
+  return false
+}
+
+/** Is this fragment part of the abbreviation-legend table (by position)? */
+function isLegendFrag(f: Frag): boolean {
+  if (/^S\.?N\.?$/i.test(f.str)) return true
+  const s = f.str.trim()
+  // bare code in the abbreviation column ("CP", "VACO-I")
+  if (f.x < LEGEND_NAME_X && /^[A-Z]{2,6}(?:-[IVX]+)?$/.test(s)) return true
+  // any word sitting inside the name / initials columns
+  if (f.x >= LEGEND_NAME_X && f.x < LEGEND_FULLNAME_X) return true
+  // wrapped teacher full name at the far right ("Deepak T. Mane")
+  if (f.x >= LEGEND_FULLNAME_X && /[A-Za-z]/.test(s)) return true
+  return false
+}
+
 /** A cell may hold several stacked lines; join fragments into one string per
  *  visual line (top→bottom), so entries can be re-joined afterwards using the
  *  room-number continuation lines ("A2 CP (P)" + "KRP" then "2416"). */
@@ -474,7 +509,46 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
         frags.push({ x, end: it.end, y, str: s, page: pgIndex })
       }
     }
-    pageFrags.push(frags)
+    // ---- Split glued extraction runs (T2/T3 hardening) ----
+    // pdf.js sometimes merges an entire visual row into ONE item
+    // ("8:00 - 9:00 A2 WAD (P) YP 2314 A FE (L) PS 2406"). Such mega-fragments
+    // have no usable x-extent, so they overlap EVERY day column at once and
+    // the whole row gets read under Monday (the "Tuesday classes appear on
+    // Monday" symptom). Cut them at period boundaries (a time range followed
+    // by a class entry) and emit sub-fragments evenly spaced across the run's
+    // width — enough positional signal for correct column attribution.
+    const ENTRY_TOK_RE = /[A-Z][A-Z0-9]*(?:-[IVX]+)?\s*\(\s*[LPTS]\s*\)/i
+    const TIME_HEAD_RE = /\d{1,2}[.:]\d{2}\s*[-–—]\s*\d{1,2}(?:[.:]\d{2})?/
+    const splitFrags: Frag[] = []
+    for (const f of frags) {
+      const wideEnough = f.end - f.x > 60 // a real run of text
+      const glued = wideEnough && TIME_HEAD_RE.test(f.str) && (f.str.match(ENTRY_TOK_RE) ?? []).length >= 2
+      if (!glued) { splitFrags.push(f); continue }
+      // cut points: just before each time range that follows an entry token
+      const cuts: number[] = [0]
+      const re = new RegExp(String.raw`${ENTRY_TOK_RE.source}[^]*?(?=${TIME_HEAD_RE.source})`, 'gi')
+      let mm: RegExpExecArray | null
+      while ((mm = re.exec(f.str))) cuts.push(mm.index + mm[0].length)
+      cuts.push(f.str.length)
+      const uniqCuts = [...new Set(cuts)].sort((a, b) => a - b)
+      const pieces: string[] = []
+      for (let i = 0; i + 1 < uniqCuts.length; i++) {
+        const piece = f.str.slice(uniqCuts[i], uniqCuts[i + 1]).trim()
+        if (piece) pieces.push(piece)
+      }
+      if (pieces.length <= 1) { splitFrags.push(f); continue }
+      const w = f.end - f.x
+      pieces.forEach((p, i) => {
+        splitFrags.push({
+          x: f.x + (w * i) / pieces.length,
+          end: f.x + (w * (i + 1)) / pieces.length,
+          y: f.y,
+          str: p,
+          page: f.page,
+        })
+      })
+    }
+    pageFrags.push(splitFrags)
   })
   const all = pageFrags.flat()
   if (all.length === 0) {
@@ -500,10 +574,17 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
     const found = [...union.entries()].map(([weekday, x]) => ({ weekday, x })).sort((a, b) => a.x - b.x)
     dayCols = extendDayCols(found) ?? found
   }
+  // Legend-page fragments must NEVER reach the grid reader: the abbreviation
+  // table ("1 CP Computer Programming KRP Kailas R. Patil") contains code+
+  // initials pairs that parse as real entries, and their x positions land in
+  // the Monday/Tuesday bands — producing phantom classes on the wrong days.
+  // Filter whole legend PAGES (never fragments inside grid pages, whose cell
+  // content legitimately spans those same x ranges).
+  const gridPageFrags = pageFrags.filter((frags) => !pageHasLegendTable(frags))
   const entries: ParsedEntry[] = []
   const warnings: string[] = []
   const gridFrags: Frag[][] = []
-  for (const frags of pageFrags) {
+  for (const frags of gridPageFrags) {
     if (dayCols.length < 4) continue
     const hasHeader = findDayColumns(frags).length >= 4
     if (!hasHeader) {
@@ -535,17 +616,36 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   return res
 }
 
-/** Locate the visual row(s) carrying ≥4 weekday names → column anchors. */
+/** Locate the visual row(s) carrying ≥4 weekday names → column anchors.
+ *  Handles glued extraction rows: when one fragment holds several day names
+ *  ("Time Monday Tuesday Wednesday…"), its width is split proportionally at
+ *  each name's character offset, so every heading still gets an x anchor. */
 export function findDayColumns(frags: Frag[]): { weekday: number; x: number }[] {
   const ys = [...new Set(frags.map((f) => f.y))].sort((a, b) => b - a)
   for (const y of ys) {
     const row = frags.filter((f) => Math.abs(f.y - y) <= 3).sort((a, b) => a.x - b.x)
-    const hits = row
-      .map((f) => ({ f, wd: DAY_HEAD_RE.test(f.str) ? weekdayFromName(f.str) : null }))
-      .filter((h) => h.wd !== null)
-    if (hits.length >= 4) {
-      return hits.map((h) => ({ weekday: h.wd!, x: h.f.x }))
+    const hits: { weekday: number; x: number }[] = []
+    for (const f of row) {
+      const wd = DAY_HEAD_RE.test(f.str) ? weekdayFromName(f.str) : null
+      if (wd !== null) { hits.push({ weekday: wd, x: f.x }); continue }
+      // multi-day run inside one fragment — cut it into per-day anchors
+      const re = /\b(mon|tues|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)?\b/gi
+      let m: RegExpExecArray | null
+      const found: { weekday: number; idx: number }[] = []
+      while ((m = re.exec(f.str))) {
+        const wd = weekdayFromName(m[0])
+        if (wd !== null && !found.some((x) => x.weekday === wd)) found.push({ weekday: wd, idx: m.index })
+      }
+      if (found.length < 2) continue
+      const w = Math.max(1, f.end - f.x)
+      for (let i = 0; i < found.length; i++) {
+        const frac = found[i].idx / Math.max(1, f.str.length)
+        const nextFrac = i + 1 < found.length ? found[i + 1].idx / f.str.length : 1
+        // centre of this day's slice within the run
+        hits.push({ weekday: found[i].weekday, x: f.x + w * ((frac + nextFrac) / 2) })
+      }
     }
+    if (hits.length >= 4) return hits.sort((a, b) => a.x - b.x)
   }
   return []
 }
@@ -690,14 +790,31 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   for (const b of rawBands) {
     const prev = merged.length ? merged[merged.length - 1] : null
     if (prev && prev.page === b.page && Math.abs(prev.yTop - b.yTop) <= 5) {
-      // keep the earlier (higher) band; snap its bottom to cover both rows
-      prev.yBottom = Math.min(prev.yTop, b.yTop)
+      // Same visual row. If the two ranges share an endpoint they are SIBLING
+      // periods printed on one line ("2:15 - 3:15" beside "3.15 – 4.15"): keep
+      // both bands, at slightly offset tops so each owns its own vertical
+      // slice of the row below. Otherwise it's a duplicate reading of the same
+      // period — snap the earlier band's bottom to cover both rows.
+      const sharesEndpoint =
+        prev.start === b.end || prev.end === b.start || prev.end === b.end || prev.start === b.start
+      if (sharesEndpoint) {
+        merged.push({ ...b, yTop: b.yTop - 0.1 })
+      } else {
+        prev.yBottom = Math.min(prev.yTop, b.yTop)
+      }
       continue
     }
     merged.push(b)
   }
   // A cell may stack two periods sharing an endpoint (10:00-10:15 break then
   // 10:15-11:15 class): give such a short band only the sliver above the next.
+  // The NEXT band is the one just BELOW this one in reading order — but PDF y
+  // grows upward, so after sorting top→bottom, `merged[i+1]` must have a LOWER
+  // y. When two bands share the same y (a split label like "2:15 - 3:15" plus
+  // "3.15 – 4.15" glued onto one visual row), they are SIBLINGS: the second
+  // owns everything below the first's bottom, and the pair together bounds the
+  // row underneath. Treat same-y neighbours as siblings by offsetting their
+  // effective tops a hair so ordering stays deterministic.
   for (let i = 0; i < merged.length; i++) {
     const next = merged[i + 1]
     if (!next || next.page !== merged[i].page) { merged[i].yBottom = -Infinity; continue }
