@@ -463,7 +463,18 @@ export function stitchCellFrags(frags: Frag[]): string[] {
     // teacher continuation below belongs to. Per-fragment lines keep the
     // ownership exact — a continuation attaches to the entry line directly
     // above it in the same column.
-    const entryFrags = fs.filter((f) => ENTRY_RE.test(normalizeTypeTok(f.str.trim())))
+    // A fragment is an "entry start" only when it BEGINS with the entry
+    // pattern. Bare batch tags ("A1", "A2") and bare subjects ("FE") match
+    // ENTRY_RE internally because every group except the subject is optional,
+    // but they don't start a class record — requiring m.index === 0 keeps them
+    // from being treated as standalone lines (which made pushLine emit one
+    // output line per tag fragment and lose the joined-line context entirely).
+    const isStart = (s: string): boolean => {
+      const n = normalizeTypeTok(s)
+      const m = ENTRY_RE.exec(n)
+      return !!m && m.index === 0 && m[0].length >= n.trim().length - 14
+    }
+    const entryFrags = fs.filter((f) => isStart(f.str.trim()))
     if (entryFrags.length > 1) {
       for (const f of entryFrags) {
         for (const p of splitEntryLine(f.str.trim())) {
@@ -1094,11 +1105,17 @@ function finishGridParse(rawEntries: ParsedEntry[], frags: Frag[]): GridParseRes
   const warnings: string[] = []
   const entries: ParsedEntry[] = []
   const batches = distinctBatches(rawEntries)
-  const seen = new Set<string>()
+  // De-dupe per day, but keep a period's stacked batch rows intact: two
+  // batches can genuinely share subject+type+time in one cell ("A1 CP (L)"
+  // above "A2 CP (L)"). When that happens, require the NEXT occurrence to
+  // carry a different batch tag — otherwise it is a duplicate emitted by an
+  // overlapping band and must be dropped. Rows with no tag never block others.
+  const seen = new Map<string, string | null>()
   for (const e of rawEntries) {
-    const key = `${e.batch ?? '∅'}|${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
-    if (seen.has(key)) continue
-    seen.add(key)
+    const key = `${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const prevBatch = seen.get(key)
+    if (prevBatch !== undefined && (e.batch ?? null) === prevBatch) continue
+    seen.set(key, e.batch ?? null)
     entries.push(e)
   }
   const subjects = readLegend(frags)

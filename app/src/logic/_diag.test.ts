@@ -1,45 +1,33 @@
 import { it } from 'vitest'
 import fixtures from './__fixtures__/timetable-divA.json'
-import type { TextItemLike } from './syllabusReader'
+import { stitchCellFrags } from './timetableImport'
+import type { Frag } from './timetableImport'
 
-const TYPE_TOK = String.raw`\(\s*[LPTS]\s*\)|\([LPTS][A-Za-z(]|\(\s+[LPTS]\s+\)`
-const ENTRY_RE = new RegExp(
-  String.raw`^(?:(?<batch>[A-E](?:[1-9])?)[.\s-]+)?(?<subj>[A-Z][A-Z0-9]*(?:-[IVX]+)?)\s*` +
-    `(?<typeTok>${TYPE_TOK})\\s*(?:(?<teacher>[A-Z][A-Za-z0-9]{1,3})(?:\\s+(?<room>\\d{3,4}))?)?`,
-)
-function normalizeTypeTok(text: string): string {
-  return text
-    .replace(/\(\s+([LPTS])\s+\)/g, '($1)')
-    .replace(/\(\s*([LPTS])\s*\)/g, '($1)')
-    .replace(/\(([LPTS])(?=[A-Za-z(])/g, '($1) ')
-}
-
-it('diag bands', () => {
-  const pages = fixtures as unknown as TextItemLike[][]
-  // replicate fragment building like parseTimetablePages
-  interface F { x:number; end:number; y:number; str:string; page:number }
-  const frags: F[] = []
-  pages.forEach((pg, pi) => {
-    for (const it of pg) {
-      const s = (it.str||'').trim()
-      if (!s) continue
-      const t = it.transform
-      if (!Array.isArray(t) || t.length < 6) continue
-      frags.push({ x: Math.round(t[4]), end: Math.round(t[4] + (it.width ?? s.length*4)), y: t[5], str: s, page: pi })
-    }
-  })
-  const p0 = frags.filter(f=>f.page===0)
-  // group with tol 2
-  interface R { y:number; frags:F[] }
-  const rows: R[] = []
-  for (const f of p0) {
-    let r = rows.find(x=>Math.abs(x.y-f.y)<=2)
-    if(!r){r={y:f.y,frags:[]};rows.push(r)}
-    r.frags.push(f)
-  }
-  for (const r of rows.sort((a,b)=>b.y-a.y)) {
-    const ln = normalizeTypeTok([...r.frags].sort((a,b)=>a.x-b.x).map(f=>f.str).join(' '))
-    const m = ENTRY_RE.exec(ln)
-    console.log(`y=${r.y.toFixed(1)} idx=${m?m.index:'x'} | ${ln.slice(0,80)}`)
-  }
+it('diag', () => {
+  const box: Frag[] = [
+    // y=353 header row (Monday slice)
+    { x: 181, end: 216, y: 353.0, str: 'Monday', page: 0 },
+    // y=334.5 A1 FE (P) PS 2408
+    { x: 156, end: 166, y: 334.5, str: 'A1', page: 0 },
+    { x: 173, end: 187, y: 334.5, str: 'FE', page: 0 },
+    { x: 191, end: 204, y: 334.5, str: '(P)', page: 0 },
+    { x: 208, end: 218, y: 334.5, str: 'PS', page: 0 },
+    { x: 225, end: 243, y: 334.5, str: '2408', page: 0 },
+    // y=320.7 time label + A2 WAD (P) YP 2314
+    { x: 66, end: 85, y: 320.7, str: '8:00', page: 0 },
+    { x: 91, end: 95, y: 320.7, str: '-', page: 0 },
+    { x: 98, end: 117, y: 320.7, str: '9:00', page: 0 },
+    { x: 148, end: 158, y: 320.7, str: 'A2', page: 0 },
+    { x: 166, end: 189, y: 320.7, str: 'WAD', page: 0 },
+    { x: 196, end: 209, y: 320.7, str: '(P)', page: 0 },
+    { x: 214, end: 225, y: 320.7, str: 'YP', page: 0 },
+    { x: 232, end: 250, y: 320.7, str: '2314', page: 0 },
+    // y=306.9 A3 CP (P) CK 2416
+    { x: 154, end: 164, y: 306.9, str: 'A3', page: 0 },
+    { x: 172, end: 183, y: 306.9, str: 'CP', page: 0 },
+    { x: 189, end: 202, y: 306.9, str: '(P)', page: 0 },
+    { x: 207, end: 218, y: 306.9, str: 'CK', page: 0 },
+    { x: 227, end: 245, y: 306.9, str: '2416', page: 0 },
+  ]
+  console.log('STITCH', JSON.stringify(stitchCellFrags(box)))
 })
