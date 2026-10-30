@@ -223,9 +223,6 @@ export function colOfFragment(x: number, end: number): number {
   return Math.max(startCol, best)
 }
 
-/** Column band edges from the fixed grid. */
-const bandEdge = (col: number): number => (col >= COL_BOUNDS.length - 1 ? Infinity : COL_BOUNDS[col])
-
 /** Items of a line that lie inside columns [c0, c1], joined in reading order.
  *  An item counts when its assigned column (see colOfFragment) is in range. */
 function cellText(line: Line, c0: number, c1: number): string {
@@ -267,9 +264,6 @@ const BARE_CODE_RE = /^[A-Z][A-Z0-9/_-]{4,}\d[A-Z0-9]*$/
 const UNIT_HEAD_RE = /^unit\s*(?:no\.?|number)?\s*(\d+)\b(.*)$/i
 /** S6: "Unit" alone on one line, "No.01 …" on the next. */
 const UNIT_SPLIT_RE = /^no\.?\s*(\d+)\b(.*)$/i
-/** "Unit No" with the number in the NEXT table column. */
-const UNIT_NOCOL_RE = /^unit\s*(?:no\.?|number)?$/i
-
 /** S7: hours = the number next to the word "Hours"; if the word is missing,
  *  the first lone number ≥ 2 in the tail. */
 function extractHours(tail: string): { hours: number | null; rest: string; ambiguous: boolean } {
@@ -290,16 +284,6 @@ function cleanUnitTitle(s: string): string {
     .replace(/\s+/g, ' ')
     .replace(/[\s.,:;-]+$/, '')
     .trim()
-}
-
-/** A title cell must look like a heading: mostly capital words, not a sentence. */
-function looksLikeHeading(s: string): boolean {
-  const t = s.replace(/^(?:title|course content)\s*:/i, '').trim()
-  if (!t || t.length > 90) return false
-  const words = t.split(/\s+/).filter((w) => /[A-Za-z]/.test(w))
-  if (words.length === 0 || words.length > 8) return false
-  const caps = words.filter((w) => /^[A-Z]/.test(w)).length
-  return caps >= Math.ceil(words.length * 0.6)
 }
 
 // ---------------- S10–S16: topic splitting ----------------
@@ -415,29 +399,6 @@ export function splitTopics(text: string): string[] {
 }
 
 // ---------------- S14: group headings ----------------
-
-/** S14: a short phrase ending with ":" that labels the topics after it
- *  ("Astronomy:", "Mathematics:"). Long phrases are sentences with a colon —
- *  keep them as topics. */
-function isGroupHeading(s: string): boolean {
-  const t = s.trim()
-  if (!t.endsWith(':')) return false
-  const body = t.slice(0, -1).trim()
-  if (!body || body.length > 30) return false
-  if (wordCount(body) > 3) return false
-  return /^[A-Z]/.test(body)
-}
-
-/** Pieces of a joined buffer line, keeping a leading group heading separate. */
-function piecesWithGroup(line: string): { group?: string; rest: string[] } {
-  const m = line.match(/^(\s*[A-Za-z][^,:;]{0,30}:)(\s[\s\S]*)?$/)
-  if (m && isGroupHeading(m[1])) {
-    const restText = (m[2] ?? '').trim()
-    const rest = restText ? splitLinePieces(dehyphenate(restText)) : []
-    return { group: cleanTopic(m[1].slice(0, -1)), rest }
-  }
-  return { rest: splitLinePieces(dehyphenate(line)) }
-}
 
 /** S16: remove a stray ".,", normalise missing comma spaces, drop a final full
  *  stop, remove a leading "and". Change no other words. */
