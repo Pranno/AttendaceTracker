@@ -343,18 +343,22 @@ const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Roo
 const LEGEND_NAME_X = 250
 const LEGEND_FULLNAME_X = 600
 
-/** Does this PAGE carry the abbreviation table? (a numeric SN at the far
- *  left sitting on the same row as a course-name word in the middle column).
- *  Page-level detection is safe: grid pages never put prose words at x≈274
- *  next to bare numbers at x≈92. Only whole legend pages get filtered; inside
- *  grid pages the NOTE block is handled by PROSE_RE / the per-page prose cut. */
+/** Does this PAGE carry the abbreviation table? The table header ("S.N." +
+ *  "abbreviation" / "Course Name") is the reliable marker — continuation
+ *  pages of the grid repeat it below the NOTE block while still holding real
+ *  class cells above, so page-level filtering must key on the HEADER, not on
+ *  loose number+word rows (which occur in ordinary furniture too). Pages with
+ *  a header but no weekday row are legend-only → excluded from the grid;
+ *  pages that also have a weekday header stay grid pages, and their legend
+ *  prose is removed by the per-page prose cut instead. */
 function pageHasLegendTable(frags: Frag[]): boolean {
-  for (const f of frags) {
-    if (!/^\d{1,2}$/.test(f.str.trim()) || f.x > 110) continue
-    const sameRow = frags.filter((o) => Math.abs(o.y - f.y) <= 8 && o.x >= LEGEND_NAME_X && o.x < LEGEND_FULLNAME_X)
-    if (sameRow.some((o) => /^[A-Za-z][A-Za-z&,.']{3,}$/.test(o.str.trim()))) return true
-  }
-  return false
+  const sn = frags.find((f) => /^S\.?\s*N\.?$/i.test(f.str.trim()))
+  if (!sn) return false
+  const sameRow = frags.filter((f) => Math.abs(f.y - sn.y) <= 8)
+  const headerish = sameRow.filter((f) => f.x > sn.x)
+  const hasAbbrWord = headerish.some((f) => /abbrev/i.test(f.str))
+  const hasNameWord = headerish.some((f) => /course|name|teacher/i.test(f.str))
+  return hasAbbrWord && hasNameWord
 }
 
 /** Is this fragment part of the abbreviation-legend table (by position)? */
