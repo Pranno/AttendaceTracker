@@ -67,11 +67,16 @@ export interface TextItemLike {
   str: string
   transform: number[]
   width?: number
+  /** Optional true baseline y (transform[5] before any rounding). */
+  rawY?: number
 }
 
 export interface LineItem {
   x: number
   end: number
+  /** True baseline y of the fragment (sub-pixel) — the timetable grid reader
+   *  needs it to keep wrapped continuation rows separate from entry rows. */
+  y?: number
   str: string
   /** Raw vertical position before rounding (used by the timetable grid
    *  reader, which needs sub-pixel y values for band boundaries). */
@@ -110,6 +115,7 @@ export function groupItemsIntoLines(items: TextItemLike[], page = 0): Line[] {
       x: Math.round(it.transform[4]),
       end: Math.round(it.transform[4]) + Math.round(w),
       str: it.str,
+      y: y,
       rawY: y,
     }
     let ln: Line | undefined

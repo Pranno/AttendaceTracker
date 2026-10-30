@@ -321,10 +321,13 @@ import { groupItemsIntoLines } from './syllabusReader'
 
 /** One positioned text fragment in a single PAGE's coordinate space.
  *  (pdfjs gives every page its own origin — fragments must never be pooled
- *  across pages.) */
+ *  across pages.) `y` is the TRUE baseline: line grouping rounds the row key
+ *  but must not round the fragment, or wrapped continuation rows land on the
+ *  same y as entry rows and get glued to them (the old "Tuesday classes read
+ *  onto Monday" shift). */
 export interface Frag { x: number; end: number; y: number; str: string; /** 0-based index of the PDF page this fragment came from. */ page: number }
 
-const DAY_HEAD_RE = /^(mon|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)?\b/i
+const DAY_HEAD_RE = /^(mon|tues|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)?\b/i
 
 /** Drop break/lunch rows wherever they sit (T8). */
 const BREAK_TEXT_RE = /short\s*h?break|lunch|tea\s*break|\bbreak\b/i
@@ -364,7 +367,7 @@ function bandLines(frags: Frag[]): string[] {
  *  whose horizontal span it overlaps and which doesn't already carry that kind
  *  of value. Unattributable noise (e.g. a stray room number under a row where
  *  every entry already has its own room) is dropped, not flagged. */
-function stitchCellFrags(frags: Frag[]): string[] {
+export function stitchCellFrags(frags: Frag[]): string[] {
   interface Row { y: number; frags: Frag[] }
   const rows: Row[] = []
   for (const f of frags) {
@@ -451,13 +454,16 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   const pageFrags: Frag[][] = []
   pages.forEach((pg, pgIndex) => {
     const frags: Frag[] = []
-    for (const ln of groupItemsIntoLines(pg)) {
+    // Group into visual lines with the TRUE baselines kept on each fragment.
+    // (Rounding the y here used to collapse wrapped continuation rows onto
+    // entry rows and shift whole cells one day/period over.)
+    for (const ln of groupItemsIntoLines(pg, pgIndex)) {
       for (const it of ln.items) {
         const s = it.str.trim()
         if (!s) continue
-        // groupItemsIntoLines already validated the transform and stored the
-        // raw y on each item; fall back to a lookup if rawY is missing.
-        let y = it.rawY
+        // Prefer the item's own rawY; fall back to a lookup in the source
+        // items for hand-built fixtures that lack transform metadata.
+        let y = it.rawY ?? it.y
         if (y === undefined) {
           const src = pg.find((o) => o.str === it.str && Math.round(o.transform?.[4] ?? NaN) === it.x)
           const t = src?.transform
@@ -474,31 +480,55 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   if (all.length === 0) {
     return { entries: [], batches: [], subjects: [], warnings: ['The PDF exposed no positioned text — copy the table and paste it as text instead.'] }
   }
-  // Grid pages: find the day-heading row on each page and read its boxes;
-  // continuation pages reuse the column bands found on the first grid page.
+  // Grid pages: find the day-heading row on each page and read its boxes.
+  // Continuation pages usually repeat the header FURNITURE but not the day
+  // names, so we build the day-column set from the UNION of every page that
+  // has a header row, interpolating any day whose heading was missed (e.g. a
+  // "Tuesday" split by the extractor) — otherwise Tuesday's classes get
+  // attributed to Monday because Monday's band stretches over it. Pages with
+  // no header are validated against these bands before being read.
+  const perPageCols = allDayColsByPage(pageFrags)
   let dayCols: { weekday: number; x: number }[] = []
+  if (perPageCols.length) {
+    const union = new Map<number, number>()
+    for (const cols of perPageCols) {
+      for (const c of cols) {
+        if (!union.has(c.weekday)) union.set(c.weekday, c.x)
+        else union.set(c.weekday, Math.min(union.get(c.weekday)!, c.x))
+      }
+    }
+    const found = [...union.entries()].map(([weekday, x]) => ({ weekday, x })).sort((a, b) => a.x - b.x)
+    dayCols = extendDayCols(found) ?? found
+  }
   const entries: ParsedEntry[] = []
   const warnings: string[] = []
   const gridFrags: Frag[][] = []
   for (const frags of pageFrags) {
-    const colsThisPage = findDayColumns(frags)
-    if (colsThisPage.length >= 4) {
-      dayCols = colsThisPage
-    } else if (dayCols.length === 0) {
-      continue // furniture/legend page before any grid page
-    }
     if (dayCols.length < 4) continue
+    const hasHeader = findDayColumns(frags).length >= 4
+    if (!hasHeader) {
+      // Continuation page: only treat it as part of the grid when its class
+      // fragments actually spread across ≥2 day columns. A legend/notes page
+      // has entry-looking prose clustered in one area — reading it would
+      // invent phantom classes on the wrong days.
+      const cov = pageColumnCoverage(frags, dayCols)
+      if (cov.size < 2) continue
+    }
     gridFrags.push(frags)
     entries.push(...readGridBoxes(frags, dayCols, warnings))
   }
   if (dayCols.length < 4 && entries.length === 0) {
     return { entries: [], batches: [], subjects: [], warnings: ['No weekday heading row found in the file — add the classes by hand or paste the table as text.'] }
   }
-  // The legend is read from the NON-grid pages only (course-abbreviation
-  // table + teacher list); inside grid pages those same words sit under the
-  // NOTE block and would produce false matches.
+  // The abbreviation TABLE is read from the NON-grid pages only — inside grid
+  // pages those same words sit under the NOTE block and would produce false
+  // matches. But grid-only codes (e.g. "ASEP(P)" cells whose row is missing
+  // from the printed table) must still reach the legend fallback, so we pass
+  // ALL fragments to the reader; the table pass itself re-filters per page.
+  void pageFrags
   const otherFrags = pageFrags.filter((f) => !gridFrags.includes(f))
-  const res = finishGridParse(entries, otherFrags.length ? otherFrags.flat() : all)
+  const legendFrags = otherFrags.length ? [...otherFrags.flat(), ...all] : all
+  const res = finishGridParse(entries, legendFrags)
   if (skippedNoPos > 0) {
     res.warnings.push(`${skippedNoPos} text fragments had no readable position and were skipped.`)
   }
@@ -506,7 +536,7 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
 }
 
 /** Locate the visual row(s) carrying ≥4 weekday names → column anchors. */
-function findDayColumns(frags: Frag[]): { weekday: number; x: number }[] {
+export function findDayColumns(frags: Frag[]): { weekday: number; x: number }[] {
   const ys = [...new Set(frags.map((f) => f.y))].sort((a, b) => b - a)
   for (const y of ys) {
     const row = frags.filter((f) => Math.abs(f.y - y) <= 3).sort((a, b) => a.x - b.x)
@@ -518,6 +548,64 @@ function findDayColumns(frags: Frag[]): { weekday: number; x: number }[] {
     }
   }
   return []
+}
+
+/** Day columns found ANYWHERE in the document (per page), sorted left→right.
+ *  Continuation pages of a grid often omit the day header row entirely — the
+ *  columns must then be interpolated from the spacing of the header page and
+ *  validated against where entries actually sit on each page. */
+function allDayColsByPage(pageFrags: Frag[][]): { weekday: number; x: number }[][] {
+  return pageFrags.map((frags) => findDayColumns(frags).sort((a, b) => a.x - b.x)).filter((c) => c.length >= 4)
+}
+
+/** Reconstruct the full left→right day set for continuation pages that lack a
+ *  header row. Missing days are interpolated at the median column pitch; extra
+ *  candidates beyond seven days are ignored. Returns null when nothing usable
+ *  can be rebuilt. */
+function extendDayCols(found: { weekday: number; x: number }[]): { weekday: number; x: number }[] | null {
+  if (found.length < 2) return null
+  const byWd = new Map(found.map((c) => [c.weekday, c.x]))
+  const xs = found.map((c) => c.x)
+  const gaps = xs.slice(1).map((x, i) => x - xs[i]).sort((a, b) => a - b)
+  const pitch = gaps[Math.floor(gaps.length / 2)] // median spacing
+  if (!Number.isFinite(pitch) || pitch < 30) return null
+  const out: { weekday: number; x: number }[] = []
+  for (let wd = 1; wd <= 6; wd++) {
+    const known = byWd.get(wd)
+    if (known !== undefined) { out.push({ weekday: wd, x: known }); continue }
+    // interpolate between the nearest known neighbours
+    const before = [...byWd.entries()].filter(([w]) => w < wd).sort((a, b) => b[0] - a[0])[0]
+    const after = [...byWd.entries()].filter(([w]) => w > wd).sort((a, b) => a[0] - b[0])[0]
+    let x: number
+    if (before && after) {
+      const span = after[1] - before[1]
+      const steps = after[0] - before[0]
+      x = before[1] + (span * (wd - before[0])) / steps
+    } else if (before) x = before[1] + pitch * (wd - before[0])
+    else if (after) x = after[1] - pitch * (after[0] - wd)
+    else continue
+    out.push({ weekday: wd, x })
+  }
+  return out.length >= 4 ? out.sort((a, b) => a.x - b.x) : null
+}
+
+/** Does this page's content actually sit under the given column bands? Count
+ *  entry-bearing fragments whose centre falls inside some column. A page whose
+ *  classes cluster in only ONE column while others stand empty is not a grid
+ *  page (legend/notes prose) — reading it would invent phantom classes. */
+function pageColumnCoverage(frags: Frag[], dayCols: { weekday: number; x: number }[]): Set<number> {
+  const colMid = (i: number): number =>
+    i + 1 < dayCols.length ? (dayCols[i].x + dayCols[i + 1].x) / 2 : Infinity
+  const covered = new Set<number>()
+  for (const f of frags) {
+    if (f.x < dayCols[0].x - 30) continue // time labels / furniture
+    const s = normalizeTypeTok(f.str.trim())
+    if (!ENTRY_RE.test(s)) continue
+    for (let ci = 0; ci < dayCols.length; ci++) {
+      if (overlapFracX(f, dayCols[ci].x - 30, colMid(ci)) >= 0.5) { covered.add(ci); break }
+    }
+  }
+  return covered
 }
 
 /** Join split time fragments on one visual row into period ranges. */
@@ -564,7 +652,7 @@ function extractRowTimes(parts: string[]): { start: string; end: string }[] {
 }
 
 /** Read every (period band × day column) box on one grid page. */
-function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: number }[], warnings: string[]): ParsedEntry[] {
+export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: number }[], warnings: string[]): ParsedEntry[] {
   // Only this page's fragments participate — `frags` arrives as one page's list,
   // but guard anyway so a pooled array can never mix coordinate spaces.
   const homePage = allFrags[0]?.page ?? 0
@@ -594,18 +682,32 @@ function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: number }
       rawBands.push({ start: t.start, end: t.end, yTop: y, yBottom: y, page: pg })
     }
   }
+  // Merge bands that sit within ~5pt of each other on the same page: pdf.js
+  // can emit two nearly-identical time rows for one period (e.g. "12.15" and
+  // "12:15"), which would otherwise create duplicate periods.
   rawBands.sort((a, b) => b.page - a.page || b.yTop - a.yTop)
+  const merged: Band[] = []
+  for (const b of rawBands) {
+    const prev = merged.length ? merged[merged.length - 1] : null
+    if (prev && prev.page === b.page && Math.abs(prev.yTop - b.yTop) <= 5) {
+      // keep the earlier (higher) band; snap its bottom to cover both rows
+      prev.yBottom = Math.min(prev.yTop, b.yTop)
+      continue
+    }
+    merged.push(b)
+  }
   // A cell may stack two periods sharing an endpoint (10:00-10:15 break then
   // 10:15-11:15 class): give such a short band only the sliver above the next.
-  for (let i = 0; i < rawBands.length; i++) {
-    const next = rawBands[i + 1]
-    if (!next || next.page !== rawBands[i].page) { rawBands[i].yBottom = -Infinity; continue }
-    const dur = Number(rawBands[i].start.slice(0, 2)) * 60 + Number(rawBands[i].start.slice(3))
+  for (let i = 0; i < merged.length; i++) {
+    const next = merged[i + 1]
+    if (!next || next.page !== merged[i].page) { merged[i].yBottom = -Infinity; continue }
+    const dur = Number(merged[i].start.slice(0, 2)) * 60 + Number(merged[i].start.slice(3))
     const nextDur = Number(next.start.slice(0, 2)) * 60 + Number(next.start.slice(3))
-    if (dur === nextDur) rawBands[i].yBottom = next.yTop + 6
-    else rawBands[i].yBottom = next.yTop - 12
+    if (dur === nextDur) merged[i].yBottom = next.yTop + 6
+    else if (merged[i].yBottom === -Infinity) merged[i].yBottom = next.yTop - 12
+    else merged[i].yBottom = Math.min(merged[i].yBottom, next.yTop - 12)
   }
-  const uniqBands = rawBands
+  const uniqBands = merged
 
   // The NOTE/legend block sits below the last period row of each page; anything
   // under that page's lowest time label is prose, not a class. Cut there — per
@@ -624,10 +726,17 @@ function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: number }
 
   // ---- T4/T6: read every (period band × day column) box ----
   const out: ParsedEntry[] = []
+  // Column bands: the left edge sits just left of the day heading; the right
+  // edge is the MIDPOINT between adjacent headings. The old rule (next
+  // heading minus 20) cut cells short, so the last fragment of a cell — often
+  // a wrapped room number like "2408" at x≈611 under Friday — fell into the
+  // next day's column and classes appeared shifted onto the wrong weekday.
+  const colMid = (i: number): number =>
+    i + 1 < dayCols.length ? (dayCols[i].x + dayCols[i + 1].x) / 2 : Infinity
   for (const band of uniqBands) {
     for (let ci = 0; ci < dayCols.length; ci++) {
-      const lo = dayCols[ci].x - 20
-      const hi = ci + 1 < dayCols.length ? dayCols[ci + 1].x - 20 : Infinity
+      const lo = dayCols[ci].x - 30
+      const hi = colMid(ci)
       const inBox = frags.filter(
         (f) =>
           f.page === band.page &&
@@ -853,8 +962,13 @@ export function readLegend(frags: Frag[]): { short: string; full: string }[] {
     if (arr) arr.push(f)
     else byPage.set(f.page, [f])
   }
+  // A legend row needs a subject CODE fragment on the same page; grid pages
+  // have bare numbers too (times like "10", rooms) but no code column, so
+  // requiring one here keeps NOTE-block words from becoming phantom subjects.
+  const hasCodeRe = /^[A-Z]{2,6}(?:-[IVX]+)?$/
   const snRows: Frag[] = []
   for (const arr of byPage.values()) {
+    if (!arr.some((f) => hasCodeRe.test(f.str))) continue
     arr
       .filter((f) => /^\d{1,2}$/.test(f.str) && f.x < 110)
       .sort((a, b) => b.y - a.y)
