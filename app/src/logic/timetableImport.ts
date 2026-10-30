@@ -479,6 +479,32 @@ export function stitchCellFrags(frags: Frag[]): string[] {
     // Pure continuation row ("2407 2403", "KRP") — attach each fragment to the
     // closest entry-bearing line above that shares its column and lacks the
     // same kind of value.
+    // When the extractor glues several tokens onto ONE baseline ("A CP (L) PS
+    // 2406" or "(P) CK 2416"), the glued room/teacher live INSIDE that
+    // fragment — pre-split them into standalone fragments (same y, estimated
+    // x from character offsets) so the ownership pass below can see and
+    // attribute them.
+    const expanded: Frag[] = []
+    for (const f of r.frags) {
+      const s = f.str.trim()
+      let m = /([A-Za-z)])\s+(\d{3,4})\s*$/.exec(s)
+      if (m && !/^\d/.test(s)) {
+        const roomStart = f.x + (m.index + m[1].length + 1) * ((f.end - f.x) / Math.max(1, f.str.length))
+        expanded.push({ ...f, str: s.slice(0, m.index + m[1].length).trim(), end: roomStart })
+        expanded.push({ x: roomStart, end: f.end, y: f.y, str: m[2], page: f.page })
+        continue
+      }
+      m = /\((?:[LPTS])\)\s+([A-Z][A-Za-z0-9]{1,3})\s*$/i.exec(s)
+      if (m && !ENTRY_RE.test(normalizeTypeTok(s))) {
+        // marker+teacher glue with no subject code → standalone teacher frag
+        const tStart = f.x + (m.index + m[0].length - m[1].length) * ((f.end - f.x) / Math.max(1, f.str.length))
+        expanded.push({ ...f, str: s.slice(0, m.index).trim(), end: tStart })
+        expanded.push({ x: tStart, end: f.end, y: f.y, str: m[1], page: f.page })
+        continue
+      }
+      expanded.push(f)
+    }
+    r.frags = expanded.sort((a, b) => a.x - b.x)
     for (const c of r.frags) {
       const s = c.str.trim()
       if (!s) continue
@@ -490,7 +516,7 @@ export function stitchCellFrags(frags: Frag[]): string[] {
       outer: for (let j = rows.indexOf(r) - 1; j >= 0; j--) {
         for (const f of rows[j].frags) {
           if (!ENTRY_RE.test(normalizeTypeTok(f.str.trim()))) continue
-          if (overlapFracX(c, f.x, f.end) < 0.5) continue
+          if (overlapFracX(c, f.x - 2, f.end + 2) < 0.5) continue
           // does this fragment's own entry still lack this kind of value?
           const ent = normalizeTypeTok(f.str.trim())
           if (isRoom && /\d{3,4}(?=\s|$)/.test(ent.slice(ENTRY_RE.exec(ent)!.index))) continue
@@ -500,9 +526,15 @@ export function stitchCellFrags(frags: Frag[]): string[] {
         }
       }
       if (!owner) continue // unattributable noise → dropped, not flagged
-      // prefer the exact per-entry line owned by this fragment; fall back to
-      // any line built from the same source fragment (nearest row wins)
-      let li = lineOwners.findIndex((o) => o === owner)
+      // prefer the exact per-entry line owned by this fragment — and for room
+      // numbers, only a line that doesn't ALREADY carry one (otherwise the
+      // continuation lands on the wrong entry in a multi-batch cell). Fall
+      // back to any line built from the same source fragment (nearest wins).
+      const isRoomC = /^\d{3,4}$/.test(s)
+      let li = lineOwners.findIndex(
+        (o, idx) => o === owner && !(isRoomC && /\s\d{3,4}(?=\s|$)/.test(out[idx])),
+      )
+      if (li < 0) li = lineOwners.indexOf(owner)
       if (li < 0) li = lineReps.length ? lineReps.lastIndexOf(lineReps.find((rp) => rp === owner) ?? undefined) : -1
       if (li < 0) continue
       out[li] = `${out[li]} ${s}`
