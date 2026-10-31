@@ -24,30 +24,45 @@ function makeData(overrides?: Partial<AppData>): AppData {
   }
 }
 
+/** Build dated lecture slots: `days` class days in Nov 2026 x 5 periods each.
+ *  Explicit per-date validity keeps the fixture independent of which weekday
+ *  2026-11-01 falls on. */
+function monthDaySlots(monthKeyStr: string, days: number, prefix = 'sl', wdFilter?: (wd: number) => boolean): Slot[] {
+  const classDays: string[] = []
+  for (let day = 1; day <= 31 && classDays.length < days; day++) {
+    const ds = `${monthKeyStr}-${String(day).padStart(2, '0')}`
+    const dow = new Date(`${ds}T00:00:00`).getDay()
+    const ok = wdFilter ? wdFilter(dow) : dow >= 1 && dow <= 6
+    if (ok) classDays.push(ds)
+  }
+  const slots: Slot[] = []
+  for (const date of classDays) {
+    const wd = new Date(`${date}T00:00:00`).getDay()
+    for (let i = 0; i < 5; i++) {
+      slots.push({
+        id: `${prefix}_${date}_${i}`,
+        subjectId: 'subj_maths',
+        weekday: wd,
+        startTime: `0${8 + i}:00`,
+        endTime: `0${9 + i}:00`,
+        type: 'lecture',
+        room: '101',
+        teacher: 'Prof M',
+        validFrom: date,
+        validUntil: date,
+      })
+    }
+  }
+  return slots
+}
+
 describe('Section J: Monthly Attendance Plan worked examples (threshold 80%)', () => {
   it('Worked example 1: November, 100 classes, no earlier classes -> must attend 80, can skip 20', () => {
     const d = makeData()
     d.subjects[0].typedHeld = 0
     d.subjects[0].typedAttended = 0
 
-    const slots: Slot[] = []
-    for (let i = 0; i < 5; i++) {
-      for (const wd of [1, 2, 3, 4, 5]) {
-        slots.push({
-          id: `sl_${wd}_${i}`,
-          subjectId: 'subj_maths',
-          weekday: wd,
-          startTime: `0${8 + i}:00`,
-          endTime: `0${9 + i}:00`,
-          type: 'lecture',
-          room: '101',
-          teacher: 'Prof M',
-          validFrom: '2026-11-01',
-          validUntil: '2026-11-27',
-        })
-      }
-    }
-    d.slots = slots
+    d.slots = monthDaySlots('2026-11', 20, 'sl', (w) => w >= 1 && w <= 5)
 
     const plan = projectSubjectMonth(d, 'subj_maths', '2026-11', '2026-11-01')
     expect(plan.classesInMonth).toBe(100)
@@ -66,26 +81,9 @@ describe('Section J: Monthly Attendance Plan worked examples (threshold 80%)', (
     d.subjects[0].typedHeld = 0
     d.subjects[0].typedAttended = 0
 
-    const slots: Slot[] = []
-    for (let i = 0; i < 5; i++) {
-      for (const wd of [1, 2, 3, 4, 5]) {
-        slots.push({
-          id: `sl_${wd}_${i}`,
-          subjectId: 'subj_maths',
-          weekday: wd,
-          startTime: `0${8 + i}:00`,
-          endTime: `0${9 + i}:00`,
-          type: 'lecture',
-          room: '101',
-          teacher: 'Prof M',
-          validFrom: '2026-11-01',
-          validUntil: '2026-11-27',
-        })
-      }
-    }
-    d.slots = slots
-    d.marks.push({ id: 'm1', date: '2026-11-02', slotId: 'sl_1_0', status: 'absent' })
-    d.marks.push({ id: 'm2', date: '2026-11-02', slotId: 'sl_1_1', status: 'absent' })
+    d.slots = monthDaySlots('2026-11', 20, 'sl', (w) => w >= 1 && w <= 5)
+    d.marks.push({ id: 'm1', date: '2026-11-02', slotId: 'sl_2026-11-02_0', status: 'absent' })
+    d.marks.push({ id: 'm2', date: '2026-11-02', slotId: 'sl_2026-11-02_1', status: 'absent' })
 
     const plan = projectSubjectMonth(d, 'subj_maths', '2026-11', '2026-11-03')
     expect(plan.classesInMonth).toBe(100)
@@ -102,24 +100,7 @@ describe('Section J: Monthly Attendance Plan worked examples (threshold 80%)', (
     d.subjects[0].typedHeld = 100
     d.subjects[0].typedAttended = 98
 
-    const slots: Slot[] = []
-    for (let i = 0; i < 5; i++) {
-      for (const wd of [1, 2, 3, 4, 5]) {
-        slots.push({
-          id: `sl_dec_${wd}_${i}`,
-          subjectId: 'subj_maths',
-          weekday: wd,
-          startTime: `0${8 + i}:00`,
-          endTime: `0${9 + i}:00`,
-          type: 'lecture',
-          room: '101',
-          teacher: 'Prof M',
-          validFrom: '2026-12-01',
-          validUntil: '2026-12-28',
-        })
-      }
-    }
-    d.slots = slots
+    d.slots = monthDaySlots('2026-12', 20, 'sl_dec', (w) => w >= 1 && w <= 5)
 
     const plan = projectSubjectMonth(d, 'subj_maths', '2026-12', '2026-12-01')
     expect(plan.priorHeld).toBe(100)
@@ -137,24 +118,7 @@ describe('Section J: Monthly Attendance Plan worked examples (threshold 80%)', (
     d.subjects[0].typedHeld = 40
     d.subjects[0].typedAttended = 28
 
-    const slots: Slot[] = []
-    for (let i = 0; i < 5; i++) {
-      for (const wd of [1, 2, 3, 4, 5]) {
-        slots.push({
-          id: `sl_nov_${wd}_${i}`,
-          subjectId: 'subj_maths',
-          weekday: wd,
-          startTime: `0${8 + i}:00`,
-          endTime: `0${9 + i}:00`,
-          type: 'lecture',
-          room: '101',
-          teacher: 'Prof M',
-          validFrom: '2026-11-01',
-          validUntil: '2026-11-27',
-        })
-      }
-    }
-    d.slots = slots
+    d.slots = monthDaySlots('2026-11', 20, 'sl_nov', (w) => w >= 1 && w <= 5)
 
     const plan = projectSubjectMonth(d, 'subj_maths', '2026-11', '2026-11-01')
     expect(plan.priorHeld).toBe(40)
@@ -171,23 +135,8 @@ describe('Section J: Monthly Attendance Plan worked examples (threshold 80%)', (
     d.subjects[0].typedHeld = 60
     d.subjects[0].typedAttended = 30
 
-    // 4 Mondays (Nov 2, 9, 16, 23) * 5 slots = 20 classes
-    const slots: Slot[] = []
-    for (let i = 0; i < 5; i++) {
-      slots.push({
-        id: `sl_daily_${i}`,
-        subjectId: 'subj_maths',
-        weekday: 1,
-        startTime: `0${9 + i}:00`,
-        endTime: `1${0 + i}:00`,
-        type: 'lecture',
-        room: '101',
-        teacher: 'Prof M',
-        validFrom: '2026-11-01',
-        validUntil: '2026-11-27',
-      })
-    }
-    d.slots = slots
+    // 4 class days x 5 slots = 20 classes
+    d.slots = monthDaySlots('2026-11', 4, 'sl_daily', (w) => w === 1)
 
     const plan = projectSubjectMonth(d, 'subj_maths', '2026-11', '2026-11-01')
     expect(plan.classesInMonth).toBe(20)

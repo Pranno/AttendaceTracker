@@ -31,7 +31,7 @@
 
 import type { AppData, DateStr, Slot } from '../data/model'
 import { slotMatchesBatch } from '../data/model'
-import { computeSubjectTotals, conversionFor, effectiveSubjectId, isHoliday, markFor } from './attendance'
+import { computeSubjectTotals, conversionFor, isHoliday, markFor } from './attendance'
 import { addDays, daysInMonth, monthKey, pad2, weekdayOf } from './dates'
 
 const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
