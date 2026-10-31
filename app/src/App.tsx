@@ -19,11 +19,16 @@ import { StatusBar, Style } from '@capacitor/status-bar'
 import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync } from './logic/reminders'
 import { todayStr } from './logic/dates'
 
-/** D6/B11: on app open — request permission, fire any deadline reminders that
- *  came due while closed, and show the evening "mark attendance" nudge. */
+/** D6/B11: on app open — wait for the user to finish the first-launch tour
+ *  before asking for notification permission (Android shows at most one
+ *  permission prompt per call, so it must not compete with the wizard), then
+ *  fire any deadline reminders that came due while closed and show the evening
+ *  "mark attendance" nudge. */
 function ReminderRunner() {
   const { data } = useApp()
+  const onboarded = data.settings.onboarded
   useEffect(() => {
+    if (!onboarded) return // ask only after the wizard is dismissed
     let cancelled = false
     void (async () => {
       await ensureNotifyPermission()
@@ -38,9 +43,9 @@ function ReminderRunner() {
     return () => {
       cancelled = true
     }
-    // Run once per mount; data read is a snapshot at open time.
+    // Run once when the tour ends; data read is a snapshot at that time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [onboarded])
   return null
 }
 
