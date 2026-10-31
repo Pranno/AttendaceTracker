@@ -313,7 +313,7 @@ export default function Settings() {
         {/* Division is a chip row so it can be changed with one tap (and
             re-tapped to deselect) — same pattern as the batch picker. */}
         <div className="batch-grid" role="radiogroup" aria-label="Division">
-          {(['', 'A', 'B', 'C', 'D', 'E'] as const).map((d) => {
+          {(['', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const).map((d) => {
             const on = effDivision(s) === d
             return (
               <button
