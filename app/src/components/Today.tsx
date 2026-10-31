@@ -213,7 +213,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
       {/* ---------- day / week strip (sticky under the header so only the
             list below scrolls when you swipe days/weeks) ---------- */}
       {stripMode === 'week' ? (
-        <div className="row daystrip sticky" style={{ gap: 4 }}>
+        <div className="row daystrip sticky" style={{ gap: 4 }} data-no-tab-swipe>
           <button className="icon-btn" onClick={() => setDateOverride(addDays(viewDate, -7))} aria-label="Previous week">◀</button>
           {Array.from({ length: 7 }, (_, i) => {
             const monday = addDays(today, 1 - weekdayOf(today)) // Monday of this week
@@ -236,7 +236,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           <button className="chip" onClick={() => setStripMode('day')}>Day</button>
         </div>
       ) : (
-      <div className="row daystrip sticky">
+      <div className="row daystrip sticky" data-no-tab-swipe>
         <button className="icon-btn" onClick={() => setDateOverride(addDays(viewDate, -1))} aria-label="Previous day">◀</button>
         <div className="grow" style={{ textAlign: 'center' }}>
           <b>{viewDate === today ? 'Today' : formatShort(viewDate)}</b>

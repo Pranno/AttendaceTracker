@@ -6,6 +6,7 @@ import { AppProvider, useApp } from './data/store'
 import { ThemeProvider } from './theme/ThemeProvider'
 import NavBar from './components/NavBar'
 import type { Tab } from './components/NavBar'
+import { useTabSwipe } from './hooks/useTabSwipe'
 import Today from './components/Today'
 import Calendar from './components/Calendar'
 import Subjects from './components/Subjects'
@@ -70,6 +71,19 @@ export default function App() {
     setFocusSubjectId(subjectId ?? null)
     setTab(t === 'plan' ? 'subjects' : t)
   }
+
+  // Native-style swipe between tabs (swipe left → next tab, right → previous).
+  // The hook ignores vertical scrolling, horizontally-scrollable strips (like
+  // the weekday bar), and taps on buttons/inputs — see hooks/useTabSwipe.ts.
+  const TAB_ORDER: Tab[] = ['today', 'subjects', 'timetable', 'calendar', 'study', 'settings']
+  useTabSwipe((dir) => {
+    setTab((cur) => {
+      const i = TAB_ORDER.indexOf(cur === 'plan' ? 'subjects' : cur)
+      const next = TAB_ORDER[i + dir]
+      return next ?? cur // no wrap-around at the ends
+    })
+    setFocusSubjectId(null)
+  })
   return (
     <ThemeProvider>
       <AppProvider>
