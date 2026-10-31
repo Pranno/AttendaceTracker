@@ -1,0 +1,8 @@
+# Copy this file to signing.properties (same folder) after creating your keystore.
+# All paths are relative to android/app/ (where build.gradle lives).
+# NEVER commit signing.properties or the keystore — both are gitignored.
+
+storeFile=../attendancetracker.keystore
+storePassword=CHANGE_ME_STRONG_PASSWORD
+keyAlias=attendancetracker
+keyPassword=CHANGE_ME_STRONG_PASSWORD

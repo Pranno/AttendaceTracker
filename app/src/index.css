@@ -1,0 +1,687 @@
+﻿/* ============================================================
+   Step-2 stylesheet — everything is driven by the design tokens
+   written onto <html> by ThemeProvider (var(--bg), var(--card), …).
+   Shape, depth and spacing follow the  Design and look section:
+   cards 20–24px radius, pills fully round, soft layered shadows,
+   8px grid, ≥48px tap targets, 96px bottom gutter for the nav.
+   ============================================================ */
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+/* Theme-independent fallbacks for the header gradient tokens.
+   ThemeProvider writes --headerFrom/--headerTo onto <html>; these kebab-case
+   names are what index.css consumes. If the JS ever fails to run (first paint,
+   stale bundle), the gradients below would render with NO background — leaving
+   white-on-white text in light mode. These defaults keep it visible. */
+:root { --header-from: #7B1E3A; --header-to: #D93A32; }
+[data-theme='midnight'] { --header-from: #3A1458; --header-to: #B02A4B; }
+
+/* Tell the browser (and native date/time pickers + autofill) which
+   appearance matches our theme. ThemeProvider sets data-theme to
+   'sunrise' (light) or 'midnight' (dark).
+
+   IMPORTANT: we also honour prefers-color-scheme as a fallback, because
+   if data-theme is ever missing/stale (first paint, saved preference out
+   of sync), inputs previously inherited the OS's dark scheme and rendered
+   white text on our white cards â€” i.e. dates and options became invisible.
+   Now every input carries an explicit colour, so nothing can wash out. */
+html[data-theme='sunrise'] { color-scheme: light; }
+html[data-theme='midnight'] { color-scheme: dark; }
+html:not([data-theme='midnight']) { color-scheme: light only; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) { color-scheme: dark; }
+}
+
+body {
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.3s ease, color 0.3s ease;
+  -webkit-font-smoothing: antialiased;
+  /* App-feel (Capacitor): no long-press text selection, no tap flash,
+     no rubber-band overscroll glow — behaves like a native view. */
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+button, .card, .card-like { user-select: none; -webkit-user-select: none; }
+input, textarea, select { user-select: text; -webkit-user-select: text; }
+
+h1 {
+  font-family: 'Bricolage Grotesque', 'DM Sans', system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  margin: 12px 0;
+}
+
+/* ---------- typography helpers ---------- */
+.num { font-variant-numeric: tabular-nums; }          /* fixed-width digits */
+.small-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--soft);
+  font-weight: 700;
+}
+.section-title {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--soft);
+  font-weight: 800;
+  margin: 24px 0 10px;
+}
+.msg { font-size: 13px; color: var(--soft); line-height: 1.45; }
+.pct { font-size: 22px; font-weight: 800; }
+
+/* ---------- layout ---------- */
+.screen { max-width: 480px; margin: 0 auto; padding-bottom: 120px; } /* clear of floating bar */
+.screen.pad { padding: 0 16px 120px; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row.wrap { flex-wrap: wrap; }
+.field-row { display: flex; gap: 12px; margin-top: 8px; }
+.field-row > .grow { min-width: 0; }
+/* On very narrow screens, stack date/time fields vertically so the native
+   pickers never overlap or collide. */
+@media (max-width: 360px) {
+  .field-row { flex-direction: column; gap: 4px; }
+}
+.spread { justify-content: space-between; }
+.grow { flex: 1; min-width: 0; }
+
+/* ---------- surfaces ---------- */
+.card, .card-like {
+  background: var(--card);
+  border-radius: 22px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 8px 24px rgba(30, 27, 46, 0.12);
+  border: none;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .card-like { animation: none; }
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+button.card-like { cursor: pointer; }
+button:active { transform: scale(0.97); }
+
+/* ---------- header (gradient, edge to edge) ---------- */
+.hero-header {
+  position: relative;
+  /* Fallback colour first: if the gradient vars are ever missing, the header
+     still paints dark red so its white greeting/date stay readable. */
+  background-color: var(--primary);
+  background-image: linear-gradient(180deg, var(--header-from), var(--header-to));
+  padding: calc(16px + env(safe-area-inset-top)) 16px 64px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15); /* keeps white text legible even if a theme swap leaves the bg light momentarily */
+  overflow: hidden;
+  border-radius: 0 0 28px 28px;
+}
+.header-blob {
+  position: absolute; inset: -40% -20% auto auto; width: 240px; height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.22), transparent 60%);
+  pointer-events: none;
+}
+.greeting { font-size: 15px; opacity: 0.9; }
+.header-date { font-size: 24px; font-weight: 800; margin-top: 2px; }
+.header-top { position: relative; z-index: 1; }
+
+.icon-btn {
+  min-height: 44px; min-width: 44px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--card); color: var(--text); border: none; cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  width: auto; padding: 0 12px;
+}
+.icon-btn.light { background: rgba(255, 255, 255, 0.22); color: #fff; backdrop-filter: blur(4px); }
+
+/* shortcut tiles */
+.shortcuts { margin-top: 16px; gap: 10px; position: relative; z-index: 1; }
+.shortcut {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: rgba(255, 255, 255, 0.16); border: none; color: #fff;
+  border-radius: 18px; padding: 10px 4px 8px; font-size: 12px; font-weight: 700;
+  cursor: pointer; min-height: 48px;
+}
+.shortcut-ico {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 18px;
+}
+
+/* paste pill bar */
+.paste-pill {
+  margin-top: 14px; width: 100%; min-height: 48px;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card); color: var(--soft);
+  border: none; border-radius: 999px; padding: 0 18px; font-size: 15px; cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  position: relative; z-index: 1;
+}
+
+/* hero card overlaps the header */
+.hero-card {
+  position: relative; z-index: 2;
+  margin: -44px 0 0; display: flex; align-items: center; gap: 14px;
+}
+.hero-line { font-size: 16px; line-height: 1.35; }
+
+/* ---------- day strip ---------- */
+.daystrip { margin: 16px auto 4px; padding: 0 16px; max-width: 480px; }
+/* Sticky variant on Today: the strip pins to the top while you scroll, so
+   changing days/weeks never drags the whole screen along with it. */
+.daystrip.sticky {
+  position: sticky; top: calc(4px + env(safe-area-inset-top)); z-index: 30;
+  background: var(--bg);
+  border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;
+  box-shadow: 0 6px 16px rgba(30, 27, 46, 0.10);
+  padding-top: 8px; padding-bottom: 8px;
+}
+
+/* ---------- undo ---------- */
+.undo-card { padding: 10px 14px; }
+
+/* ---------- month rows ---------- */
+.month-row {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 12px 14px; flex-wrap: wrap; text-align: left;
+}
+.month-row > .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.month-row-verdict { font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.subject-card-link { width: 100%; text-align: left; cursor: pointer; }
+.subj-dot {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; flex-shrink: 0;
+}
+
+/* ---------- pills & chips ---------- */
+.pill {
+  border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700;
+  white-space: nowrap;
+}
+.pill-safe    { background: color-mix(in srgb, var(--safe) 18%, var(--card)); color: var(--safe); }
+.pill-limit   { background: color-mix(in srgb, var(--limit) 20%, var(--card)); color: var(--limit); }
+.pill-below   { background: color-mix(in srgb, var(--danger) 18%, var(--card)); color: var(--danger); }
+.pill-neutral { background: color-mix(in srgb, var(--soft) 14%, var(--card)); color: var(--soft); }
+.pill-primary { background: var(--primary); color: #fff; }
+
+.chip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+.chip {
+  border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 700;
+  background: var(--card); color: var(--soft); border: 1.5px solid transparent;
+  box-shadow: 0 2px 8px rgba(30, 27, 46, 0.08);
+  cursor: pointer; min-height: 40px; white-space: nowrap;
+}
+.chip.on { background: var(--text); color: var(--bg); }
+.chip:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- batch picker grid (Settings) ---------- */
+.batch-grid { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.batch-opt {
+  border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 700;
+  background: var(--card); color: var(--soft); border: 1.5px solid transparent;
+  box-shadow: 0 2px 8px rgba(30, 27, 46, 0.08);
+  cursor: pointer; min-height: 40px; white-space: nowrap;
+}
+.batch-opt.on { background: var(--primary); color: #fff; }
+.batch-opt:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- class cards ---------- */
+.class-card { padding: 14px 16px; }
+.class-meta { font-size: 13px; opacity: 0.75; margin-top: 2px; color: var(--text); }
+.mark-row { margin-top: 10px; gap: 8px; }
+.mark {
+  flex: 1; min-height: 48px; border-radius: 999px; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 800;
+  background: rgba(255, 255, 255, 0.55); color: var(--text);
+  transition: transform 0.15s, background 0.2s, color 0.2s;
+}
+[data-theme='midnight'] .mark { background: rgba(255, 255, 255, 0.10); }
+.mark.present.on { background: var(--safe); color: #fff; }
+.mark.absent.on  { background: var(--danger); color: #fff; }
+.mark.noclass.on { background: var(--soft); color: #fff; }
+.tick {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 900; flex-shrink: 0;
+  animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes pop {
+  0% { transform: scale(0.4); }
+  60% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.card-like.pop { animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+.empty-card { text-align: center; padding: 22px 16px; }
+
+/* ---------- horizontal deadline cards ---------- */
+.hscroll {
+  display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 14px;
+  scrollbar-width: none;
+}
+.hscroll::-webkit-scrollbar { display: none; }
+.deadline-card {
+  min-width: 170px; max-width: 200px; position: relative; padding: 26px 14px 14px;
+  color: var(--text);
+}
+.deal-tag {
+  position: absolute; top: -8px; right: 10px;
+  color: #fff; font-size: 11px; font-weight: 800;
+  padding: 4px 10px; border-radius: 999px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+}
+
+/* ---------- banner ---------- */
+.banner {
+  display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(120deg, var(--header-from), var(--header-to));
+  color: #fff; padding: 16px;
+}
+.banner-sub { font-size: 13px; opacity: 0.9; }
+.pill-btn {
+  border: none; border-radius: 999px; padding: 10px 16px; min-height: 44px;
+  font-weight: 800; cursor: pointer; background: var(--primary); color: #fff;
+}
+.pill-btn.light { background: rgba(255, 255, 255, 0.9); color: var(--header-from); }
+
+/* ---------- subject cards ---------- */
+.subject-card { padding-left: 16px; }
+
+/* ---------- subjects grid ---------- */
+.subj-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px;
+  margin-top: 12px;
+}
+.subj-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 16px 8px 12px; cursor: pointer; font-size: 13px;
+}
+.subj-round {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 26px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+}
+.badge { font-size: 13px; font-weight: 800; }
+
+/* ---------- subjects rows (one subject per line, tap to expand) ---------- */
+.subj-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.subj-row-wrap { display: flex; flex-direction: column; gap: 10px; }
+.subj-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 12px 14px; cursor: pointer; font: inherit; color: var(--text);
+}
+.subj-letter {
+  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; font-size: 17px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14);
+}
+.subj-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.subj-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.subj-name { font-size: 15px; font-weight: 800; letter-spacing: 0.2px; }
+.subj-bottom { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.subj-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.subj-skip { font-weight: 800; }
+.subj-chevron { flex: none; color: var(--muted); transition: transform 0.18s ease; }
+.subj-chevron.open { transform: rotate(180deg); }
+.subj-detail {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 2px 0 6px 0; animation: subj-expand 0.18s ease-out;
+}
+@keyframes subj-expand { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.subj-collapse { align-self: center; margin-top: 2px; }
+
+/* ---------- calendar ---------- */
+.cal-card { padding: 16px; }
+.cal-head { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; margin-bottom: 6px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-day {
+  aspect-ratio: 1; border: none; background: transparent; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border-radius: 14px; color: var(--text); font: inherit; min-height: 40px;
+  padding: 0;
+}
+.cal-day:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.cal-day .num {
+  font-size: 14px; font-weight: 700; width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
+}
+.today-num { background: linear-gradient(160deg, var(--header-from), var(--header-to)); color: #fff; }
+.cal-dots { display: flex; gap: 2px; height: 6px; }
+.cal-dots i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+
+/* ---------- theme tiles ---------- */
+.theme-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.theme-tile {
+  border: 2.5px solid transparent; border-radius: 18px; background: var(--card);
+  padding: 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  cursor: pointer; font-size: 12px; font-weight: 700; color: var(--text); min-height: 48px;
+}
+.theme-tile.on { border-color: var(--primary); }
+.theme-preview {
+  width: 100%; height: 56px; border-radius: 12px; display: flex; align-items: flex-end; gap: 5px;
+  padding: 8px; border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.theme-preview.auto { align-items: center; justify-content: center; font-size: 22px; background: linear-gradient(120deg, #FFF8F2, #1B1226); }
+.theme-preview i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+
+/* ---------- buttons & inputs ---------- */
+button {
+  border: none; border-radius: 999px; padding: 10px 16px; font-size: 14px;
+  cursor: pointer; background: color-mix(in srgb, var(--soft) 14%, var(--card)); color: var(--text);
+  min-height: 44px; font-family: inherit;
+}
+button.primary { background: var(--primary); color: #fff; }
+button.secondary { background: var(--card); border: 1.5px solid var(--soft); }
+button.danger { background: var(--danger); color: #fff; }
+button.danger-quiet { background: color-mix(in srgb, var(--danger) 14%, var(--card)); color: var(--danger); }
+button:disabled { opacity: 0.5; cursor: default; }
+button:disabled:active { transform: none; }
+.big-btn { min-height: 48px; font-weight: 800; }
+
+input, select {
+  /* Explicit light-appearance defaults so nothing can ever render
+     white-on-white, regardless of OS/browser dark-mode settings. */
+  color-scheme: light;
+  border: 1.5px solid #CFC8DC; /* fallback */
+  border-color: color-mix(in srgb, var(--soft) 30%, transparent);
+  border-radius: 16px; padding: 10px 12px; font-size: 15px; min-height: 48px;
+  background: #FFFFFF; background: var(--card);
+  color: #1E1B2E; color: var(--text);
+  -webkit-text-fill-color: var(--text);
+  width: 100%; font-family: inherit;
+}
+[data-theme="midnight"] input, [data-theme="midnight"] select {
+  color-scheme: dark;
+  background: var(--card);
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+}
+input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
+/* labels must stay readable in BOTH themes â€” previously they used the same
+   muted colour as body text, which washed out on light cards */
+label {
+  font-size: 13px; display: block; margin: 8px 0 2px; font-weight: 700;
+  color: #3F3A52; /* fallback: dark-enough grey for sunrise cards */
+  color: color-mix(in srgb, var(--soft) 45%, var(--text));
+}
+[data-theme='midnight'] label {
+  color: var(--soft);
+}
+
+/* Native date/time fields: the calendar & clock icons must stay visible in
+   both themes (they default to black in Chrome, which vanishes on dark cards). */
+input[type="date"], input[type="time"] { position: relative; }
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 1; cursor: pointer; filter: invert(38%) sepia(9%) saturate(400%) hue-rotate(210deg);
+}
+[data-theme="midnight"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="midnight"] input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(85%);
+}
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit { color: var(--text); }
+/* explicit fallback so empty/partial dates never render white-on-white */
+input[type="date"], input[type="time"] { -webkit-text-fill-color: var(--text); }
+select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--soft) 50%), linear-gradient(135deg, var(--soft) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%; background-size: 6px 6px; background-repeat: no-repeat; }
+option { background: var(--card); color: var(--text); }
+input::placeholder { color: var(--soft); opacity: 1; }
+input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--card) inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
+input[type="date"]:focus-visible, input[type="time"]:focus-visible { outline: 2px solid var(--primary); }
+
+/* sliders */
+.slider { accent-color: var(--primary); padding: 0; border: none; min-height: 48px; background: transparent; }
+.slider-value { font-size: 22px; min-width: 74px; text-align: right; }
+
+/* toggle switch */
+.toggle {
+  width: 56px; height: 32px; border-radius: 999px; padding: 0; min-height: 32px;
+  background: color-mix(in srgb, var(--soft) 30%, var(--card)); position: relative;
+  transition: background 0.2s; flex-shrink: 0;
+}
+.toggle .knob {
+  position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: left 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toggle.on { background: var(--safe); }
+.toggle.on .knob { left: 27px; }
+
+/* ---------- floating pill navigation ---------- */
+.navdock {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+  display: flex; align-items: flex-end; justify-content: center; gap: 12px;
+  padding: 0 16px calc(12px + env(safe-area-inset-bottom));
+  max-width: 480px; margin: 0 auto;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.navdock.down { transform: translateY(calc(100% + 8px)); }
+.pillnav {
+  position: relative; flex: 1; display: flex; gap: 2px;
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-radius: 999px; padding: 6px;
+  box-shadow: 0 12px 32px rgba(30, 27, 46, 0.22);
+}
+.pillnav-active {
+  position: absolute; top: 6px; bottom: 6px; border-radius: 999px;
+  background: var(--primary);
+  transition: left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+[data-theme='sunrise'] .pillnav-active { background: var(--text); } /* dark pill in light theme per doc */
+.navitem {
+  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: transparent; border: none; cursor: pointer; min-height: 48px;
+  color: var(--soft); font-size: 10px; font-weight: 700; padding: 6px 10px; border-radius: 999px;
+  flex: 1;
+}
+.navitem.on { color: #fff; }
+.fab {
+  width: 58px; height: 58px; border-radius: 50%; flex-shrink: 0;
+  background: var(--primary);
+  color: #fff; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 45%, transparent),
+              inset 0 -2px 6px rgba(0, 0, 0, 0.18);
+  padding: 0; min-height: 58px;
+}
+/* Keep the + glyph high-contrast in both themes. */
+[data-theme='sunrise'] .fab { background: linear-gradient(160deg, #E04A3F, var(--primary)); }
+[data-theme='midnight'] .fab { background: linear-gradient(160deg, #FF7A5C, #D93A32); }
+
+/* ---------- sheet ---------- */
+.sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(20, 12, 30, 0.45); z-index: 60;
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: fadein 0.2s ease;
+}
+@keyframes fadein { from { opacity: 0; } }
+.sheet {
+  width: 100%; max-width: 480px; background: var(--card); color: var(--text);
+  border-radius: 28px 28px 0 0; padding: 10px 18px calc(24px + env(safe-area-inset-bottom));
+  max-height: 76vh; overflow-y: auto;
+  animation: slideup 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes slideup { from { transform: translateY(40px); opacity: 0.6; } }
+.sheet-handle {
+  width: 44px; height: 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--soft) 40%, transparent); margin: 0 auto 10px;
+}
+
+/* ---------- misc ---------- */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--soft) 18%, transparent); }
+
+/* ---- Step 5: calendar day sheet additions ---- */
+.status-chip {
+  display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 99px;
+  font-size: 13px; font-weight: 700; color: #fff;
+}
+.status-chip.present { background: var(--safe); }
+.status-chip.absent { background: var(--danger); }
+.status-chip.noclass, .status-chip.cancelled { background: var(--soft); }
+.link-btn {
+  background: none; border: none; padding: 4px 6px; cursor: pointer;
+  color: var(--accent); font-weight: 700; font-size: 13px; text-decoration: underline;
+}
+.small-btn {
+  border: none; border-radius: 99px; padding: 6px 14px; cursor: pointer;
+  font-weight: 700; font-size: 13px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent);
+}
+
+/* ---- Stretch #5: converted lectures (subject swap on a day) ---- */
+.status-chip.converted { background: var(--warning, #b8860b); }
+.convert-box {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 8px; padding: 8px 10px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  font-size: 13px;
+}
+.convert-box select { max-width: 150px; }
+
+/* ---------- Plan screen ---------- */
+.plan-month-nav {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 12px;
+}
+.plan-month-label { font-weight: 800; font-size: 16px; color: var(--text); text-align: center; }
+.plan-arrow {
+  width: 40px; height: 40px; min-width: 40px; border-radius: 12px; border: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--card); color: var(--text); box-shadow: 0 2px 8px rgba(30, 27, 46, 0.08);
+  cursor: pointer;
+}
+.plan-arrow:disabled { opacity: 0.35; cursor: default; }
+.plan-overall { text-align: center; padding: 18px 16px; margin-bottom: 14px; }
+.plan-overall-pct { font-size: 40px; font-weight: 900; line-height: 1.1; }
+.plan-card { margin-bottom: 12px; cursor: pointer; }
+.plan-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.plan-card-name { font-weight: 800; font-size: 15px; color: var(--text); }
+.plan-card-full { max-width: 220px; overflow-wrap: anywhere; }
+.plan-card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.plan-card-pct { font-size: 22px; font-weight: 900; line-height: 1; }
+.plan-card-focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 45%, transparent); }
+/* J8/J9 one-line verdict under the header */
+.plan-verdict { margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--soft); line-height: 1.35; }
+.plan-verdict-safe { color: var(--safe); }
+.plan-verdict-limit { color: var(--limit); }
+.plan-verdict-below { color: var(--danger); }
+.plan-rows { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.plan-row {
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-size: 13px; padding: 6px 10px; border-radius: 10px;
+  background: color-mix(in srgb, var(--soft) 6%, var(--card));
+}
+.plan-k { color: var(--soft); font-weight: 700; flex-shrink: 0; }
+.plan-v { color: var(--text); text-align: right; }
+.plan-row.danger .plan-v { color: var(--danger); font-weight: 700; }
+.plan-row.safe .plan-v { color: var(--safe); font-weight: 700; }
+.plan-row.warn .plan-v { color: var(--limit); font-weight: 700; }
+.plan-week-table { padding: 10px 14px; }
+.plan-wrow {
+  display: grid; grid-template-columns: 1.6fr 0.8fr 1fr 0.8fr; gap: 8px;
+  padding: 8px 2px; font-size: 13px; color: var(--text); align-items: center;
+}
+.plan-whead { font-weight: 800; color: var(--soft); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.plan-wrow + .plan-wrow { border-top: 1px solid color-mix(in srgb, var(--soft) 14%, transparent); }
+
+/* pill nav with 6 items â€” tighter labels on small screens */
+.pillnav { gap: 2px; }
+.pillnav button span { font-size: 10.5px; }
+@media (max-width: 430px) {
+  .pillnav button { padding: 8px 7px; }
+  .pillnav button span { display: none; }
+  .pillnav button.on span { display: inline; }
+}
+
+/* ---------- Deadline paste extraction ---------- */
+.paste-box textarea {
+  width: 100%; min-height: 96px; resize: vertical; border-radius: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--soft) 25%, transparent);
+  background: var(--bg); color: var(--text); padding: 12px; font-size: 14px;
+  font-family: inherit;
+}
+.extract-item {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 8px;
+}
+.extract-main { flex: 1; min-width: 0; }
+.extract-title { font-weight: 800; font-size: 14px; color: var(--text); word-break: break-word; }
+.extract-meta { font-size: 12px; color: var(--soft); margin-top: 2px; }
+.extract-check {
+  width: 26px; height: 26px; min-width: 26px; border-radius: 50%; border: none; cursor: pointer;
+  background: color-mix(in srgb, var(--soft) 15%, var(--card)); color: var(--soft);
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 900;
+}
+.extract-check.on { background: var(--safe); color: #fff; }
+
+/* ---------- lecture day chips (Timetable → Add a lecture) ---------- */
+.day-chip {
+  border-radius: 999px; padding: 8px 14px; font-weight: 700; font-size: 13px;
+  background: color-mix(in srgb, var(--soft) 12%, var(--card)); color: var(--text);
+  border: 1.5px solid transparent; transition: background 0.2s ease, border-color 0.2s ease;
+}
+.day-chip.on { background: var(--primary); color: #fff; }
+/* ✓ = this lecture already runs on that day — tapping removes it */
+.day-chip.has { background: var(--safe); color: #fff; border-color: color-mix(in srgb, var(--safe) 60%, transparent); }
+.extract-title-input {
+  width: 100%; border: none; background: transparent; color: var(--text);
+  font-weight: 800; font-size: 14px; font-family: inherit; padding: 0;
+}
+.extract-date {
+  flex-shrink: 0; width: 128px; min-height: 40px; border-radius: 10px;
+  border: 1.5px solid color-mix(in srgb, var(--soft) 25%, transparent);
+  background: var(--bg); color: var(--text); font-size: 12px; padding: 6px 8px;
+  font-family: inherit; color-scheme: light;
+}
+[data-theme='midnight'] .extract-date { color-scheme: dark; }
+
+
+/* ---- Study components (E1/E5/E11) ---- */
+.progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--soft) 20%, transparent);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.score-chip-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  min-width: 0;
+  min-height: 0;
+  color: inherit;
+}
+
+/* ---------- settings toggle row ---------- */
+.toggle-row { cursor: pointer; gap: 14px; }
+.toggle-row input[type='checkbox'] { width: 20px; height: 20px; accent-color: var(--primary); flex: none; }
+.toggle-row.on { border: 1.5px solid var(--primary); }
