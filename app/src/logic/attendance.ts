@@ -130,6 +130,11 @@ export function computeSubjectTotals(
   today: DateStr,
 ): SubjectTotals {
   const subj = data.subjects.find((s) => s.id === subjectId)
+  // "Start fresh" mode (F-settings): ignore everything before today — no
+  // carry-over, no assumed past attendance. Marks made from today onward are
+  // still counted normally.
+  const ignorePast = !!data.settings.ignorePastAttendance
+  if (ignorePast && rangeStart < today) rangeStart = today
   let held = 0
   let attended = 0
   let unmarkedPast = 0
@@ -143,6 +148,9 @@ export function computeSubjectTotals(
       if (owner !== subjectId) continue
       const status = markFor(data, date, slot.id)
       if (status === 'noclass' || status === 'cancelled') continue // B2: counts in neither
+      // Start-fresh: only marks the user actually made count; scheduled-but-
+      // unmarked classes before today are skipped entirely.
+      if (ignorePast && date < today && status === null) continue
       held += 1
       if (status === 'present' || status === 'converted') attended += 1
       else if (status === 'absent') {
@@ -155,11 +163,11 @@ export function computeSubjectTotals(
     }
   }
 
-  // J5: assumed attendance for past unmarked classes.
-  const assumedPct = data.settings.assumedPastAttendance
+  // J5: assumed attendance for past unmarked classes (skipped in start-fresh mode).
+  const assumedPct = ignorePast ? 0 : data.settings.assumedPastAttendance
   attended += Math.round((assumedPct / 100) * unmarkedPast)
 
-  const usesTyped = subj?.typedHeld !== undefined
+  const usesTyped = !ignorePast && subj?.typedHeld !== undefined
   if (usesTyped && subj) {
     held = Math.max(0, subj.typedHeld ?? 0)
     attended = Math.min(held, Math.max(0, subj.typedAttended ?? 0))

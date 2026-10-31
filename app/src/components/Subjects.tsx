@@ -1,27 +1,24 @@
-// Subjects screen (Step 2): a grid of big round icon tiles (Uber-services
-// style), each with the subject colour, name and an attendance badge in the
-// safe/limit/danger tone. Opening a subject shows its monthly planner card
-// (J8 — lectures this month / to attend) plus percentage card, can-miss line
-// and the weekly timetable for that subject. The Timetable editor now lives
-// on its own bottom tab.
+// Subjects screen (Step 2): one compact row per subject showing the key
+// numbers at a glance (name + division letter, lectures this month, overall
+// attendance %, lectures remaining, can-skip). Tapping a row expands it
+// in-place to reveal the full details: monthly plan card, attended/held
+// summary, threshold override and the weekly schedule for that subject.
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useApp } from '../data/store'
 import type { DateStr } from '../data/model'
-import { buildReport } from '../logic/attendance'
-import { todayStr, weekdayName } from '../logic/dates'
+import { buildReport, computeSubjectTotals, summarizeSubject } from '../logic/attendance'
+import { projectSubjectMonth } from '../logic/projection'
+import { todayStr, weekdayName, monthKey } from '../logic/dates'
 import { SectionTitle, StatusPill } from './ui/parts'
 import { subjectPalette, subjectTileStyle, STATUS_VAR } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
 import MonthlyPlanCard from './MonthlyPlanCard'
 
-const SUBJECT_ICONS = ['📘', '🧪', '🧮', '💻', '📡', '🎨', '🛠️', '🌐']
-
 export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectId?: string) => void; focusSubjectId?: string | null }) {
   const { data } = useApp()
-  const { active } = useTheme()
   const [openId, setOpenId] = useState<string | null>(null)
 
   // Deep-link from Today/warnings: open the focused subject's page directly.
@@ -41,59 +38,6 @@ export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectI
     [data, today, rangeStart],
   )
 
-  const open = openId ? report.bySubject.find((s) => s.subjectId === openId) : null
-  const openIdx = open ? data.subjects.findIndex((s) => s.id === open.subjectId) : 0
-
-  if (open) {
-    const slots = data.slots
-      .filter((sl) => sl.subjectId === open.subjectId && (!sl.validUntil || sl.validUntil >= today))
-      .sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime))
-    return (
-      <div className="screen pad">
-        <div className="row" style={{ marginBottom: 8 }}>
-          <button className="icon-btn" onClick={() => setOpenId(null)} aria-label="Back">
-            <ArrowLeft size={20} />
-          </button>
-          <h1 style={{ margin: 0 }}>{open.shortName}</h1>
-          <span className="grow" />
-          <StatusPill tone={open.status === 'safe' ? 'safe' : open.status === 'limit' ? 'limit' : open.status === 'below' ? 'below' : 'neutral'}>
-            {open.held === 0 ? 'no data' : `${open.percent.toFixed(1)}%`}
-          </StatusPill>
-        </div>
-
-        {/* J8: Monthly Plan card at the top of each subject page */}
-        <MonthlyPlanCard
-          subjectId={open.subjectId}
-          onOpenSettings={() => go('settings')}
-        />
-
-        <div className="card" style={subjectTileStyle(openIdx, active)}>
-          <b>{open.name}</b>
-          <div className="class-meta">{open.attended}/{open.held} classes attended · target {open.threshold}%</div>
-          <div style={{ marginTop: 6 }}><b>{open.message}</b></div>
-        </div>
-
-        {/* F2 (Stretch): per-subject threshold override. */}
-        <ThresholdEditor subjectId={open.subjectId} />
-
-        <SectionTitle>EVERY WEEK</SectionTitle>
-        {slots.length === 0 && <div className="card msg">No lectures scheduled.</div>}
-        {slots.map((sl) => (
-          <div className="card row spread" key={sl.id}>
-            <span>
-              <b>{weekdayName(sl.weekday)}</b>{' '}
-              <span className="msg">
-                {sl.startTime}–{sl.endTime} · {sl.type}
-                {sl.room ? ` · ${sl.room}` : ''}
-              </span>
-            </span>
-            <StatusPill tone="neutral">{sl.teacher || '—'}</StatusPill>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <div className="screen pad">
       <div className="row spread">
@@ -103,20 +47,41 @@ export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectI
       {report.bySubject.length === 0 ? (
         <div className="card empty-card">🗒️ No subjects yet — add your timetable under “Timetable”.</div>
       ) : (
-        <div className="subj-grid">
+        <div className="subj-rows">
           {report.bySubject.map((s, i) => {
             const pal = subjectPalette(i)
-            const tile = subjectTileStyle(i, active)
+            // One quick projection per subject for the "this month / remaining"
+            // numbers on the summary row.
+            const plan = projectSubjectMonth(data, s.subjectId, monthKey(today), today)
+            const expanded = openId === s.subjectId
             return (
-              <button key={s.subjectId} className="subj-tile card-like" style={tile} onClick={() => setOpenId(s.subjectId)}>
-                <span className="subj-round" style={{ background: pal.strong }}>
-                  {SUBJECT_ICONS[i % SUBJECT_ICONS.length]}
-                </span>
-                <b>{s.shortName}</b>
-                <span className={`badge ${s.status}`} style={{ color: STATUS_VAR[s.status] }}>
-                  {s.held === 0 ? '—' : `${Math.round(s.percent)}%`}
-                </span>
-              </button>
+              <div className="subj-row-wrap" key={s.subjectId}>
+                <button
+                  type="button"
+                  className="subj-row card-like"
+                  aria-expanded={expanded}
+                  onClick={() => setOpenId(expanded ? null : s.subjectId)}
+                >
+                  <span className="subj-letter" style={{ background: pal.strong }}>{s.shortName.slice(0, 1)}</span>
+                  <span className="subj-main">
+                    <span className="subj-top">
+                      <b className="subj-name">{s.shortName}</b>
+                      <span className="subj-meta">this month · {plan.classesInMonth} lec</span>
+                    </span>
+                    <span className="subj-bottom">
+                      <span className={`badge ${s.status}`} style={{ color: STATUS_VAR[s.status] }}>
+                        attendance {s.held === 0 ? '—' : `${Math.round(s.percent)}%`}
+                      </span>
+                      <span className="subj-meta">remaining · {plan.classesLeft} lec</span>
+                      <span className="subj-meta subj-skip" style={{ color: STATUS_VAR[s.status] }}>
+                        can skip · {plan.canSkip}
+                      </span>
+                    </span>
+                  </span>
+                  <ChevronDown size={18} className={`subj-chevron ${expanded ? 'open' : ''}`} />
+                </button>
+                {expanded && <SubjectDetail subjectId={s.subjectId} go={go} onClose={() => setOpenId(null)} />}
+              </div>
             )
           })}
         </div>
@@ -133,6 +98,65 @@ export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectI
           ))}
         </>
       )}
+    </div>
+  )
+}
+
+/** In-place expanded detail for one subject row: monthly plan card (J8),
+ *  attended/held summary with the friendly verdict line, per-subject target
+ *  override and the weekly schedule. */
+function SubjectDetail({ subjectId, go, onClose }: { subjectId: string; go: (t: Tab, subjectId?: string) => void; onClose: () => void }) {
+  const { data } = useApp()
+  const { active } = useTheme()
+  const today = todayStr()
+
+  const subjIdx = Math.max(0, data.subjects.findIndex((s) => s.id === subjectId))
+  const rangeStart = useMemo<DateStr>(() => {
+    if (data.settings.semesterStart) return data.settings.semesterStart
+    if (data.slots.length === 0) return today
+    return data.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), today)
+  }, [data.settings.semesterStart, data.slots, today])
+
+  const totals = useMemo(
+    () => computeSubjectTotals(data, subjectId, rangeStart, today, today),
+    [data, subjectId, rangeStart, today],
+  )
+  const summary = useMemo(() => summarizeSubject(data, subjectId, totals), [data, subjectId, totals])
+
+  const slots = data.slots
+    .filter((sl) => sl.subjectId === subjectId && (!sl.validUntil || sl.validUntil >= today))
+    .sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime))
+
+  return (
+    <div className="subj-detail">
+      {/* J8: Monthly Plan card at the top of each subject's details */}
+      <MonthlyPlanCard subjectId={subjectId} onOpenSettings={() => go('settings')} />
+
+      <div className="card" style={subjectTileStyle(subjIdx, active)}>
+        <b>{summary.name}</b>
+        <div className="class-meta">{summary.attended}/{summary.held} classes attended · target {summary.threshold}%</div>
+        <div style={{ marginTop: 6 }}><b>{summary.message}</b></div>
+      </div>
+
+      {/* F2 (Stretch): per-subject threshold override. */}
+      <ThresholdEditor subjectId={subjectId} />
+
+      <SectionTitle>EVERY WEEK</SectionTitle>
+      {slots.length === 0 && <div className="card msg">No lectures scheduled.</div>}
+      {slots.map((sl) => (
+        <div className="card row spread" key={sl.id}>
+          <span>
+            <b>{weekdayName(sl.weekday)}</b>{' '}
+            <span className="msg">
+              {sl.startTime}–{sl.endTime} · {sl.type}
+              {sl.room ? ` · ${sl.room}` : ''}
+            </span>
+          </span>
+          <StatusPill tone="neutral">{sl.teacher || '—'}</StatusPill>
+        </div>
+      ))}
+
+      <button type="button" className="btn ghost subj-collapse" onClick={onClose}>Collapse ▲</button>
     </div>
   )
 }

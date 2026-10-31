@@ -137,7 +137,15 @@ export function projectSubjectMonth(
   let priorHeld = 0
   let priorAttended = 0
 
-  if (subj.typedHeld !== undefined) {
+  // "Start fresh" mode: nothing before today counts — no ERP carry-over, no
+  // assumed past attendance. The month plan builds only from today's marks.
+  const ignorePast = !!data.settings.ignorePastAttendance
+
+  if (ignorePast) {
+    const priorTotals = computeSubjectTotals(data, subjectId, semStart < today ? today : semStart, prevMonthEnd < today ? today : prevMonthEnd, today)
+    priorHeld = priorTotals.held
+    priorAttended = priorTotals.attended
+  } else if (subj.typedHeld !== undefined) {
     // B8 / J6: Typed ERP totals replace assumed/calculated totals
     priorHeld = Math.max(0, subj.typedHeld ?? 0)
     priorAttended = Math.min(priorHeld, Math.max(0, subj.typedAttended ?? 0))

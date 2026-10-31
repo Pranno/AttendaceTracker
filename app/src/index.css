@@ -317,6 +317,34 @@ button:active { transform: scale(0.97); }
 }
 .badge { font-size: 13px; font-weight: 800; }
 
+/* ---------- subjects rows (one subject per line, tap to expand) ---------- */
+.subj-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.subj-row-wrap { display: flex; flex-direction: column; gap: 10px; }
+.subj-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 12px 14px; cursor: pointer; font: inherit; color: var(--text);
+}
+.subj-letter {
+  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; font-size: 17px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14);
+}
+.subj-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.subj-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.subj-name { font-size: 15px; font-weight: 800; letter-spacing: 0.2px; }
+.subj-bottom { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.subj-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.subj-skip { font-weight: 800; }
+.subj-chevron { flex: none; color: var(--muted); transition: transform 0.18s ease; }
+.subj-chevron.open { transform: rotate(180deg); }
+.subj-detail {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 2px 0 6px 0; animation: subj-expand 0.18s ease-out;
+}
+@keyframes subj-expand { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.subj-collapse { align-self: center; margin-top: 2px; }
+
 /* ---------- calendar ---------- */
 .cal-card { padding: 16px; }
 .cal-head { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; margin-bottom: 6px; }
@@ -652,3 +680,8 @@ td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(
   min-height: 0;
   color: inherit;
 }
+
+/* ---------- settings toggle row ---------- */
+.toggle-row { cursor: pointer; gap: 14px; }
+.toggle-row input[type='checkbox'] { width: 20px; height: 20px; accent-color: var(--primary); flex: none; }
+.toggle-row.on { border: 1.5px solid var(--primary); }

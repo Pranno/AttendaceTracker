@@ -210,6 +210,23 @@ export default function Settings() {
         hint="Used until you mark a day or type real ERP totals."
       />
 
+      {/* "Start fresh": mid-semester adopters can ignore everything before today. */}
+      <label className={`card row spread toggle-row ${s.ignorePastAttendance ? 'on' : ''}`} style={{ alignItems: 'center' }}>
+        <span>
+          <b>Start counting from today only</b>
+          <div className="class-meta">
+            {s.ignorePastAttendance
+              ? 'Previous attendance is ignored — percentages begin at zero and count only what you mark from today. Uncheck to restore full-semester calculations.'
+              : 'Everything since the semester start counts (carry-over + assumed past attendance).'}
+          </div>
+        </span>
+        <input
+          type="checkbox"
+          checked={s.ignorePastAttendance}
+          onChange={(e) => updateSettings({ ignorePastAttendance: e.target.checked })}
+        />
+      </label>
+
       <SectionTitle>THEME</SectionTitle>
       <div className="theme-tiles">
         {themes.map((t) => (

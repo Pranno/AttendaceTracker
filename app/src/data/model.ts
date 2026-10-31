@@ -70,6 +70,12 @@ export interface AppSettings {
   myDivision: string
   /** Onboarding wizard: true once the intro tour has been seen/dismissed. */
   onboarded: boolean
+  /** "Start fresh" mode: when true, no attendance from before today is
+   *  counted — not even assumed past attendance. For people who begin using
+   *  the app mid-semester and want percentages to reflect only what they
+   *  mark from now on. Uncheck it any time to bring back full-semester
+   *  calculations (carry-over + assumed past attendance). */
+  ignorePastAttendance: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -91,6 +97,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   myBatch: '',
   myDivision: '',
   onboarded: false,
+  ignorePastAttendance: false,
 }
 
 /** Subject — created when the timetable is confirmed (A6) or added by hand. */
