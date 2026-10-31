@@ -28,7 +28,6 @@ import {
   upcomingDeadlines,
 } from '../logic/study'
 import { SectionTitle, Sheet, StatusPill } from './ui/parts'
-import SpecialCourses from './SpecialCourses'
 import CgpaPlanner from './CgpaPlanner'
 import { CourseCard, SubjectCourseView } from './CourseParts'
 
@@ -445,9 +444,6 @@ export default function Study() {
 
       {/* E11 CGPA planner (SGPA per semester, CGPA, target planner) */}
       <CgpaPlanner />
-
-      {/* Section H: special courses (links, status, certificates) */}
-      <SpecialCourses />
     </div>
   )
 }
