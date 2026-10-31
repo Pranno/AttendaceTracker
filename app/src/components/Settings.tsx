@@ -146,10 +146,6 @@ function batchNumberOf(batch: string): string {
   return m && m[1] ? m[1] : ''
 }
 
-function joinBatch(div: string, num: string): string {
-  return div ? `${div}${num}` : ''
-}
-
 /** Effective division letter: the standalone myDivision setting, falling back
  *  to the letter inside myBatch (older saved data only had myBatch). */
 function effDivision(s: { myDivision?: string; myBatch: string }): string {

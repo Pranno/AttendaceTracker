@@ -15,7 +15,7 @@ import type { TextItemLike } from '../logic/syllabusReader'
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
 
 export default function Timetable() {
-  const { data, setData, addSubject, removeSubject, addSlot, deleteSlot, updateSlot, removeSlotFromToday } = useApp()
+  const { data, setData, addSubject, removeSubject, addSlot, deleteSlot, updateSlot } = useApp()
   const today = todayStr()
   const myBatch = data.settings.myBatch
 
@@ -301,13 +301,20 @@ export default function Timetable() {
     )
   }
 
+  /** Hard-remove a lecture slot. If attendance was already marked for it,
+   *  ask first so the user knows those marks go too; otherwise delete
+   *  instantly — no "ends on this day" half-state to clean up later. */
+  function hardRemoveSlot(id: string) {
+    const marked = data.marks.some((m) => m.slotId === id)
+    if (marked && !window.confirm('This class has attendance you marked. Remove it and its marks?')) return
+    deleteSlot(id)
+  }
+
   function toggleDay(wd: number) {
     const existing = matchingSlotOn(wd)
     if (existing) {
-      // Already has this lecture: remove it and drop the highlight.
-      // Past occurrences keep their history; only future copies vanish.
-      if (existing.validFrom <= today) removeSlotFromToday(existing.id, today)
-      else deleteSlot(existing.id)
+      // Already has this lecture: remove it outright and drop the highlight.
+      hardRemoveSlot(existing.id)
       setSelectedDays((sel) => sel.filter((x) => x !== wd))
       return
     }
@@ -628,7 +635,7 @@ export default function Timetable() {
                         setEditRoom(s.room);
                         setEditTeacher(s.teacher);
                       }}>Edit</button>
-                      <button onClick={() => removeSlotFromToday(s.id, today)}>Remove</button>
+                      <button onClick={() => hardRemoveSlot(s.id)}>Remove</button>
                     </>
                   )}
                 </div>
