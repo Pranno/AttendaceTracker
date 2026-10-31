@@ -9,7 +9,7 @@ import { loadData, saveData, clearData, saveArchive, listArchives, deleteArchive
 import type { ArchivedSemester } from '../data/storage'
 import { markFor, buildReport, freshData } from '../logic/attendance'
 import { todayStr } from '../logic/dates'
-import { scheduleDeadlineNotification, cancelDeadlineNotification, resyncAllNotifications } from '../logic/reminders'
+import { scheduleDeadlineNotification, cancelDeadlineNotification, resyncAllNotifications, syncDailyNotifications } from '../logic/reminders'
 
 interface AppApi {
   data: AppData
