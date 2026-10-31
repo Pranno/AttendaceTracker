@@ -89,6 +89,21 @@ export function markFor(data: AppData, date: DateStr, slotId: string): MarkStatu
   return m ? m.status : null
 }
 
+/** True when two same-subject lab periods are back-to-back (the college's
+ *  double-period practical rule). Marks for a merged session live on the FIRST
+ *  slot's id, so a mark found on `b` means the pair was imported as two
+ *  separate periods that were actually one class — count it once. */
+function isLabPair(a: Slot, b: Slot): boolean {
+  return (
+    a.type === 'lab' &&
+    b.type === 'lab' &&
+    a.subjectId === b.subjectId &&
+    (a.batch ?? '') === (b.batch ?? '') &&
+    a.teacher === b.teacher &&
+    mins(b.startTime) >= mins(a.endTime)
+  )
+}
+
 /** All dates from `from` up to and including `to`. */
 export function eachDay(from: DateStr, to: DateStr): DateStr[] {
   const out: DateStr[] = []

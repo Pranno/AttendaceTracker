@@ -31,22 +31,25 @@
 
 import type { AppData, DateStr, Slot } from '../data/model'
 import { slotMatchesBatch } from '../data/model'
-import { computeSubjectTotals, conversionFor, effectiveSubjectId, isHoliday, markFor } from './attendance'
+import { computeSubjectTotals, conversionFor, effectiveSubjectId, isHoliday, markFor, mergeLabPairs } from './attendance'
 import { addDays, daysInMonth, monthKey, pad2, weekdayOf } from './dates'
 
-/** Raw (un-merged) slots scheduled for a date. Unlike `slotsForDate` this does
- *  NOT run the lab-pair merge: monthly projections count every scheduled
- *  period individually (5 periods/day × 20 weekdays = 100 classes), which is
- *  what the Section J worked examples assume. */
+/** Slots scheduled for a date, honouring validFrom/validUntil, Sundays and
+ *  batch. Uses the same lab-pair merge as attendance.ts (college rule: one
+ *  practical spans two periods = ONE counted session). The merged slot keeps
+ *  the FIRST slot's id — which is where Today/Calendar store the mark — so
+ *  monthly totals always match what the user actually marked. */
 function rawSlotsForDate(data: AppData, date: DateStr): Slot[] {
   const wd = weekdayOf(date)
   if (wd === 7 && !data.settings.sundayClasses) return []
-  return data.slots.filter(
-    (s) =>
-      s.weekday === wd &&
-      date >= s.validFrom &&
-      (s.validUntil === null || date <= s.validUntil) &&
-      slotMatchesBatch(s.batch, data.settings.myBatch),
+  return mergeLabPairs(
+    data.slots.filter(
+      (s) =>
+        s.weekday === wd &&
+        date >= s.validFrom &&
+        (s.validUntil === null || date <= s.validUntil) &&
+        slotMatchesBatch(s.batch, data.settings.myBatch),
+    ),
   )
 }
 
@@ -190,7 +193,7 @@ export function projectSubjectMonth(
       let walk = addDays(today, 1)
       while (walk <= prevMonthEnd) {
         if (!isHoliday(data, walk)) {
-          const slots = slotsForDate(data, walk).filter((sl) => effectiveSubjectId(data, walk, sl) === subjectId)
+          const slots = rawSlotsForDate(data, walk).filter((sl) => ownerOf(data, walk, sl) === subjectId)
           for (const slot of slots) {
             const m = markFor(data, walk, slot.id)
             if (m === 'noclass' || m === 'cancelled') continue
@@ -212,7 +215,7 @@ export function projectSubjectMonth(
   while (d <= monthEnd) {
     const holiday = isHoliday(data, d)
     if (!holiday) {
-      const slots = slotsForDate(data, d).filter((sl) => effectiveSubjectId(data, d, sl) === subjectId)
+      const slots = rawSlotsForDate(data, d).filter((sl) => ownerOf(data, d, sl) === subjectId)
       for (const slot of slots) {
         const status = markFor(data, d, slot.id)
         if (status === 'noclass' || status === 'cancelled') {
