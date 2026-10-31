@@ -29,9 +29,32 @@
 //   Achievable end-of-month percentage: (A + p + R) / (H + C) * 100 (1 dec).
 // ============================================================
 
-import type { AppData, DateStr } from '../data/model'
-import { computeSubjectTotals, effectiveSubjectId, isHoliday, markFor, slotsForDate } from './attendance'
-import { addDays, daysInMonth, monthKey, pad2 } from './dates'
+import type { AppData, DateStr, Slot } from '../data/model'
+import { slotMatchesBatch } from '../data/model'
+import { computeSubjectTotals, conversionFor, effectiveSubjectId, isHoliday, markFor } from './attendance'
+import { addDays, daysInMonth, monthKey, pad2, weekdayOf } from './dates'
+
+/** Raw (un-merged) slots scheduled for a date. Unlike `slotsForDate` this does
+ *  NOT run the lab-pair merge: monthly projections count every scheduled
+ *  period individually (5 periods/day × 20 weekdays = 100 classes), which is
+ *  what the Section J worked examples assume. */
+function rawSlotsForDate(data: AppData, date: DateStr): Slot[] {
+  const wd = weekdayOf(date)
+  if (wd === 7 && !data.settings.sundayClasses) return []
+  return data.slots.filter(
+    (s) =>
+      s.weekday === wd &&
+      date >= s.validFrom &&
+      (s.validUntil === null || date <= s.validUntil) &&
+      slotMatchesBatch(s.batch, data.settings.myBatch),
+  )
+}
+
+/** The subject a period on `date`/`slot` counts toward (converted target wins). */
+function ownerOf(data: AppData, date: DateStr, slot: Slot): string {
+  const conv = conversionFor(data, date, slot.id)
+  return conv ? conv.subjectId : slot.subjectId
+}
 
 export interface SubjectMonthPlan {
   subjectId: string
