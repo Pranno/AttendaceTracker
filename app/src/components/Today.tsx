@@ -14,8 +14,8 @@ import { useApp } from '../data/store'
 import type { DateStr, MarkStatus } from '../data/model'
 import { buildReport, slotsForDate, isHoliday, markFor, conversionFor } from '../logic/attendance'
 import { addDays, diffDays, formatShort, monthKey, todayStr, weekdayName, weekdayOf } from '../logic/dates'
-import { PercentRing, SectionTitle, StatusPill, ChipRow } from './ui/parts'
-import { subjectPalette, subjectTileStyle, STATUS_VAR } from '../theme/tokens'
+import { PercentRing, SectionTitle, StatusPill } from './ui/parts'
+import { subjectPalette, subjectTileStyle } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
 import { projectSubjectMonth } from '../logic/projection'
@@ -27,7 +27,6 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   const { active, choice, setChoice } = useTheme()
   const [undoMsg, setUndoMsg] = useState<string | null>(null)
   const [dateOverride, setDateOverride] = useState<DateStr | null>(null)
-  const [filter, setFilter] = useState<'all' | 'unmarked' | 'below'>('all')
   const undoRef = useRef<(() => void) | null>(null)
   const [popSlot, setPopSlot] = useState<string | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
@@ -144,14 +143,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
     setMark(viewDate, slotId, null)
   }
 
-  const shownSlots = daySlots.filter((slot) => {
-    if (filter === 'all') return true
-    const status = markFor(data, viewDate, slot.id)
-    if (filter === 'unmarked') return status === null
-    // 'below': only subjects under threshold
-    const rep = report.bySubject.find((r) => r.subjectId === slot.subjectId)
-    return rep ? rep.status === 'below' || rep.status === 'limit' : true
-  })
+  const shownSlots = daySlots
 
   const subjectIndex = (id: string) => Math.max(0, data.subjects.findIndex((s) => s.id === id))
 
@@ -218,9 +210,10 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
 
       {choice === 'system' && null /* follow-the-phone handled by provider */}
 
-      {/* ---------- day / week strip ---------- */}
+      {/* ---------- day / week strip (sticky under the header so only the
+            list below scrolls when you swipe days/weeks) ---------- */}
       {stripMode === 'week' ? (
-        <div className="row daystrip" style={{ gap: 4 }}>
+        <div className="row daystrip sticky" style={{ gap: 4 }}>
           <button className="icon-btn" onClick={() => setDateOverride(addDays(viewDate, -7))} aria-label="Previous week">◀</button>
           {Array.from({ length: 7 }, (_, i) => {
             const monday = addDays(today, 1 - weekdayOf(today)) // Monday of this week
@@ -243,7 +236,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           <button className="chip" onClick={() => setStripMode('day')}>Day</button>
         </div>
       ) : (
-      <div className="row daystrip">
+      <div className="row daystrip sticky">
         <button className="icon-btn" onClick={() => setDateOverride(addDays(viewDate, -1))} aria-label="Previous day">◀</button>
         <div className="grow" style={{ textAlign: 'center' }}>
           <b>{viewDate === today ? 'Today' : formatShort(viewDate)}</b>
@@ -323,16 +316,6 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
 
       {/* ---------- today's classes (B1: Present / Absent / No class) ---------- */}
       <SectionTitle>CLASSES · {formatShort(viewDate)}</SectionTitle>
-      <ChipRow
-        options={[
-          { id: 'all', label: 'All' },
-          { id: 'unmarked', label: 'Not marked yet' },
-          { id: 'below', label: 'At risk' },
-        ]}
-        value={filter}
-        onChange={setFilter}
-      />
-
       {holiday && (
         <div className="card empty-card">
           🎉 <b>Holiday.</b>{' '}
@@ -486,29 +469,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
         </button>
       </div>
 
-      {/* ---------- subject percentages ---------- */}
-      <SectionTitle>SUBJECTS</SectionTitle>
-      {report.bySubject.map((s, i) => (
-        <div className="card subject-card" key={s.subjectId} style={{ borderLeft: `6px solid ${STATUS_VAR[s.status]}` }}>
-          <div className="row spread">
-            <div>
-              <b style={{ color: subjectPalette(i).strong }}>{s.shortName}</b>{' '}
-              <span className="msg">
-                {s.name} · {s.attended}/{s.held}
-              </span>
-            </div>
-            <div className="num pct" style={{ color: STATUS_VAR[s.status] }}>
-              {s.held === 0 ? '—' : `${s.percent.toFixed(1)}%`}
-            </div>
-          </div>
-          <div className="msg">
-            {s.message}
-            {s.convertedCount > 0 && (
-              <> · {s.convertedCount} converted in ({s.convertedCount === 1 ? '1 class from another subject' : `${s.convertedCount} classes from other subjects`})</>
-            )}
-          </div>
-        </div>
-      ))}
+      {/* Subject percentages live in the dedicated Subjects tab — not repeated here. */}
 
       {/* I5: pending email suggestions, compact view on Today */}
       <EmailInbox compact />

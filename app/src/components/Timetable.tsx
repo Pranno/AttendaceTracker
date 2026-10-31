@@ -342,7 +342,8 @@ export default function Timetable() {
 
   return (
     <div>
-      <h1>Timetable</h1>
+      {/* The Timetable tab header is rendered by App.tsx — no h1 here, or the
+          section title would appear twice on screen. */}
       <div className="card msg">
         Hand entry below. Every class repeats weekly until you change it.
         {myBatch && (

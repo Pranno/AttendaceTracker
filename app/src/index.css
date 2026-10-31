@@ -39,7 +39,14 @@ body {
   color: var(--text);
   transition: background 0.3s ease, color 0.3s ease;
   -webkit-font-smoothing: antialiased;
+  /* App-feel (Capacitor): no long-press text selection, no tap flash,
+     no rubber-band overscroll glow — behaves like a native view. */
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
 }
+
+button, .card, .card-like { user-select: none; -webkit-user-select: none; }
+input, textarea, select { user-select: text; -webkit-user-select: text; }
 
 h1 {
   font-family: 'Bricolage Grotesque', 'DM Sans', system-ui, sans-serif;
@@ -173,6 +180,15 @@ button:active { transform: scale(0.97); }
 
 /* ---------- day strip ---------- */
 .daystrip { margin: 16px auto 4px; padding: 0 16px; max-width: 480px; }
+/* Sticky variant on Today: the strip pins to the top while you scroll, so
+   changing days/weeks never drags the whole screen along with it. */
+.daystrip.sticky {
+  position: sticky; top: calc(4px + env(safe-area-inset-top)); z-index: 30;
+  background: var(--bg);
+  border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;
+  box-shadow: 0 6px 16px rgba(30, 27, 46, 0.10);
+  padding-top: 8px; padding-bottom: 8px;
+}
 
 /* ---------- undo ---------- */
 .undo-card { padding: 10px 14px; }
