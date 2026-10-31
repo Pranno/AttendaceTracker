@@ -4,7 +4,7 @@
 // three preview tiles (F9); reminder lead time (F3); delete all data with a
 // second tap to confirm (F8).
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useApp } from '../data/store'
 import { exportData } from '../data/storage'
 import { SliderField, SectionTitle, Toggle } from './ui/parts'
@@ -13,6 +13,8 @@ import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
 import { extractDeadlines, type ExtractedDeadline } from '../logic/deadlines'
 import { todayStr, formatShort } from '../logic/dates'
+import { isNative, ensureNotifyPermission } from '../logic/reminders'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import EmailInbox from './EmailInbox'
 import { defaultRedirectUri, loadGmailConfig, saveGmailConfig } from '../logic/gmail'
 
@@ -132,6 +134,72 @@ function thresholdEmoji(n: number): string {
   if (n >= 75) return '🙂'
   if (n >= 60) return '😬'
   return '😱'
+}
+
+/** Notification-permission status row for the REMINDERS section. On Android
+ *  13+ a dismissed/denied system prompt can never be re-triggered from code,
+ *  so once denied we point the user at the system settings instead; while
+ *  still undetermined the button asks the OS for permission. */
+function NotifyPermissionRow() {
+  const [state, setState] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown')
+  const [busy, setBusy] = useState(false)
+
+  async function refresh() {
+    try {
+      if (isNative()) {
+        const p = await LocalNotifications.checkPermissions()
+        setState(p.display === 'granted' ? 'granted' : p.display === 'denied' ? 'denied' : 'prompt')
+      } else if ('Notification' in window) {
+        setState(Notification.permission === 'granted' ? 'granted' : Notification.permission === 'denied' ? 'denied' : 'prompt')
+      }
+    } catch {
+      /* plugin unavailable — leave as unknown */
+    }
+  }
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  async function ask() {
+    setBusy(true)
+    const ok = await ensureNotifyPermission()
+    setBusy(false)
+    if (!ok) await refresh() // e.g. the dialog was dismissed → now permanently denied
+    else setState('granted')
+  }
+
+  if (state === 'granted') {
+    return (
+      <div className="card row spread">
+        <div>
+          <b>Notifications allowed ✅</b>
+          <div className="msg">Deadline and evening reminders can reach your notification shade.</div>
+        </div>
+      </div>
+    )
+  }
+  if (state === 'denied') {
+    return (
+      <div className="card">
+        <b>Notifications are blocked</b>
+        <div className="msg">
+          Android won’t show the prompt again after a dismissal. Enable it under
+          System Settings → Apps → Attendance Tracker → Notifications.
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="card row spread">
+      <div>
+        <b>Allow notifications</b>
+        <div className="msg">Needed for deadline & evening reminders on your phone.</div>
+      </div>
+      <button className="primary big-btn" onClick={() => void ask()} disabled={busy}>
+        {busy ? '…' : 'Enable'}
+      </button>
+    </div>
+  )
 }
 
 /** "A1" -> "A"; "" -> "". */
@@ -356,6 +424,12 @@ export default function Settings() {
       </div>
 
       <SectionTitle>REMINDERS</SectionTitle>
+
+      {/* Escape hatch: if the user dismissed the Android 13+ permission prompt
+          (or denied it), requestPermissions() never re-prompts — this button
+          gives them a way to trigger the system dialog again. */}
+      <NotifyPermissionRow />
+
       <SliderField
         label="Remind me before a deadline by"
         value={s.reminderLeadDays}

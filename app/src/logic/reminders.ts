@@ -40,7 +40,12 @@ export function eveningNudgeDue(data: AppData, today: DateStr, nowTime: string):
   return slots.some((s) => !data.marks.some((m) => m.date === today && m.slotId === s.id))
 }
 
+/** Ask for notification permission on the current platform. On native builds
+ *  this must go through the Capacitor LocalNotifications plugin — the web
+ *  Notification API is never "granted" inside the Android WebView, so using it
+ *  there silently returns false and the OS prompt never appears. */
 export async function ensureNotifyPermission(): Promise<boolean> {
+  if (isNative()) return ensureNativePermission()
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
   if (Notification.permission === 'denied') return false
@@ -102,10 +107,13 @@ export function notifIdFor(deadlineId: string): number {
   return (h % 2_000_000_000) + 1 // avoid 0; under Java int max
 }
 
-async function ensureNativePermission(): Promise<boolean> {
+export async function ensureNativePermission(): Promise<boolean> {
   try {
     const perm = await LocalNotifications.checkPermissions()
     if (perm.display === 'granted') return true
+    // 'denied' on Android 13+ is permanent for the session — re-calling
+    // requestPermissions() afterwards silently no-ops, so bail out early.
+    if (perm.display === 'denied') return false
     const res = await LocalNotifications.requestPermissions()
     return res.display === 'granted'
   } catch {
