@@ -16,7 +16,7 @@ import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
 import { Capacitor } from '@capacitor/core'
 import { StatusBar, Style } from '@capacitor/status-bar'
-import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync } from './logic/reminders'
+import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync, syncDailyNotifications } from './logic/reminders'
 import { todayStr } from './logic/dates'
 
 /** D6/B11: on app open — wait for the user to finish the first-launch tour
@@ -34,6 +34,12 @@ function ReminderRunner() {
       await ensureNotifyPermission()
       if (cancelled) return
       runCatchUpReminders(data)
+      // Native: arm the two recurring daily notifications (9 PM nudge + next-day
+      // class preview) with the OS scheduler so they fire even when the app is
+      // closed — same mechanism as the deadline reminders. Web relies on the
+      // open-app checks below.
+      await syncDailyNotifications(data)
+      if (cancelled) return
       const now = new Date()
       const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
       if (eveningNudgeDue(data, todayStr(), hhmm)) {

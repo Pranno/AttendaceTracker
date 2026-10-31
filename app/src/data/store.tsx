@@ -106,6 +106,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveData(data)
   }, [data])
 
+  // Native: keep the two recurring daily notifications (evening nudge + next-day
+  // class preview) in sync with the OS scheduler whenever data changes — marking
+  // attendance, editing the timetable or toggling the setting re-arms them so
+  // they still fire on time with the app closed. Debounced; no-op on web.
+  useEffect(() => {
+    const t = setTimeout(() => void syncDailyNotifications(data), 800)
+    return () => clearTimeout(t)
+  }, [data.marks, data.slots, data.subjects, data.holidays,
+       data.settings.eveningReminderOn, data.settings.eveningReminderTime,
+       data.settings.notificationTime])
+
   const api = useMemo<AppApi>(() => {
     const setData = (updater: (d: AppData) => AppData) => setRaw((d) => updater(d))
 

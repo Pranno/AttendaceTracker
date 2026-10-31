@@ -234,6 +234,13 @@ export async function fireEveningNudgeAsync(title: string, body: string): Promis
   fireNotification(title, body)
 }
 
+/** Name the classes still unmarked for the copy of the recurring nudge. */
+function eveningNudgeBody(names: string[]): string {
+  if (names.length === 0) return 'Today\u2019s classes aren\u2019t all marked yet. Open Attendance Buddy to log them.'
+  const list = names.slice(0, 3).join(', ') + (names.length > 3 ? ' \u2026' : '')
+  return `Still unmarked today: ${list}. Open Attendance Buddy to log them.`
+}
+
 /** One entry per class still unmarked on `today` — used by the scheduled
  *  evening nudge so it can name what is missing ("Physics, Lab"). */
 export function unmarkedTodayClasses(data: AppData, today: DateStr): string[] {
@@ -262,13 +269,16 @@ async function armEveningNudge(data: AppData): Promise<void> {
   const tomorrow = addDays(today, 1)
   const hasAnySlots = data.slots.some((s) => s.validUntil === null || tomorrow <= s.validUntil)
   if (!hasAnySlots) return
+  // The snapshot taken now names whatever is still unmarked today; the sync
+  // re-arms on every mark, so by evening it lists exactly what's missing.
+  const body = eveningNudgeBody(unmarkedTodayClasses(data, today))
   if (!(await ensureNativePermission())) return
   await LocalNotifications.schedule({
     notifications: [
       {
         id: EVENING_NUDGE_ID,
         title: 'Mark your attendance',
-        body: "Today\u2019s classes aren\u2019t all marked yet. Open Attendance Buddy to log them.",
+        body,
         // Repeats daily at the chosen time; fires even under Doze so the
         // nudge isn't silently delayed by battery optimisation.
         schedule: { at, repeats: true, allowWhileIdle: true },
