@@ -18,7 +18,7 @@ import { useMemo, useState } from 'react'
 import { useApp } from '../data/store'
 import type { MarkingComponent, Subject } from '../data/model'
 import { newId } from '../data/model'
-import { buildReport } from '../logic/attendance'
+import { buildReport, freshData } from '../logic/attendance'
 import { todayStr } from '../logic/dates'
 import { gradeFromPercent, subjectMarks } from '../logic/study'
 import { StatusPill } from './ui/parts'
@@ -30,7 +30,7 @@ export default function MarksPanel({ subject }: { subject: Subject }) {
   // Attendance totals for the automatic component (B-series numbers).
   const att = useMemo(() => {
     const rangeStart = data.settings.semesterStart ?? today
-    const rep = buildReport(data, today, rangeStart, today)
+    const rep = buildReport(freshData(data), today, rangeStart, today)
     const s = rep.bySubject.find((x) => x.subjectId === subject.id)
     return { held: s?.held ?? 0, attended: s?.attended ?? 0 }
   }, [data, subject.id, today])

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useApp } from '../data/store'
 import type { DateStr } from '../data/model'
-import { buildReport, computeSubjectTotals, summarizeSubject } from '../logic/attendance'
+import { buildReport, computeSubjectTotals, freshData, summarizeSubject } from '../logic/attendance'
 import { projectSubjectMonth } from '../logic/projection'
 import { todayStr, weekdayName, monthKey } from '../logic/dates'
 import { SectionTitle, StatusPill } from './ui/parts'
@@ -34,7 +34,7 @@ export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectI
   }, [data.settings.semesterStart, data.slots, today])
 
   const report = useMemo(
-    () => buildReport(data, today, rangeStart, today),
+    () => buildReport(freshData(data), today, rangeStart, today),
     [data, today, rangeStart],
   )
 
@@ -52,7 +52,7 @@ export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectI
             const pal = subjectPalette(i)
             // One quick projection per subject for the "this month / remaining"
             // numbers on the summary row.
-            const plan = projectSubjectMonth(data, s.subjectId, monthKey(today), today)
+            const plan = projectSubjectMonth(data, s.subjectId, monthKey(today), today, { ignorePast: data.settings.ignorePastAttendance })
             const expanded = openId === s.subjectId
             return (
               <div className="subj-row-wrap" key={s.subjectId}>
@@ -118,7 +118,7 @@ function SubjectDetail({ subjectId, go, onClose }: { subjectId: string; go: (t: 
   }, [data.settings.semesterStart, data.slots, today])
 
   const totals = useMemo(
-    () => computeSubjectTotals(data, subjectId, rangeStart, today, today),
+    () => computeSubjectTotals(freshData(data), subjectId, rangeStart, today, today),
     [data, subjectId, rangeStart, today],
   )
   const summary = useMemo(() => summarizeSubject(data, subjectId, totals), [data, subjectId, totals])

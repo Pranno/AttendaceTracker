@@ -31,7 +31,7 @@ export default function MonthlyPlanCard({
 
   const allMonths = useMemo(() => planMonths(data, today), [data, today])
   const plan: SubjectMonthPlan = useMemo(
-    () => projectSubjectMonth(data, subjectId, month, today),
+    () => projectSubjectMonth(data, subjectId, month, today, { ignorePast: data.settings.ignorePastAttendance }),
     [data, subjectId, month, today],
   )
 

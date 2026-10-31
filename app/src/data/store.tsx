@@ -7,7 +7,7 @@ import type { AppData, CgpaSemester, CourseLink, DateStr, Holiday, MarkStatus, S
 import { mergeCourseLinks, newId } from '../data/model'
 import { loadData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
 import type { ArchivedSemester } from '../data/storage'
-import { markFor, buildReport } from '../logic/attendance'
+import { markFor, buildReport, freshData } from '../logic/attendance'
 import { todayStr } from '../logic/dates'
 import { scheduleDeadlineNotification, cancelDeadlineNotification, resyncAllNotifications } from '../logic/reminders'
 
@@ -529,7 +529,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const rangeStart =
           data.settings.semesterStart ??
           (data.slots.length ? data.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), today) : today)
-        const report = buildReport(data, today, rangeStart, today)
+        const report = buildReport(freshData(data), today, rangeStart, today)
         const entry: ArchivedSemester = {
           id: newId('arch'),
           label: data.settings.semesterName || `Semester ending ${today}`,
@@ -564,7 +564,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const rangeStart =
             data.settings.semesterStart ??
             (data.slots.length ? data.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), today) : today)
-          const report = buildReport(data, today, rangeStart, today)
+          const report = buildReport(freshData(data), today, rangeStart, today)
           saveArchive({
             id: newId('arch'),
             label: data.settings.semesterName || `Semester archived ${today}`,

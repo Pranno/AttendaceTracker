@@ -31,26 +31,57 @@
 
 import type { AppData, DateStr, Slot } from '../data/model'
 import { slotMatchesBatch } from '../data/model'
-import { computeSubjectTotals, conversionFor, effectiveSubjectId, isHoliday, markFor, mergeLabPairs } from './attendance'
+import { computeSubjectTotals, conversionFor, effectiveSubjectId, isHoliday, markFor } from './attendance'
 import { addDays, daysInMonth, monthKey, pad2, weekdayOf } from './dates'
 
-/** Slots scheduled for a date, honouring validFrom/validUntil, Sundays and
- *  batch. Uses the same lab-pair merge as attendance.ts (college rule: one
- *  practical spans two periods = ONE counted session). The merged slot keeps
- *  the FIRST slot's id — which is where Today/Calendar store the mark — so
- *  monthly totals always match what the user actually marked. */
-function rawSlotsForDate(data: AppData, date: DateStr): Slot[] {
+const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+
+/** Raw (unmerged) slots scheduled for a date, honouring validFrom/validUntil,
+ *  Sundays and batch. Kept unmerged on purpose: lab-pair merging happens
+ *  separately below so that a pair already stored as ONE long block (e.g. an
+ *  imported PDF timetable: 10:15–12:15) is NOT swallowed by merging with its
+ *  neighbour period the way attendance.ts's full pipeline would. */
+function rawSlotsOnDate(data: AppData, date: DateStr): Slot[] {
   const wd = weekdayOf(date)
   if (wd === 7 && !data.settings.sundayClasses) return []
-  return mergeLabPairs(
-    data.slots.filter(
-      (s) =>
-        s.weekday === wd &&
-        date >= s.validFrom &&
-        (s.validUntil === null || date <= s.validUntil) &&
-        slotMatchesBatch(s.batch, data.settings.myBatch),
-    ),
+  return data.slots.filter(
+    (s) =>
+      s.weekday === wd &&
+      date >= s.validFrom &&
+      (s.validUntil === null || date <= s.validUntil) &&
+      slotMatchesBatch(s.batch, data.settings.myBatch),
   )
+}
+
+/** Mark-aware lab-pair deduplication (college rule: one practical spanning
+ *  two consecutive periods = ONE counted session). Unlike mergeLabPairs it
+ *  only collapses a back-to-back pair when BOTH halves share the same mark
+ *  status — because Today/Calendar write marks per period, so two differently
+ *  marked halves are genuinely two sessions for the projection. Long blocks
+ *  (>= ~90 min) count as one session on their own. */
+function rawSlotsForDate(data: AppData, date: DateStr): Slot[] {
+  const sorted = [...rawSlotsOnDate(data, date)].sort((a, b) => a.startTime.localeCompare(b.startTime))
+  const out: Slot[] = []
+  for (const s of sorted) {
+    const prev = out[out.length - 1]
+    if (
+      prev &&
+      prev.type === 'lab' &&
+      s.type === 'lab' &&
+      prev.subjectId === s.subjectId &&
+      prev.endTime === s.startTime &&
+      (prev.batch ?? '') === (s.batch ?? '') &&
+      prev.teacher === s.teacher &&
+      markFor(data, date, prev.id) === markFor(data, date, s.id)
+    ) {
+      // Keep the first slot's id — that's where Today/Calendar store the mark.
+      out[out.length - 1] = { ...prev, endTime: s.endTime > prev.endTime ? s.endTime : prev.endTime }
+      continue
+    }
+    out.push(s)
+  }
+  // Sanity guard: drop zero/negative-duration artifacts.
+  return out.filter((s) => mins(s.endTime) > mins(s.startTime) || s.startTime === s.endTime)
 }
 
 /** The subject a period on `date`/`slot` counts toward (converted target wins). */
@@ -129,15 +160,25 @@ export function planMonths(data: AppData, today: DateStr): string[] {
   return out
 }
 
-/** Calculate Section J monthly plan for one subject in a specific month. */
+/** Calculate Section J monthly plan for one subject in a specific month.
+ *  `options.ignorePast` = "start fresh" mode (F-settings toggle): nothing
+ *  before today counts — no ERP carry-over, no assumed past attendance.
+ *  Defaults to the user's saved setting; tests can pass an explicit value. */
 export function projectSubjectMonth(
   data: AppData,
   subjectId: string,
   targetMonthKey: string,
   today: DateStr,
+  options?: { ignorePast?: boolean },
 ): SubjectMonthPlan {
   const subj = data.subjects.find((s) => s.id === subjectId)!
   const threshold = subj.thresholdOverride ?? data.settings.threshold
+
+  // Start-fresh: computeSubjectTotals must also skip pre-today history.
+  const effData =
+    options?.ignorePast ?? data.settings.ignorePastAttendance
+      ? { ...data, settings: { ...data.settings, ignorePastAttendance: true } }
+      : data
 
   const currentMk = monthKey(today)
   const isProjection = targetMonthKey > currentMk
@@ -163,15 +204,19 @@ export function projectSubjectMonth(
   let priorHeld = 0
   let priorAttended = 0
 
-  // "Start fresh" mode: nothing before today counts — no ERP carry-over, no
-  // assumed past attendance. The month plan builds only from today's marks.
-  const ignorePast = !!data.settings.ignorePastAttendance
+  // "Start fresh" mode (F-settings toggle): nothing before today counts — no
+  // ERP carry-over, no assumed past attendance. The month plan builds only
+  // from marks made today onward.
+  const ignorePast = options?.ignorePast ?? data.settings.ignorePastAttendance
 
   if (ignorePast) {
-    const priorTotals = computeSubjectTotals(data, subjectId, semStart < today ? today : semStart, prevMonthEnd < today ? today : prevMonthEnd, today)
-    priorHeld = priorTotals.held
-    priorAttended = priorTotals.attended
-  } else if (subj.typedHeld !== undefined) {
+    // Standing up to prevMonthEnd: only classes already marked count.
+    if (prevMonthEnd >= semStart) {
+      const priorTotals = computeSubjectTotals(effData, subjectId, semStart, prevMonthEnd < today ? prevMonthEnd : today, today)
+      priorHeld = priorTotals.held
+      priorAttended = priorTotals.attended
+    }
+  } else if (subj.typedHeld !== undefined && !isProjection) {
     // B8 / J6: Typed ERP totals replace assumed/calculated totals
     priorHeld = Math.max(0, subj.typedHeld ?? 0)
     priorAttended = Math.min(priorHeld, Math.max(0, subj.typedAttended ?? 0))
@@ -179,13 +224,13 @@ export function projectSubjectMonth(
     // Compute standing before this month
     if (!isProjection) {
       // For current or past month, evaluate exact standing up to prevMonthEnd
-      const priorTotals = computeSubjectTotals(data, subjectId, semStart, prevMonthEnd, today)
+      const priorTotals = computeSubjectTotals(effData, subjectId, semStart, prevMonthEnd, today)
       priorHeld = priorTotals.held
       priorAttended = priorTotals.attended
     } else {
       // J11: For a month that has not started, assume every class before it is attended
       // Standing up to today:
-      const priorTotals = computeSubjectTotals(data, subjectId, semStart, today, today)
+      const priorTotals = computeSubjectTotals(effData, subjectId, semStart, today, today)
       priorHeld = priorTotals.held
       priorAttended = priorTotals.attended
 
@@ -316,8 +361,13 @@ export function projectSubjectMonth(
 }
 
 /** Build full month plan for all subjects for a given month (J1: per subject only, no overall total). */
-export function buildMonthPlan(data: AppData, targetMonthKey: string, today: DateStr): MonthPlan {
-  const subjects = data.subjects.map((s) => projectSubjectMonth(data, s.id, targetMonthKey, today))
+export function buildMonthPlan(
+  data: AppData,
+  targetMonthKey: string,
+  today: DateStr,
+  options?: { ignorePast?: boolean },
+): MonthPlan {
+  const subjects = data.subjects.map((s) => projectSubjectMonth(data, s.id, targetMonthKey, today, options))
   return {
     monthKey: targetMonthKey,
     subjects,

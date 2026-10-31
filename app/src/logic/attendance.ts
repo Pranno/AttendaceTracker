@@ -314,6 +314,13 @@ export interface AttendanceReport {
   warnings: AttendanceSummary[]
 }
 
+/** Apply the "start fresh" F-setting to a data snapshot so every computed
+ *  view (reports, totals) honours it. UI screens wrap their `data` with this;
+ *  pure tests keep using raw data (the flag defaults to false). */
+export function freshData(data: AppData): AppData {
+  return data.settings.ignorePastAttendance ? { ...data, settings: { ...data.settings, ignorePastAttendance: true } } : data
+}
+
 export function buildReport(
   data: AppData,
   today: DateStr,

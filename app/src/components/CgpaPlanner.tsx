@@ -15,7 +15,7 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../data/store'
 import type { CgpaSemester } from '../data/model'
-import { buildReport } from '../logic/attendance'
+import { buildReport, freshData } from '../logic/attendance'
 import { todayStr } from '../logic/dates'
 import {
   GRADE_POINTS,
@@ -40,7 +40,7 @@ export default function CgpaPlanner() {
   const marksBySubject = useMemo(() => {
     const today = todayStr()
     const rangeStart = data.settings.semesterStart ?? today
-    const rep = buildReport(data, today, rangeStart, today)
+    const rep = buildReport(freshData(data), today, rangeStart, today)
     const map: Record<string, number | null> = {}
     for (const subj of data.subjects) {
       const byComp: Record<string, { got: number; out: number }[]> = {}

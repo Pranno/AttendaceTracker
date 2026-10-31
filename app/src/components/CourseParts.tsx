@@ -9,7 +9,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useApp } from '../data/store'
 import { todayStr } from '../logic/dates'
 import type { Subject } from '../data/model'
-import { buildReport } from '../logic/attendance'
+import { buildReport, freshData } from '../logic/attendance'
 import { describeDeadline, gradeFromPercent, subjectMarks, upcomingDeadlines } from '../logic/study'
 import { StatusPill } from './ui/parts'
 import MarksPanel from './MarksPanel'
@@ -34,7 +34,7 @@ export function CourseCard({ subject, onOpen }: { subject: Subject; onOpen: () =
     }
     if (!Object.keys(byComp).length) return null
     const rangeStart = data.settings.semesterStart ?? today
-    const rep = buildReport(data, today, rangeStart, today)
+    const rep = buildReport(freshData(data), today, rangeStart, today)
     const s = rep.bySubject.find((x) => x.subjectId === subject.id)
     const m = subjectMarks(subject, byComp, s?.held ?? 0, s?.attended ?? 0)
     return m.showable && m.percent !== null ? m.percent : null

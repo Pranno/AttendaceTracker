@@ -12,7 +12,7 @@ import { useMemo, useRef, useState } from 'react'
 import { ClipboardPaste, Moon, SunMedium, BookOpenCheck } from 'lucide-react'
 import { useApp } from '../data/store'
 import type { DateStr, MarkStatus } from '../data/model'
-import { buildReport, slotsForDate, isHoliday, markFor, conversionFor } from '../logic/attendance'
+import { buildReport, freshData, slotsForDate, isHoliday, markFor, conversionFor } from '../logic/attendance'
 import { addDays, diffDays, formatShort, monthKey, todayStr, weekdayName, weekdayOf } from '../logic/dates'
 import { PercentRing, SectionTitle, StatusPill } from './ui/parts'
 import { subjectPalette, subjectTileStyle } from '../theme/tokens'
@@ -60,7 +60,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   }
 
   const report = useMemo(
-    () => buildReport(data, today, rangeStart, today),
+    () => buildReport(freshData(data), today, rangeStart, today),
     [data, today, rangeStart],
   )
 
@@ -94,7 +94,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   const curMonthKey = monthKey(today)
   const monthRows = useMemo(() => {
     return report.bySubject.map((s, i) => {
-      const plan = projectSubjectMonth(data, s.subjectId, curMonthKey, today)
+      const plan = projectSubjectMonth(data, s.subjectId, curMonthKey, today, { ignorePast: data.settings.ignorePastAttendance })
       return { summary: s, index: i, plan }
     })
   }, [report, data, curMonthKey, today])
