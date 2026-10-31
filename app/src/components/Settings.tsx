@@ -150,6 +150,13 @@ function joinBatch(div: string, num: string): string {
   return div ? `${div}${num}` : ''
 }
 
+/** Effective division letter: the standalone myDivision setting, falling back
+ *  to the letter inside myBatch (older saved data only had myBatch). */
+function effDivision(s: { myDivision?: string; myBatch: string }): string {
+  const d = (s.myDivision ?? '').trim().toUpperCase()
+  return d || divisionOf(s.myBatch)
+}
+
 export default function Settings() {
   const { data, updateSettings, resetAll, addHoliday, deleteHoliday } = useApp()
   const { choice, setChoice } = useTheme()
@@ -290,20 +297,29 @@ export default function Settings() {
       <SectionTitle>CLASS &amp; BATCH</SectionTitle>
       <div className="card">
         <label className="small-label">Division</label>
-        <select
-          className="fill"
-          value={divisionOf(s.myBatch)}
-          onChange={(e) => updateSettings({ myBatch: joinBatch(e.target.value, batchNumberOf(s.myBatch)) })}
-        >
-          <option value="">Not set</option>
-          {['A', 'B', 'C', 'D', 'E'].map((d) => (
-            <option key={d} value={d}>Division {d}</option>
-          ))}
-        </select>
+        {/* Division is a chip row so it can be changed with one tap (and
+            re-tapped to deselect) — same pattern as the batch picker. */}
+        <div className="batch-grid" role="radiogroup" aria-label="Division">
+          {(['', 'A', 'B', 'C', 'D', 'E'] as const).map((d) => {
+            const on = effDivision(s) === d
+            return (
+              <button
+                key={d || 'none'}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                className={`batch-opt ${on ? 'on' : ''}`}
+                onClick={() => updateSettings({ myDivision: on ? '' : d })}
+              >
+                {d === '' ? 'Not set' : `Division ${d}`}
+              </button>
+            )
+          })}
+        </div>
         <label className="small-label" style={{ marginTop: 8 }}>Batch</label>
         <div className="batch-grid" role="radiogroup" aria-label="Batch">
           {(['', '1', '2', '3'] as const).map((b) => {
-            const division = divisionOf(s.myBatch)
+            const division = effDivision(s)
             const on = division !== '' && batchNumberOf(s.myBatch) === b
             return (
               <button

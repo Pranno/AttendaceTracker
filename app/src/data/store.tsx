@@ -474,6 +474,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateSettings(patch) {
         setRaw((d) => {
           const next = { ...d, settings: { ...d.settings, ...patch } }
+          // Keep myBatch and the standalone myDivision in sync: choosing a
+          // batch implies its division; changing division keeps the batch
+          // number (or clears the batch entirely if division is cleared).
+          if (patch.myBatch !== undefined && patch.myDivision === undefined) {
+            const m = /^([A-Za-z])/.exec(patch.myBatch.trim())
+            next.settings.myDivision = m ? m[1].toUpperCase() : ''
+          }
+          if (patch.myDivision !== undefined && patch.myBatch === undefined) {
+            const div = patch.myDivision.trim().toUpperCase()
+            const num = /^[A-Za-z]\s*[-_ ]?(\d+)?$/.test(next.settings.myBatch)
+              ? (/^[A-Za-z]\s*[-_ ]?(\d+)$/.exec(next.settings.myBatch)?.[1] ?? '')
+              : ''
+            next.settings.myBatch = div ? `${div}${num}` : ''
+          }
           // Semester dates are a single logical edit: saving both dates also
           // stamps imported timetable slots (whose validFrom defaults to the
           // import date) so classes appear immediately in Today/Calendar/Plan.

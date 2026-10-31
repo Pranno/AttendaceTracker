@@ -13,6 +13,7 @@ import Subjects from './components/Subjects'
 import Timetable from './components/Timetable'
 import Study from './components/Study'
 import Settings from './components/Settings'
+import Onboarding from './components/Onboarding'
 import { Capacitor } from '@capacitor/core'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync } from './logic/reminders'
@@ -65,6 +66,8 @@ function StatusBarTint() {
 export default function App() {
   const [tab, setTab] = useState<Tab>('today')
   const [focusSubjectId, setFocusSubjectId] = useState<string | null>(null)
+  // True while the first-launch wizard covers the screen (set by OnboardingShell).
+  const [showOnboarding, setShowOnboarding] = useState(false)
   // Navigation with optional subject deep-link (Today/Subjects → plan details).
   // 'plan' is a legacy deep-link tab: it opens Subjects focused on that subject.
   const go = (t: Tab, subjectId?: string) => {
@@ -77,6 +80,7 @@ export default function App() {
   // the weekday bar), and taps on buttons/inputs — see hooks/useTabSwipe.ts.
   const TAB_ORDER: Tab[] = ['today', 'subjects', 'timetable', 'calendar', 'study', 'settings']
   useTabSwipe((dir) => {
+    if (showOnboarding) return // the wizard owns the screen — no tab swipes
     setTab((cur) => {
       const i = TAB_ORDER.indexOf(cur === 'plan' ? 'subjects' : cur)
       const next = TAB_ORDER[i + dir]
@@ -84,11 +88,16 @@ export default function App() {
     })
     setFocusSubjectId(null)
   })
+
+  // First-launch onboarding tour. The flag lives in settings.onboarded, so it
+  // is decided inside AppProvider; OnboardingShell reads it and hides itself
+  // once finished. Finishing lands the user on Settings (semester dates first).
   return (
     <ThemeProvider>
       <AppProvider>
         <ReminderRunner />
         <StatusBarTint />
+        <OnboardingShell go={go} onShownChange={setShowOnboarding} />
         {tab === 'today' && <Today go={go} />}
         {tab === 'calendar' && <Calendar />}
         {tab === 'timetable' && <TimetableView />}
@@ -98,6 +107,29 @@ export default function App() {
         <NavBar tab={tab} onChange={(t) => go(t)} />
       </AppProvider>
     </ThemeProvider>
+  )
+}
+
+/** First-launch wizard host: reads settings.onboarded (inside AppProvider) and
+ *  covers the app with the tour until it is finished or skipped. */
+function OnboardingShell({
+  go,
+  onShownChange,
+}: {
+  go: (t: Tab) => void
+  onShownChange: (shown: boolean) => void
+}) {
+  const { data } = useApp()
+  const show = !data.settings.onboarded
+  useEffect(() => onShownChange(show), [show, onShownChange])
+  if (!show) return null
+  return (
+    <Onboarding
+      key="onb" // fresh state each time it mounts
+      onDone={() => {
+        go('settings') // semester dates & division/batch live here
+      }}
+    />
   )
 }
 

@@ -64,6 +64,12 @@ export interface AppSettings {
    *  Slots tagged with a different batch of the same division are hidden;
    *  slots tagged with no batch belong to the whole class. */
   myBatch: string
+  /** User's division letter ("A"–"E") — editable from Settings. Derived from
+   *  myBatch when that is set, but kept separate so a division can be chosen
+   *  even before picking a batch. */
+  myDivision: string
+  /** Onboarding wizard: true once the intro tour has been seen/dismissed. */
+  onboarded: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -83,6 +89,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sundayClasses: false,
   unmarkedAsPresent: false,
   myBatch: '',
+  myDivision: '',
+  onboarded: false,
 }
 
 /** Subject — created when the timetable is confirmed (A6) or added by hand. */
