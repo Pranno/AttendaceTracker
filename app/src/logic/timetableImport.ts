@@ -1086,13 +1086,18 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   // owns everything below the first's bottom, and the pair together bounds the
   // row underneath. Treat same-y neighbours as siblings by offsetting their
   // effective tops a hair so ordering stays deterministic.
+  // NOTE: the old same-y "sibling" clamp (dur === nextDur → yBottom =
+  // next.yTop + 6) is intentionally gone. When one visual row carries two
+  // period labels (Div F prints "10:15–11:15 ASEP(P)" and "1.15–2.15 …" on
+  // the same baseline), the second label's cell block sits BELOW the first
+  // label's rows — clamping the upper band cut that block off and silently
+  // dropped every class of the lower period. The band-growth pass below now
+  // assigns each entry baseline to the vertically closest band, so no row
+  // is ever double-claimed or orphaned.
   for (let i = 0; i < merged.length; i++) {
     const next = merged[i + 1]
     if (!next || next.page !== merged[i].page) { merged[i].yBottom = -Infinity; continue }
-    const dur = Number(merged[i].start.slice(0, 2)) * 60 + Number(merged[i].start.slice(3))
-    const nextDur = Number(next.start.slice(0, 2)) * 60 + Number(next.start.slice(3))
-    if (dur === nextDur) merged[i].yBottom = next.yTop + 6
-    else if (merged[i].yBottom === -Infinity) merged[i].yBottom = next.yTop - 12
+    if (merged[i].yBottom === -Infinity) merged[i].yBottom = next.yTop - 12
     else merged[i].yBottom = Math.min(merged[i].yBottom, next.yTop - 12)
   }
   const uniqBands = merged
