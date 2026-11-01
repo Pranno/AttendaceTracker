@@ -70,8 +70,17 @@ export function typeFromLetter(letter: string): ClassType | null {
 // The PDF splits "(P)" into "(" + "P" + ")" sometimes and glues the type to the
 // next word sometimes ("(L)PS"), so all three spellings are accepted.
 const TYPE_TOK = String.raw`\(\s*[LPTS]\s*\)|\([LPTS][A-Za-z(]|\(\s+[LPTS]\s+\)`
+// Division letters cover A–Z in real college grids (Div F prints "F1 CP (P) SK"
+// and bare-"F" whole-class rows); restricting to [A-E] silently rejected every
+// Div F entry and the division parsed to zero classes.
+// A batch tag is a division letter + an OPTIONAL digit. The digit must be
+// glued to the letter: requiring `[A-Z]\s*[.\s-]+\d` would let the NEXT
+// token's leading digits masquerade as a batch number ("F" "FE" "3 WAD…"
+// read as one line became batch "FE3", subject "WAD"), silently dropping
+// whole cells of the Div F grid.
+const BATCH_G = String.raw`[A-Z](?:[1-9])?`
 const ENTRY_RE = new RegExp(
-  String.raw`^(?:(?<batch>[A-E](?:[1-9])?)[.\s-]+)?(?<subj>[A-Z][A-Z0-9]*(?:-[IVX]+)?)\s*` +
+  String.raw`^(?:(?<batch>${BATCH_G})[.\s-]+)?(?<subj>[A-Z][A-Z0-9]*(?:-[IVX]+)?)\s*` +
     `(?<typeTok>${TYPE_TOK})\\s*(?:(?<teacher>[A-Z][A-Za-z0-9]{1,3})(?:\\s+(?<room>\\d{3,4}))?)?`,
 )
 /** The course-type letter out of whichever spelling of "(P)" was matched. */
@@ -102,7 +111,7 @@ export function parseCellEntries(cell: string, rawLine: string): ParsedEntry[] {
   const norm = normalizeTypeTok(cell.replace(/\s+/g, ' ').trim())
   // Split on boundaries where a new BATCH(+num)/division + SUBJECT pair starts.
   const parts = norm
-    .split(new RegExp(`(?=(?:[A-E][1-9]?[.\\s-]+)[A-Z][A-Z0-9]*(?:-[IVX]+)?\\s*${TYPE_TOK})`))
+    .split(new RegExp(`(?=(?:${BATCH_G}[1-9]?[.\\s-]+)[A-Z][A-Z0-9]*(?:-[IVX]+)?\\s*${TYPE_TOK})`))
     .map((p) => p.trim())
     .filter(Boolean)
   for (const part of parts) {
@@ -149,7 +158,7 @@ export function parseCsvLine(line: string): ParsedEntry | null {
   let room = ''
   const rest = cols.slice(3)
   for (const c of rest) {
-    if (/^[A-E][1-9]$/.test(c) && !subj) { batch = c; continue }
+    if (/^[A-Z][1-9]$/.test(c) && !subj) { batch = c; continue }
     if (/^[LPTS]$/.test(c)) { type = typeFromLetter(c) ?? 'lecture'; continue }
     if (/^\d{3,4}$/.test(c)) { room = c; continue }
     if (/^[A-Z]{2,4}$/.test(c) && subj) { teacher = c; continue }
@@ -470,7 +479,7 @@ function splitEntryLine(line: string): string[] {
   const norm = normalizeTypeTok(line.replace(/\s+/g, ' ').trim())
   if (!ENTRY_RE.test(norm)) return [norm]
   const boundary = new RegExp(
-    String.raw`(?<=^|[^\w)])((?:[A-E](?:[1-9])?(?:[.\s-]+))?[A-Z][A-Z0-9]*(?:-[IVX]+)?\s*${TYPE_TOK})`,
+    String.raw`(?<=^|[^\w)])((?:${BATCH_G}(?:[1-9])?(?:[.\s-]+))?[A-Z][A-Z0-9]*(?:-[IVX]+)?\s*${TYPE_TOK})`,
     'g',
   )
   const starts: number[] = []
@@ -545,7 +554,7 @@ export function stitchCellFrags(frags: Frag[]): string[] {
     }
     for (const p of splitEntryLine(ln)) {
       // the fragment holding this piece's subject code owns continuations
-      const subj = p.match(/^[A-E](?:[1-9])?[.\s-]+([A-Z][A-Z0-9]*)|^[A-Z][A-Z0-9]*/)?.[1] ?? ''
+      const subj = p.match(/^[A-Z](?:[1-9])?[.\s-]+([A-Z][A-Z0-9]*)|^[A-Z][A-Z0-9]*/)?.[1] ?? ''
       const owner = fs.find((f) => f.str.toUpperCase().includes(subj)) ?? fs[0]
       out.push(p)
       lineOwners.push(owner)
