@@ -79,10 +79,28 @@ const TYPE_TOK = String.raw`\(\s*[LPTS]\s*\)|\([LPTS][A-Za-z(]|\(\s+[LPTS]\s+\)`
 // read as one line became batch "FE3", subject "WAD"), silently dropping
 // whole cells of the Div F grid.
 const BATCH_G = String.raw`[A-Z](?:[1-9])?`
+// Subject codes may contain hyphens ("VACO-I") or a space inserted by PDF
+// word-wrap/kerning ("SD C", "ASE P"). The old pattern stopped at the first
+// space, so those cells split into two half-entries and landed in NEEDS
+// REVIEW. The continuation must be followed by whitespace/the type marker —
+// otherwise it would swallow the teacher initials ("CP (L) KRP" → subj
+// "K R"). Hyphen parts stay intact because "-" is not in [A-Z0-9].
+const SUBJ_G = String.raw`[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*(?:\s+[A-Z][A-Z0-9]*(?=\s|$))?`
+// Batch tag inside an entry line: the separator after it must NOT be "-",
+// or "A3 WAD (P)" would let "-WAD" bleed into the batch group.
+const BATCH_SEP = String.raw`[.\s]+`
 const ENTRY_RE = new RegExp(
-  String.raw`^(?:(?<batch>${BATCH_G})[.\s-]+)?(?<subj>[A-Z][A-Z0-9]*(?:-[IVX]+)?)\s*` +
+  String.raw`^(?:(?<batch>${BATCH_G})${BATCH_SEP})?(?<subj>${SUBJ_G})\s*` +
     `(?<typeTok>${TYPE_TOK})\\s*(?:(?<teacher>[A-Z][A-Za-z0-9]{1,3})(?:\\s+(?<room>\\d{3,4}))?)?`,
 )
+/** Clean up a subject code: unify separators, keep internal hyphens/spaces
+ *  that belong to the code. PDF grids print multi-part codes with stray
+ *  spaces from kerning/word-wrap ("SD C" → SDC, "ASE P" → ASEP, "VACO I" →
+ *  VACO-I); single-letter segments join with a hyphen, longer ones glue on. */
+function normalizeSubject(s: string): string {
+  const u = s.toUpperCase().replace(/\s+/g, ' ').trim()
+  return u.replace(/(?:^|\s)([A-Z])(?=\s|$)/g, '-$1').replace(/[\s]/g, '')
+}
 /** The course-type letter out of whichever spelling of "(P)" was matched. */
 function typeLetterOf(typeTok: string | undefined): string | undefined {
   if (!typeTok) return undefined
@@ -111,7 +129,7 @@ export function parseCellEntries(cell: string, rawLine: string): ParsedEntry[] {
   const norm = normalizeTypeTok(cell.replace(/\s+/g, ' ').trim())
   // Split on boundaries where a new BATCH(+num)/division + SUBJECT pair starts.
   const parts = norm
-    .split(new RegExp(`(?=(?:${BATCH_G}[1-9]?[.\\s-]+)[A-Z][A-Z0-9]*(?:-[IVX]+)?\\s*${TYPE_TOK})`))
+    .split(new RegExp(`(?=(?:${BATCH_G}[1-9]?[.\\s-]+)${SUBJ_G}\\s*${TYPE_TOK})`))
     .map((p) => p.trim())
     .filter(Boolean)
   for (const part of parts) {
@@ -131,7 +149,7 @@ export function parseCellEntries(cell: string, rawLine: string): ParsedEntry[] {
     out.push({
       raw: rawLine,
       batch: isWholeClass ? undefined : batchTag,
-      subjectShort: m.groups.subj!.toUpperCase(),
+      subjectShort: normalizeSubject(m.groups.subj!),
       type,
       teacher: m.groups.teacher ?? '',
       room: m.groups.room ?? '',
@@ -479,7 +497,7 @@ function splitEntryLine(line: string): string[] {
   const norm = normalizeTypeTok(line.replace(/\s+/g, ' ').trim())
   if (!ENTRY_RE.test(norm)) return [norm]
   const boundary = new RegExp(
-    String.raw`(?<=^|[^\w)])((?:${BATCH_G}(?:[1-9])?(?:[.\s-]+))?[A-Z][A-Z0-9]*(?:-[IVX]+)?\s*${TYPE_TOK})`,
+    String.raw`(?<=^|[^\w)])((?:${BATCH_G}(?:[1-9])?${BATCH_SEP})?${SUBJ_G}\s*${TYPE_TOK})`,
     'g',
   )
   const starts: number[] = []
