@@ -345,6 +345,23 @@ const BREAK_TEXT_RE = /short\s*h?\s*break|lunch\s*break|lunch|tea\s*break|\bbrea
  *  the 10:15 one. */
 const BREAK_PERIOD_RE = /^(10:00|12:15)$/
 
+/** Is this band a break/lunch period on THIS page? Two signals, either is
+ *  enough when the page prints break labels at all:
+ *  1. the hard-coded break slot names (10:00-10:15, 12:15-13:15), and
+ *  2. a break word ("Short Break", "LUNCH BREAK") printed on the band's own
+ *     time-label row — catches slots like 4:15-4:30 that rule 1 misses.
+ * Without signal 2 the classes stacked just below a break label fall into
+ * the NEXT band and get duplicated under both periods. */
+function isBreakBand(band: { start: string; end: string; yTop: number; page: number }, frags: Frag[]): boolean {
+  if (!pageHasBreakLabels(frags)) return false
+  if (BREAK_PERIOD_RE.test(band.start)) return true
+  const row = frags.filter((f) => f.page === band.page && Math.abs(f.y - band.yTop) <= 6)
+  const joined = normalizeTypeTok(row.map((f) => f.str).join(' '))
+  // the band's own time label must be present on the row (so we look at the
+  // label row, not some stray cell fragment)
+  return new RegExp(`${band.start.replace(':', '[.:]')}\\s*[-–—]`).test(joined) && BREAK_TEXT_RE.test(joined)
+}
+
 /** Does this page's grid contain an actual break-period label ("10:00-10:15"
  *  short break)? Only then may 10:00/12:15 bands be treated as breaks — on
  *  divisions whose periods start straight at 10:00 or 12:15 those are normal
@@ -357,7 +374,10 @@ function pageHasBreakLabels(frags: Frag[]): boolean {
 const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Room|Batch-Course|Course\s*Type|Theory Lecture|Practical Lecture|Tutorial Course|Course:|\bAbbreviation\b|abbreviation|Faculty Member|Online\s+Session|Online|\(?\s*SATKAA|\bSession\s*\)?\s*$|R\.\s*Patil|Kailas/i
 
 /** Glued words produced by some PDF exports ("ShortBreak", "LUNCHBREAK",
- *  "(SATKAAM"). Split them back so break/prose filters recognise the text. */
+ *  "(SATKAAM"). Split them back so break/prose filters recognise the text.
+ *  Also splits a subject code glued to its type marker ("ASEP(P)" →
+ *  "ASEP (P)") and a teacher/room glued after a room number ("JSA2407" →
+ *  "JSA 2407") — both spellings appear in real division exports. */
 function splitGluedWords(s: string): string {
   return s
     .replace(/(?<=[a-z])(?=[A-Z])/g, ' ')
@@ -366,6 +386,11 @@ function splitGluedWords(s: string): string {
       if (/^SATKAAM/.test(w)) return 'SATKAAM'
       return w
     })
+    // FE(L) / ASEP(P) → add space BEFORE the marker (ENTRY_RE wants "CODE (X)").
+    // The lookbehind excludes ")" so the (P)(L) boundary rule below is untouched.
+    .replace(/(?<![)\s(])(?=[A-Za-z0-9]\([LPTS]\))/g, ' ')
+    // "JSA2407" → "JSA 2407": initials glued to the wrapped room number.
+    .replace(/([A-Za-z])(\d{3,4})(?=\s|$)/g, '$1 $2')
 }
 
 /** Does this PAGE carry the abbreviation table? The table header (the "S.N."
@@ -913,12 +938,30 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
       // distinct bands.
       if (prev.start === b.start && prev.end === b.end) {
         prev.yBottom = Math.min(prev.yTop, b.yTop)
+      } else if (prev.start === b.start || prev.end === b.end) {
+        // Same period printed twice on one row with slightly different end
+        // spellings ("8:00-9:00" + "8:00-9.00"): collapse to the first label's
+        // range instead of inventing a merged "8:00–9.00" phantom period.
+        prev.yBottom = Math.min(prev.yTop, b.yTop)
       } else {
         prev.start = prev.start < b.start ? prev.start : b.start
         prev.end = prev.end > b.end ? prev.end : b.end
         prev.yBottom = Math.min(prev.yTop, b.yTop)
       }
       continue
+    }
+    // A time label that is EXACTLY another band's end time is a misread
+    // duplicate of the shared boundary — e.g. Div F prints "10:15 – 11:15"
+    // and then, 6pt lower, "11:15 – 12:15": the lone "11:15" sits in both
+    // labels and the extractor re-emits it as the next row's start. Real
+    // grids never stack periods back-to-back at the same y pitch (~17pt),
+    // so when two adjacent rows share an endpoint AND sit within 10pt, drop
+    // the lower one (it would otherwise steal the upper period's cells and
+    // duplicate every class in them).
+    if (merged.length) {
+      const near = merged[merged.length - 1]
+      if (near.page === b.page && Math.abs(near.yTop - b.yTop) <= 10 &&
+          (b.start === near.end || b.end === near.start)) continue
     }
     merged.push(b)
   }
@@ -988,11 +1031,21 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
       const m = ENTRY_RE.exec(ln)
       return !!m && m.index <= 4 && /\(\s*[LPTS]\s*\)|\([LPTS][A-Za-z(]/.test(ln.slice(m.index, m.index + 40))
     }
+    // Rows that are PURE break labels ("Short Break", "LUNCH BREAK") never
+    // anchor a band's box — otherwise the break row's own baseline becomes an
+    // "entry row" and the period above grows its box down to swallow it, then
+    // re-emits every class of the NEXT period under its own time (the 10:00/
+    // 10:15 duplicate symptom). Mixed rows (a class cell + a break label on
+    // the same baseline) still count as entry rows for that class's block.
+    const isPureBreakRow = (ln: string): boolean => {
+      const nt = normalizeTypeTok(ln)
+      return BREAK_TEXT_RE.test(nt) && !/\(\s*[LPTS]\s*\)/.test(nt)
+    }
     const entryRows = eRows.filter((r) => {
       const ln = normalizeTypeTok(
         [...r.frags].sort((a, b) => a.x - b.x).map((f) => f.str.trim()).filter(Boolean).join(' '),
       )
-      return !!ln && startsWithEntry(ln)
+      return !!ln && !isPureBreakRow(ln) && startsWithEntry(ln)
     })
     // Anchor each period band's box over its stacked batch rows. The time
     // label sits on ONE baseline of the block (e.g. 8:00-9:00 at y=320.7 with
@@ -1046,7 +1099,7 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
     // row. Wrapped room numbers or teacher initials that visually fall inside
     // the break box used to be re-emitted as a "10:00" class duplicating the
     // real 10:15 one.
-    if (suppressBreakBands && BREAK_PERIOD_RE.test(band.start)) continue
+    if (isBreakBand(band, frags)) continue
     for (let ci = 0; ci < dayCols.length; ci++) {
       const lo = dayCols[ci].x - 30
       const hi = colMid(ci)
@@ -1058,6 +1111,13 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
           overlapFracX(f, lo, hi) >= 0.5,
       )
       if (inBox.length === 0) continue
+      // A break label ANYWHERE inside this cell box means the whole cell is a
+      // break ("Short Break" / "LUNCH BREAK" printed across the row). Real
+      // grids never mix a class and a break in one cell, so skip it — this
+      // kills the phantom "10:00-10:15 SDC" duplicates produced when a break
+      // row's wrapped room number fell into the period band above/below.
+      const boxText = inBox.map((f) => normalizeTypeTok(f.str)).join(' ')
+      if (BREAK_TEXT_RE.test(boxText) && !ENTRY_RE.test(normalizeTypeTok(boxText.replace(BREAK_TEXT_RE, ' ')))) continue
       const lines = stitchCellFrags(inBox)
       for (const text of lines) {
         const nt = normalizeTypeTok(text)
