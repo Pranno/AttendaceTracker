@@ -879,6 +879,19 @@ function extractRowTimes(parts: string[]): { start: string; end: string }[] {
       glued.push(`${p.replace('.', ':')}${parts[++i].padStart(2, '0')}`)
     } else glued.push(p)
   }
+  // Step 1b: split "H:MM[-–—]H:MM" range fragments into their two endpoints.
+  // Some exports glue a whole period label into one item ("8:00 -9:00",
+  // "12.15 -1. 15"); without splitting, the anchored TIME_TOKEN_RE below
+  // rejects them and the page ends up with zero period bands (the
+  // "DivF Monday: no classes at all" bug).
+  const expanded: string[] = []
+  for (const p of glued) {
+    const m = /^(\d{1,2}\s*[.:]\s*\d{2})\s*[-–—]+\s*(\d{1,2}\s*[.:]\s*\d{2})$/.exec(p.trim())
+    if (m && m[1] !== m[2]) expanded.push(m[1], '-', m[2])
+    else expanded.push(p)
+  }
+  glued.length = 0
+  glued.push(...expanded)
   // Step 2: collect clock tokens in order; a fragment that itself contains a
   // dash between two clock numbers contributes BOTH endpoints.
   const times: string[] = []
@@ -919,7 +932,11 @@ function extractRowTimes(parts: string[]): { start: string; end: string }[] {
   }
   // Step 3: pair them up.
   const norm = (s: string): string | null => {
-    const m = /^(\d{1,2})[.:](\d{2})$/.exec(s)
+    // Accept "8:00", "11.15" AND the space-split spellings pdf.js emits on
+    // some exports ("1. 15", "10: 15") — Div F prints its afternoon periods
+    // with a space after the dot, and rejecting those made every band from
+    // 12:15 onward vanish (the "DivF: 0 entries" bug).
+    const m = /^(\d{1,2})\s*[.:]\s*(\d{2})$/.exec(s.trim())
     if (!m) return null
     const h = Number(m[1]), mi = Number(m[2])
     if (h > 23 || mi > 59) return null
