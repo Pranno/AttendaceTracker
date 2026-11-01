@@ -1,10 +1,41 @@
 // Regression tests for the store: hand-added lectures must never make
 // previously imported/added classes disappear from past days.
 
-import type { ReactNode } from 'react'
-import { act, renderHook } from '@testing-library/react'
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+
+// Must be set before react-dom is loaded so act() works correctly.
+;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
+
 import { AppProvider, useApp } from './store'
+
+/** Minimal renderHook stand-in (no extra dev dependency needed). */
+function renderHook<T>(hookFn: () => T) {
+  const result = { current: undefined as unknown as T }
+  let root!: Root
+  function Harness() {
+    result.current = hookFn()
+    return null
+  }
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  act(() => {
+    root = createRoot(host)
+    root.render(
+      <AppProvider>
+        <Harness />
+      </AppProvider>,
+    )
+  })
+  return {
+    result,
+    cleanup: () => {
+      act(() => root.unmount())
+      host.remove()
+    },
+  }
+}
 
 beforeAll(() => {
   // Keep every test isolated in localStorage (the store persists on change).
@@ -21,10 +52,6 @@ afterEach(() => {
   localStorage.clear()
 })
 
-function wrapper({ children }: { children: ReactNode }) {
-  return <AppProvider>{children}</AppProvider>
-}
-
 function todayStr(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -32,7 +59,7 @@ function todayStr(): string {
 
 describe('addSlot keeps the timetable intact (bug: hand-added lectures vanishing)', () => {
   it('backdates validFrom so older slots still show on past days and the new one appears too', () => {
-    const { result } = renderHook(() => useApp(), { wrapper })
+    const { result } = renderHook(() => useApp())
     const today = todayStr()
 
     // Simulate a PDF import: an existing slot whose validFrom is "today"
@@ -86,7 +113,7 @@ describe('addSlot keeps the timetable intact (bug: hand-added lectures vanishing
   })
 
   it('honours semesterStart as the floor when set', () => {
-    const { result } = renderHook(() => useApp(), { wrapper })
+    const { result } = renderHook(() => useApp())
     const today = todayStr()
 
     act(() => {
@@ -107,7 +134,7 @@ describe('addSlot keeps the timetable intact (bug: hand-added lectures vanishing
   })
 
   it('does not move a slot whose validFrom is already earlier than the floor', () => {
-    const { result } = renderHook(() => useApp(), { wrapper })
+    const { result } = renderHook(() => useApp())
 
     act(() => {
       result.current.setData((d) => ({

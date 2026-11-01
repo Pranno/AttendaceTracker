@@ -1003,10 +1003,7 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   // but guard anyway so a pooled array can never mix coordinate spaces.
   const homePage = allFrags[0]?.page ?? 0
   const frags = allFrags.filter((f) => f.page === homePage)
-  // Break-band suppression is only valid when THIS page actually prints a
-  // break period label (e.g. "10:00 - 10:15"); otherwise 10:00/12:15 rows are
-  // ordinary classes and must be read.
-  const suppressBreakBands = pageHasBreakLabels(frags)
+
   // ---- T3: period rows anchored at the leftmost column ----
   interface Band { start: string; end: string; yTop: number; yBottom: number; page: number }
   const leftLimit = dayCols[0].x - 20
