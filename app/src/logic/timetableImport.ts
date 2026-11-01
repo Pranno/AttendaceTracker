@@ -83,11 +83,16 @@ function typeLetterOf(typeTok: string | undefined): string | undefined {
 
 /** Normalise the PDF's broken-up spellings of the course-type marker:
  *  "( L )" → "(L)", and a type glued to the following word ("(L)PS") gets a
- *  space so the teacher/room tokens stay readable. */
+ *  space so the teacher/room tokens stay readable. Also splits glued words
+ *  ("ShortBreak" → "Short Break", "FE(L)" → "FE (L)") produced by some
+ *  exports, and inserts a space between two adjacent entry markers
+ *  ("(P)(L)" → "(P) (L)") so multi-batch cells split cleanly. */
 function normalizeTypeTok(text: string): string {
-  return text
+  return splitGluedWords(text)
     .replace(/\(\s+([LPTS])\s+\)/g, '($1)')
     .replace(/\(\s*([LPTS])\s*\)/g, '($1)')
+    .replace(/(?<=[A-Za-z0-9)\]])\((?=[LPTS]\))/g, ' (') // FE(L) → FE (L)
+    .replace(/\)\((?=[LPTS]\))/g, ') (') // (P)(L) → (P) (L)
     .replace(/\(([LPTS])(?=[A-Za-z(])/g, '($1) ')
 }
 
@@ -329,11 +334,39 @@ export interface Frag { x: number; end: number; y: number; str: string; /** 0-ba
 
 const DAY_HEAD_RE = /^(mon|tues|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)?\b/i
 
-/** Drop break/lunch rows wherever they sit (T8). */
-const BREAK_TEXT_RE = /short\s*h?break|lunch|tea\s*break|\bbreak\b/i
+/** Drop break/lunch rows wherever they sit (T8). Also catches the glued
+ *  spellings pdf.js emits on some exports ("ShortBreak", "LUNCHBREAK"). */
+const BREAK_TEXT_RE = /short\s*h?\s*break|lunch\s*break|lunch|tea\s*break|\bbreak\b/i
+
+/** A period band that is itself a break (10:00–10:15 short break, lunch):
+ *  no real class can occupy it, so boxes inside it are skipped entirely.
+ *  This kills the classic symptom where a wrapped room number or teacher
+ *  initials under the break label get re-emitted as a 10:00 class duplicating
+ *  the 10:15 one. */
+const BREAK_PERIOD_RE = /^(10:00|12:15)$/
+
+/** Does this page's grid contain an actual break-period label ("10:00-10:15"
+ *  short break)? Only then may 10:00/12:15 bands be treated as breaks — on
+ *  divisions whose periods start straight at 10:00 or 12:15 those are normal
+ *  class rows and must still be read. */
+function pageHasBreakLabels(frags: Frag[]): boolean {
+  return frags.some((f) => /\d{1,2}[:.]\d{2}\s*[-–—]\s*10[:.](00|15|30)/.test(f.str))
+}
 
 /** NOTE/legend prose that sits below the grid and bleeds into the last band. */
 const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Room|Batch-Course|Course\s*Type|Theory Lecture|Practical Lecture|Tutorial Course|Course:|\bAbbreviation\b|abbreviation|Faculty Member|Online\s+Session|Online|\(?\s*SATKAA|\bSession\s*\)?\s*$|R\.\s*Patil|Kailas/i
+
+/** Glued words produced by some PDF exports ("ShortBreak", "LUNCHBREAK",
+ *  "(SATKAAM"). Split them back so break/prose filters recognise the text. */
+function splitGluedWords(s: string): string {
+  return s
+    .replace(/(?<=[a-z])(?=[A-Z])/g, ' ')
+    .replace(/([A-Z]{3,})/g, (w) => {
+      if (/^(SHORTBREAK|LUNCHBREAK)$/.test(w)) return `${w.slice(0, w.length - 5)} ${w.slice(-5)}`
+      if (/^SATKAAM/.test(w)) return 'SATKAAM'
+      return w
+    })
+}
 
 /** Does this PAGE carry the abbreviation table? The table header (the "S.N."
  *  cell plus its "abbreviation" / "Course Name" neighbour cells) is the only
@@ -833,6 +866,10 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   // but guard anyway so a pooled array can never mix coordinate spaces.
   const homePage = allFrags[0]?.page ?? 0
   const frags = allFrags.filter((f) => f.page === homePage)
+  // Break-band suppression is only valid when THIS page actually prints a
+  // break period label (e.g. "10:00 - 10:15"); otherwise 10:00/12:15 rows are
+  // ordinary classes and must be read.
+  const suppressBreakBands = pageHasBreakLabels(frags)
   // ---- T3: period rows anchored at the leftmost column ----
   interface Band { start: string; end: string; yTop: number; yBottom: number; page: number }
   const leftLimit = dayCols[0].x - 20
@@ -1005,6 +1042,11 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   const colMid = (i: number): number =>
     i + 1 < dayCols.length ? (dayCols[i].x + dayCols[i + 1].x) / 2 : Infinity
   for (const band of uniqBands) {
+    // Break periods (short break / lunch) never hold classes — skip the whole
+    // row. Wrapped room numbers or teacher initials that visually fall inside
+    // the break box used to be re-emitted as a "10:00" class duplicating the
+    // real 10:15 one.
+    if (suppressBreakBands && BREAK_PERIOD_RE.test(band.start)) continue
     for (let ci = 0; ci < dayCols.length; ci++) {
       const lo = dayCols[ci].x - 30
       const hi = colMid(ci)
@@ -1018,8 +1060,13 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
       if (inBox.length === 0) continue
       const lines = stitchCellFrags(inBox)
       for (const text of lines) {
-        if (BREAK_TEXT_RE.test(text) && !/\(\s*[LPTS]\s*\)/.test(text)) continue // T8
-        if (PROSE_RE.test(text)) continue // NOTE/legend prose under the grid
+        const nt = normalizeTypeTok(text)
+        if (BREAK_TEXT_RE.test(nt) && !/\(\s*[LPTS]\s*\)/.test(nt)) continue // T8
+        if (PROSE_RE.test(nt)) continue // NOTE/legend prose under the grid
+        // A cell line whose every entry is an untagged subject with neither
+        // teacher nor room is almost always wrapped furniture from the
+        // neighbouring period ("2407" continuation rows landing here). Keep
+        // it only when at least one fragment carries real entry payload.
         const parsed = parseCellEntries(text, `${weekdayOf(dayCols[ci].weekday)} ${band.start}-${band.end}: ${text}`)
         for (const p of parsed) {
           p.weekday = dayCols[ci].weekday
@@ -1049,8 +1096,18 @@ function finishGridParse(rawEntries: ParsedEntry[], frags: Frag[]): GridParseRes
   // above "A2 CP (L)"). When that happens, require the NEXT occurrence to
   // carry a different batch tag — otherwise it is a duplicate emitted by an
   // overlapping band and must be dropped. Rows with no tag never block others.
+  // Entries missing teacher AND room are continuation noise (a wrapped room
+  // row landing inside the wrong box) — drop them when the same day/period
+  // already has a fully-attributed entry for that subject+type.
+  const isNoise = (e: ParsedEntry): boolean =>
+    !e.batch && !e.teacher && !e.room &&
+    rawEntries.some(
+      (o) => o !== e && o.subjectShort === e.subjectShort && o.type === e.type &&
+        o.weekday === e.weekday && o.startTime === e.startTime && (o.teacher || o.room),
+    )
   const seen = new Map<string, string | null>()
   for (const e of rawEntries) {
+    if (isNoise(e)) continue
     const key = `${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
     const prevBatch = seen.get(key)
     if (prevBatch !== undefined && (e.batch ?? null) === prevBatch) continue
