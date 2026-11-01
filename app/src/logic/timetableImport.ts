@@ -882,12 +882,39 @@ function extractRowTimes(parts: string[]): { start: string; end: string }[] {
   // Step 2: collect clock tokens in order; a fragment that itself contains a
   // dash between two clock numbers contributes BOTH endpoints.
   const times: string[] = []
-  for (const p of glued) {
-    if (DASH_RE.test(p)) continue
+  // A lone dash fragment is only a period separator when it sits between two
+  // clock tokens ("10:15" "–" "11:15"). Div F's header page prints the time
+  // column with em-dashes that have NO following time ("8:00 –", "9:00 –"):
+  // skipping those dashes made every row look like an unpaired half-time and
+  // the whole page collapsed to zero periods (the "DivF: 0 entries" bug).
+  const sepAt = (i: number): boolean =>
+    DASH_RE.test(glued[i]) && i + 1 < glued.length && TIME_TOKEN_RE.test(glued[i + 1])
+  for (let i = 0; i < glued.length; i++) {
+    const p = glued[i]
+    if (DASH_RE.test(p)) {
+      if (!sepAt(i)) continue // decorative dash, not part of a range
+      // "start" "-" "end": push start from previous token, end from next
+      const prev = times.length ? undefined : undefined
+      void prev
+      const m2 = /^(\d{1,2}[.:]\d{2})\s*[-–—]$/.exec(glued[i - 1] ?? '')
+      const endTok = glued[i + 1]
+      if (m2) { times.push(m2[1], endTok); i++ ; continue }
+      if (/^[-–—]\s*\d{1,2}[.:]\d{2}$/.test(p)) { times.push(p.replace(/^[-–—]\s*/, '')); continue }
+      // bare dash between two plain time tokens — pair them
+      if (times.length && TIME_TOKEN_RE.test(endTok)) { times.push(endTok); i++; continue }
+      continue
+    }
     const m = /(\d{1,2}[.:]\d{2})\s*[-–—]\s*(\d{1,2}[.:]\d{2})/.exec(p)
     if (m) { times.push(m[1], m[2]); continue }
     const lead = /^(\d{1,2}[.:]\d{2})\s*[-–—]/.exec(p)
-    if (lead) { times.push(lead[1]); continue }
+    if (lead) {
+      // trailing dash with no printed end time ("8:00 –") → keep as start;
+      // pairing happens against the next row's start below
+      if (/^(\d{1,2}[.:]\d{2})\s*[-–—]$/.test(p)) { times.push(lead[1]); continue }
+      times.push(lead[1]); continue
+    }
+    const trail = /^\s*[-–—]\s*(\d{1,2}[.:]\d{2})$/.exec(p)
+    if (trail) { times.push(trail[1]); continue }
     if (TIME_TOKEN_RE.test(p)) times.push(p)
   }
   // Step 3: pair them up.
