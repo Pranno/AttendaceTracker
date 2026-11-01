@@ -553,11 +553,29 @@ export function stitchCellFrags(frags: Frag[]): string[] {
       return
     }
     for (const p of splitEntryLine(ln)) {
-      // the fragment holding this piece's subject code owns continuations
-      const subj = p.match(/^[A-Z](?:[1-9])?[.\s-]+([A-Z][A-Z0-9]*)|^[A-Z][A-Z0-9]*/)?.[1] ?? ''
-      const owner = fs.find((f) => f.str.toUpperCase().includes(subj)) ?? fs[0]
+      // The fragment holding this piece's subject code owns continuations.
+      // Hyphenated codes ("VACO-I") get wrapped across visual lines, so a
+      // bare continuation like "JK 2403" must be matched against the FULL
+      // joined line text, not just the first token — otherwise ownership
+      // falls back to fs[0] and later parsing flags the entry as needing
+      // review. Prefer exact-subject match, then joined-line containment.
+      const subj = p.match(/^[A-Z](?:[1-9])?[.\s-]+([A-Z][A-Z0-9]*(?:-[IVX]+)?)|^[A-Z][A-Z0-9]*(?:-[IVX]+)?/)?.[1] ?? ''
+      const normF = (s: string) => normalizeTypeTok(s).toUpperCase()
+      let owner = fs.find((f) => normF(f.str).includes(subj)) ?? null
+      if (!owner && subj) {
+        // check which fragment contains a prefix of the subject within the
+        // whole line (handles "VACO-" on one frag + "I" glued to next frag)
+        owner = fs.find((f) => {
+          const fu = normF(f.str)
+          const lu = ln.toUpperCase()
+          const idx = lu.indexOf(subj)
+          if (idx < 0) return false
+          const fragIdx = fu.indexOf(subj.slice(0, Math.max(2, subj.length - 2)))
+          return fragIdx >= 0
+        }) ?? null
+      }
       out.push(p)
-      lineOwners.push(owner)
+      lineOwners.push(owner ?? fs[0])
       lineReps.push(fs[0])
     }
   }
