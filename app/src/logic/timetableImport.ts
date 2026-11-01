@@ -365,9 +365,30 @@ function isBreakBand(band: { start: string; end: string; yTop: number; page: num
 /** Does this page's grid contain an actual break-period label ("10:00-10:15"
  *  short break)? Only then may 10:00/12:15 bands be treated as breaks — on
  *  divisions whose periods start straight at 10:00 or 12:15 those are normal
- *  class rows and must still be read. */
+ *  class rows and must still be read.
+ *  Two spellings occur in real exports: a single fragment holding the whole
+ *  range ("8:00 - 9:00 … 10:00 -10:15") AND split fragments where the end
+ *  time sits in its own item ("10:00", "–", "10:15"). The split form is what
+ *  Div F's Monday header page uses — without joining same-row fragments
+ *  first, every period of that page was misread as a break row and ALL its
+ *  classes vanished (the "DivF: 0 entries" bug). */
 function pageHasBreakLabels(frags: Frag[]): boolean {
-  return frags.some((f) => /\d{1,2}[:.]\d{2}\s*[-–—]\s*10[:.](00|15|30)/.test(f.str))
+  // Group fragments into visual rows (per page), join left→right, then test.
+  const rows = new Map<string, Frag[]>()
+  for (const f of frags) {
+    let matched: string | undefined
+    for (const [k, g] of rows) {
+      if (g[0].page !== f.page) continue
+      if (Math.abs(g[0].y - f.y) <= 6) { matched = k; break }
+    }
+    if (matched === undefined) rows.set(`${f.page}|${f.y}`, [f])
+    else rows.get(matched)!.push(f)
+  }
+  for (const row of rows.values()) {
+    const joined = normalizeTypeTok(row.sort((a, b) => a.x - b.x).map((f) => f.str).join(' '))
+    if (/\d{1,2}[:.]\d{2}\s*[-–—]\s*1?0[:.](00|15|30)/.test(joined)) return true
+  }
+  return false
 }
 
 /** NOTE/legend prose that sits below the grid and bleeds into the last band. */
