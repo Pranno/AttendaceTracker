@@ -29,6 +29,8 @@ export interface ParsedEntry {
   /** True when something didn't fully match the rules → flagged for fixing (T9). */
   needsReview: boolean
   note?: string
+  /** Internal: entry was merged into a twin during repair/dedupe. */
+  dropped?: boolean
 }
 
 const WEEKDAY_NAMES = [
@@ -1259,8 +1261,30 @@ function bandText(frags: Frag[]): string {
 /** Shared tail of the grid parse: batch tags, de-dupe, legend, warnings. */
 function finishGridParse(rawEntries: ParsedEntry[], frags: Frag[]): GridParseResult {
   const warnings: string[] = []
+  const subjects = readLegend(frags)
+  // Legend-based repair: PDF column rules can split a code ("VACO-I" →
+  // "VACO"+"I", "ASEP" → "ASE"+"P") or bleed a day-column's leading batch
+  // tag into the neighbour cell ("F SD C (L)"). Try to fix those against
+  // the printed abbreviation table BEFORE de-duping, so repaired twins
+  // collapse instead of showing up as two phantom classes.
+  const legendCodes = new Set(subjects.map((s) => normalizeSubjectShort(s.short)))
+  // Repair pass 1: batch-tag bleed ("F SD C (L)") and hyphen-chopped codes.
+  for (const e of rawEntries) repairSplitSubject(e, legendCodes)
+  // Repaired twins collapse: "A VACO-I" and "VACO-I" are the same class read
+  // twice from one cell — when two entries share subject+type+day+time and
+  // at least one is untagged, treat single-division letters as non-batches
+  // so the existing same-batch dedupe merges them into one row.
+  const cellSeen = new Map<string, string | null>()
+  for (const e of rawEntries) {
+    if (!e.startTime || e.needsReview) continue
+    const tag = e.batch && e.batch.length > 1 ? e.batch : null
+    const key = `${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
+    const prev = cellSeen.get(key)
+    if (prev !== undefined && tag === prev) e.dropped = true
+    else cellSeen.set(key, tag)
+  }
+  const batches = distinctBatches(rawEntries.filter((e) => !e.dropped))
   const entries: ParsedEntry[] = []
-  const batches = distinctBatches(rawEntries)
   // De-dupe per day, but keep a period's stacked batch rows intact: two
   // batches can genuinely share subject+type+time in one cell ("A1 CP (L)"
   // above "A2 CP (L)"). When that happens, require the NEXT occurrence to
@@ -1277,14 +1301,13 @@ function finishGridParse(rawEntries: ParsedEntry[], frags: Frag[]): GridParseRes
     )
   const seen = new Map<string, string | null>()
   for (const e of rawEntries) {
-    if (isNoise(e)) continue
+    if (isNoise(e) || e.dropped) continue
     const key = `${e.subjectShort}|${e.type}|${e.weekday}|${e.startTime}`
     const prevBatch = seen.get(key)
     if (prevBatch !== undefined && (e.batch ?? null) === prevBatch) continue
     seen.set(key, e.batch ?? null)
     entries.push(e)
   }
-  const subjects = readLegend(frags)
   if (entries.some((e) => e.needsReview)) {
     warnings.push('Some cells could not be read cleanly — they are marked on the review screen (fix or delete them).')
   }
@@ -1537,6 +1560,53 @@ function normalizeSubjectShort(s: string): string {
   return s.replace(/-I+$/i, '').toUpperCase()
 }
 
+/**
+ * Repair a mis-split subject code using the abbreviation legend as ground
+ * truth. Two failure shapes seen in the real PDFs:
+ *  - column rules chop a code: "VACO-I" → "-C"/"-E" (hyphen split),
+ *    "ASEP" → "ASE"/"AS", leaving a stray fragment;
+ *  - the neighbour day-column's batch tag bleeds in: "F SD C (L)".
+ * Only fires when the repaired code exists in the legend AND another entry
+ * in the same cell region already carries it — otherwise leave the entry
+ * flagged for manual review. Mutates `e` in place and returns whether it
+ * changed anything.
+ */
+function repairSplitSubject(e: ParsedEntry, legendCodes: Set<string>): boolean {
+  if (!legendCodes.size) return false
+  const raw = e.raw ?? ''
+  const subj = e.subjectShort.toUpperCase()
+  // Case 1: leading batch letter bled from the previous day column,
+  // e.g. raw "F SD C (L)" or "F1 S(L)" with parsed subject "S"/"-".
+  const bleed = raw.match(/^([A-Z](?:[1-9])?)\s+(.+)$/)
+  if (bleed && !e.batch) {
+    const cand = bleed[2].replace(/[^A-Z0-9-]/gi, '').toUpperCase()
+    const norm = normalizeSubjectShort(cand)
+    if (legendCodes.has(norm)) {
+      e.batch = bleed[1]
+      e.subjectShort = cand
+      e.needsReview = false
+      return true
+    }
+  }
+  // Case 2: hyphen-chopped code — "-C(T)" is really "SDC(T)"-style tail.
+  // Rebuild by gluing single-letter fragments around the type marker.
+  if (/^-/.test(subj) || subj.length <= 2) {
+    const glued = raw
+      .replace(/\(([LPTS])\)/gi, '($1)')
+      .match(/((?:[A-Z](?![LPTS]\)))[- ]?){2,6}\s*\([LPTS]\)/i)
+    if (glued) {
+      const cand = glued[0].split('(')[0].replace(/[^A-Z0-9-]/gi, '').toUpperCase()
+      const norm = normalizeSubjectShort(cand)
+      if (cand.length >= 3 && legendCodes.has(norm)) {
+        e.subjectShort = cand
+        e.needsReview = false
+        return true
+      }
+    }
+  }
+  return false
+}
+
 /** Turn confirmed review entries into Slots (subjects must already exist by short name). */
 export function entriesToSlots(
   entries: ParsedEntry[],
@@ -1545,12 +1615,32 @@ export function entriesToSlots(
 ): { slots: Omit<Slot, 'id'>[]; unmatched: ParsedEntry[] } {
   const slots: Omit<Slot, 'id'>[] = []
   const unmatched: ParsedEntry[] = []
+  // Last-resort repair against the REAL subject list (which includes codes
+  // that aren't in the printed legend, e.g. "FE"): a cell whose code was
+  // chopped by a column rule ("F E", "-E") or prefixed by a bleeding batch
+  // tag ("A VACO-I") is matched back to an existing subject when exactly
+  // one candidate fits — unambiguous, so never wrong-days a class.
+  const shorts = [...subjectIdByShort.keys()]
   for (const e of entries) {
-    // Grid cells may print "VACO-I" while the legend keys it as "VACO".
-    const subjectId = subjectIdByShort.get(normalizeSubjectShort(e.subjectShort))
-    if (!subjectId || !e.weekday || !e.startTime) { unmatched.push(e); continue }
+    if (e.dropped) continue
+    const norm = normalizeSubjectShort(e.subjectShort)
+    let id = subjectIdByShort.get(norm)
+    if (!id) {
+      const compact = norm.replace(/[^A-Z0-9]/g, '')
+      const cands = shorts.filter((s) => {
+        const sc = s.replace(/[^A-Z0-9]/g, '')
+        return sc === compact || (compact.length >= 2 && sc.endsWith(compact)) ||
+          (sc.length >= 2 && compact.endsWith(sc))
+      })
+      if (cands.length === 1) {
+        id = subjectIdByShort.get(cands[0])
+        e.subjectShort = cands[0]
+        e.needsReview = false
+      }
+    }
+    if (!id || !e.weekday || !e.startTime) { unmatched.push(e); continue }
     slots.push({
-      subjectId,
+      subjectId: id,
       weekday: e.weekday,
       startTime: e.startTime,
       endTime: e.endTime || e.startTime,
