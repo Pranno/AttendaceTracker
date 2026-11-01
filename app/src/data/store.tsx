@@ -163,7 +163,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       addSlot(slot) {
-        setRaw((d) => ({ ...d, slots: [...d.slots, { ...slot, id: newId('slot') }] }))
+        // Hand-added lectures are part of the current timetable, not a change
+        // that starts "today": backdate validFrom to the semester start (or
+        // the earliest existing slot) so previously imported/added classes
+        // keep showing and the new one appears on every past weekday too.
+        setRaw((d) => {
+          const floor = d.settings.semesterStart
+            ?? (d.slots.length
+              ? d.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), slot.validFrom)
+              : slot.validFrom)
+          const validFrom = slot.validFrom > floor ? floor : slot.validFrom
+          return { ...d, slots: [...d.slots, { ...slot, validFrom, id: newId('slot') }] }
+        })
       },
 
       deleteSlot(id) {
