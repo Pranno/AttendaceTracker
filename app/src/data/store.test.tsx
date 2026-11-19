@@ -152,3 +152,57 @@ describe('addSlot keeps the timetable intact (bug: hand-added lectures vanishing
     expect(result.current.data.slots[0].validFrom).toBe('2026-01-10')
   })
 })
+
+describe('semester dates keep timetable versions', () => {
+  it('backdates first versions only — a replacement slot keeps its own start', () => {
+    const { result, cleanup } = renderHook(() => useApp())
+    const base = { subjectId: 'sub1', weekday: 1, endTime: '10:00', type: 'lecture' as const, room: '', teacher: '' }
+    act(() => {
+      result.current.setData((d) => ({
+        ...d,
+        subjects: [{ id: 'sub1', shortName: 'CP', fullName: 'CP', nicknames: [] }],
+        slots: [
+          { ...base, id: 'old', startTime: '09:00', validFrom: '2026-09-01', validUntil: '2026-10-04' },
+          { ...base, id: 'new', startTime: '09:00', validFrom: '2026-10-05', validUntil: null },
+          { ...base, id: 'other', startTime: '11:00', endTime: '12:00', validFrom: '2026-09-01', validUntil: null },
+        ],
+      }))
+    })
+    act(() => result.current.updateSettings({ semesterStart: '2026-08-01', semesterEnd: '2026-12-31' }))
+    const byId = Object.fromEntries(result.current.data.slots.map((s) => [s.id, s.validFrom]))
+    expect(byId.old).toBe('2026-08-01')
+    expect(byId.other).toBe('2026-08-01')
+    expect(byId.new).toBe('2026-10-05') // used to be moved back and overlap "old"
+    cleanup()
+  })
+})
+
+describe('removeSubject cleans up everything that belonged to it', () => {
+  it('drops its units, scores, course links and deadlines; keeps other subjects\' data', () => {
+    const { result, cleanup } = renderHook(() => useApp())
+    act(() => {
+      result.current.setData((d) => ({
+        ...d,
+        subjects: [
+          { id: 'a', shortName: 'CP', fullName: 'CP', nicknames: [] },
+          { id: 'b', shortName: 'FE', fullName: 'FE', nicknames: [] },
+        ],
+        units: [
+          { id: 'u1', subjectId: 'a', title: 'U1', topics: [] } as never,
+          { id: 'u2', subjectId: 'b', title: 'U2', topics: [] } as never,
+        ],
+        scores: [{ id: 's1', subjectId: 'a' } as never, { id: 's2', subjectId: 'b' } as never],
+        deadlines: [
+          { id: 'd1', title: 'CP lab', dueDate: '2026-12-01', subjectId: 'a', reminderDates: [], done: false, tentative: false },
+          { id: 'd2', title: 'General', dueDate: '2026-12-01', reminderDates: [], done: false, tentative: false },
+        ],
+      }))
+    })
+    act(() => result.current.removeSubject('a'))
+    const d = result.current.data
+    expect(d.units.map((u) => u.id)).toEqual(['u2'])
+    expect(d.scores.map((x) => x.id)).toEqual(['s2'])
+    expect(d.deadlines.map((x) => x.id)).toEqual(['d2'])
+    cleanup()
+  })
+})

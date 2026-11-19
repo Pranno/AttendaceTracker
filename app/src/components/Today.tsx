@@ -12,9 +12,10 @@ import { useMemo, useRef, useState } from 'react'
 import { ClipboardPaste, Moon, SunMedium, BookOpenCheck } from 'lucide-react'
 import { useApp } from '../data/store'
 import type { DateStr, MarkStatus } from '../data/model'
+import { newId } from '../data/model'
 import { buildReport, freshData, slotsForDate, isHoliday, markFor, conversionFor } from '../logic/attendance'
 import { addDays, diffDays, formatShort, todayStr, weekdayName, weekdayOf } from '../logic/dates'
-import { PercentRing, SectionTitle } from './ui/parts'
+import { PercentRing, SectionTitle, StatusPill } from './ui/parts'
 import { subjectPalette, subjectTileStyle } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
@@ -22,11 +23,20 @@ import PasteDeadlineSheet from './PasteDeadlineSheet'
 import EmailInbox from './EmailInbox'
 
 export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void }) {
-  const { data, setMark, addConversion, removeConversion } = useApp()
+  const { data, setData, setMark, addConversion, removeConversion } = useApp()
   const { active, choice, setChoice } = useTheme()
   const [undoMsg, setUndoMsg] = useState<string | null>(null)
   const [dateOverride, setDateOverride] = useState<DateStr | null>(null)
   const undoRef = useRef<(() => void) | null>(null)
+  const undoTimer = useRef<number | undefined>(undefined)
+  /** Show the undo bar for 4 s. The previous timer is cleared first — it used
+   *  to hide a NEWER message early when two classes were marked quickly. */
+  function showUndo(msg: string, undo: (() => void) | null) {
+    undoRef.current = undo
+    setUndoMsg(msg)
+    window.clearTimeout(undoTimer.current)
+    undoTimer.current = window.setTimeout(() => setUndoMsg(null), 4000)
+  }
   const [popSlot, setPopSlot] = useState<string | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
   // Stretch #5: the class card whose "Converted into…" picker is open.
@@ -108,9 +118,10 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
     setPopSlot(slotId)
     setTimeout(() => setPopSlot(null), 450)
     if (status !== null) {
-      undoRef.current = () => setMark(viewDate, slotId, prev)
-      setUndoMsg(`Marked ${status === 'noclass' ? 'No class' : status === 'cancelled' ? 'Cancelled' : status === 'converted' ? 'Converted' : status}.`)
-      window.setTimeout(() => setUndoMsg(null), 4000)
+      showUndo(
+        `Marked ${status === 'noclass' ? 'No class' : status === 'cancelled' ? 'Cancelled' : status === 'converted' ? 'Converted' : status}.`,
+        () => setMark(viewDate, slotId, prev),
+      )
       // Light haptic feedback where supported.
       navigator.vibrate?.(10)
     }
@@ -124,8 +135,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
     setMark(viewDate, slotId, 'present')
     setConvertSlot(null)
     const name = data.subjects.find((s) => s.id === subjectId)?.shortName ?? ''
-    setUndoMsg(`Converted to ${name} — marked present.`)
-    window.setTimeout(() => setUndoMsg(null), 4000)
+    showUndo(`Converted to ${name} — marked present.`, null)
   }
 
   function unconvert(convId: string, slotId: string) {
@@ -135,10 +145,55 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
 
   const shownSlots = daySlots
 
+  const HOME_HOLIDAY_LABEL = 'Day off'
+  /** The single-day holiday on the viewed date, if one exists (so it can be undone). */
+  const dayHoliday = data.holidays.find(
+    (h) => !h.isExamDay && h.startDate === viewDate && h.endDate === viewDate,
+  )
+
+  /** Mark every still-unmarked class of the viewed day Present (one tap). */
+  function markAllPresent() {
+    const unmarked = shownSlots.filter((sl) => markFor(data, viewDate, sl.id) === null).map((sl) => sl.id)
+    if (unmarked.length === 0) return
+    setData((d) => ({
+      ...d,
+      marks: [
+        ...d.marks.filter((m) => !(m.date === viewDate && unmarked.includes(m.slotId))),
+        ...unmarked.map((slotId) => ({ id: `${viewDate}_${slotId}`, date: viewDate, slotId, status: 'present' as const })),
+      ],
+    }))
+    navigator.vibrate?.(10)
+    showUndo(`Marked ${unmarked.length} class${unmarked.length === 1 ? '' : 'es'} present.`, () =>
+      setData((d) => ({ ...d, marks: d.marks.filter((m) => !(m.date === viewDate && unmarked.includes(m.slotId))) })),
+    )
+  }
+
+  /** Turn the viewed day into a holiday: its classes count in neither held nor attended. */
+  function markDayHoliday() {
+    const hol = { id: newId('hol'), startDate: viewDate, endDate: viewDate, label: HOME_HOLIDAY_LABEL, isExamDay: false }
+    setData((d) => ({ ...d, holidays: [...d.holidays, hol] }))
+    showUndo(`${formatShort(viewDate)} marked as a holiday.`, () =>
+      setData((d) => ({ ...d, holidays: d.holidays.filter((h) => h.id !== hol.id) })),
+    )
+  }
+
+  function removeDayHoliday(id: string) {
+    setData((d) => ({ ...d, holidays: d.holidays.filter((h) => h.id !== id) }))
+  }
+
+  /** Small "can skip / at the limit / must attend" tag for a subject. */
+  function subjectTag(subjectId: string) {
+    const s = report.bySubject.find((x) => x.subjectId === subjectId)
+    if (!s || s.status === 'nodata' || s.held === 0) return null
+    if (s.status === 'below') return <StatusPill tone="below">must attend</StatusPill>
+    if (s.status === 'limit') return <StatusPill tone="limit">at the limit</StatusPill>
+    return <StatusPill tone="safe">can skip {s.canMiss}</StatusPill>
+  }
+
   const subjectIndex = (id: string) => Math.max(0, data.subjects.findIndex((s) => s.id === id))
 
   return (
-    <div className="screen">
+    <div className="screen home">
       {/* ---------- gradient header, edge to edge ---------- */}
       <header className="hero-header">
         <div className="header-blob" aria-hidden />
@@ -262,7 +317,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
       {undoMsg && (
         <div className="card undo-card row spread">
           <span className="msg">{undoMsg}</span>
-          <button
+          {undoRef.current && <button
             className="primary"
             onClick={() => {
               undoRef.current?.()
@@ -270,7 +325,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
             }}
           >
             Undo
-          </button>
+          </button>}
         </div>
       )}
 
@@ -282,6 +337,21 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           <span className="msg">
             {data.holidays.find((h) => !h.isExamDay && viewDate >= h.startDate && viewDate <= h.endDate)?.label ?? 'No class today.'}
           </span>
+          {dayHoliday && (
+            <div style={{ marginTop: 8 }}>
+              <button className="link-btn" onClick={() => removeDayHoliday(dayHoliday.id)}>
+                Not a holiday — show classes
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {!holiday && shownSlots.length > 0 && (
+        <div className="row day-actions">
+          {shownSlots.some((sl) => markFor(data, viewDate, sl.id) === null) && (
+            <button className="chip grow" onClick={markAllPresent}>✓ All present</button>
+          )}
+          <button className="chip grow" onClick={markDayHoliday}>🎉 Holiday</button>
         </div>
       )}
       {!holiday && shownSlots.length === 0 && (
@@ -303,7 +373,17 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
             >
               <div className="row spread">
                 <div>
-                  <b style={{ color: 'var(--subj-strong)' }}>{subj?.shortName}</b>
+                  <button
+                    className="subj-link"
+                    style={{ color: 'var(--subj-strong)' }}
+                    onClick={() => go('subjects', slot.subjectId)}
+                    aria-label={`Open ${subj?.shortName ?? 'subject'}`}
+                  >
+                    {subj?.shortName}
+                  </button>
+                  {!status && subjectTag(conv ? conv.subjectId : slot.subjectId) && (
+                    <span style={{ marginLeft: 8 }}>{subjectTag(conv ? conv.subjectId : slot.subjectId)}</span>
+                  )}
                   {conv && (
                     <>
                       {' → '}

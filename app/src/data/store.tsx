@@ -158,8 +158,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       removeSubject(id) {
+        // Its deadlines' reminders must not keep firing after it is gone.
+        for (const dl of data.deadlines) if (dl.subjectId === id) void cancelDeadlineNotification(dl.id)
         setRaw((d) => {
           const slotIds = d.slots.filter((s) => s.subjectId === id).map((s) => s.id)
+          const linkIds = new Set(d.courseLinks.filter((c) => c.subjectId === id).map((c) => c.id))
           return {
             ...d,
             subjects: d.subjects.filter((s) => s.id !== id),
@@ -167,6 +170,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
             marks: d.marks.filter((m) => !slotIds.includes(m.slotId)),
             // Stretch #5: conversions pointing at the removed subject/slots die too.
             conversions: d.conversions.filter((c) => c.subjectId !== id && !slotIds.includes(c.slotId)),
+            // Everything else that belonged to the subject used to stay behind,
+            // pointing at a subject that no longer exists.
+            units: d.units.filter((u) => u.subjectId !== id),
+            scores: d.scores.filter((sc) => sc.subjectId !== id),
+            courseLinks: d.courseLinks.filter((c) => c.subjectId !== id),
+            deadlines: d.deadlines
+              .filter((dl) => dl.subjectId !== id)
+              .map((dl) =>
+                dl.courseLinkIds?.some((l) => linkIds.has(l))
+                  ? { ...dl, courseLinkIds: dl.courseLinkIds.filter((l) => !linkIds.has(l)) }
+                  : dl,
+              ),
+            suggestions: d.suggestions.map((sg) => (sg.subjectId === id ? { ...sg, subjectId: undefined } : sg)),
           }
         })
       },
@@ -528,7 +544,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const end = next.settings.semesterEnd
           const datesJustCompleted = !!(start && end) && !(prevStart && prevEnd)
           if (datesJustCompleted) {
-            next.slots = next.slots.map((s) => ({ ...s, validFrom: start }))
+            // Only backdate a slot's FIRST version. Moving every slot to the
+            // semester start (the old rule) resurrected classes that had been
+            // replaced mid-semester: the new version overlapped the old one on
+            // past days and the attendance numbers changed. A slot is a later
+            // version when another slot for the same weekday/start time ended
+            // before it began; those keep their own start date.
+            const isLaterVersion = (sl: Slot) =>
+              next.slots.some(
+                (o) =>
+                  o.id !== sl.id &&
+                  o.weekday === sl.weekday &&
+                  o.startTime === sl.startTime &&
+                  o.validUntil !== null &&
+                  o.validUntil < sl.validFrom,
+              )
+            next.slots = next.slots.map((sl) =>
+              sl.validFrom > start && !isLaterVersion(sl) ? { ...sl, validFrom: start } : sl,
+            )
           } else if (start && prevStart && start !== prevStart) {
             next.slots = next.slots.map((s) =>
               s.validFrom === prevStart ? { ...s, validFrom: start } : s,

@@ -113,3 +113,28 @@ export function exportData(data: AppData): void {
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+
+/** F7b: Restore from an exported backup file. Validates the shape before
+ *  anything is replaced, so a wrong or damaged file can't wipe the app. */
+export function parseBackup(text: string): AppData {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    throw new Error('That file is not a valid backup (it is not JSON).')
+  }
+  const o = raw as Partial<AppData> | null
+  if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('That file is not an Attendance Tracker backup.')
+  if (o.version !== undefined && o.version !== 1) throw new Error('This backup is from a newer, unsupported version of the app.')
+  const arrays: (keyof AppData)[] = ['subjects', 'slots', 'marks', 'holidays', 'deadlines']
+  for (const k of arrays) {
+    if (o[k] !== undefined && !Array.isArray(o[k])) throw new Error(`That backup is damaged (“${k}” is not a list).`)
+  }
+  if (!Array.isArray(o.subjects) || !Array.isArray(o.slots)) {
+    throw new Error('That file is not an Attendance Tracker backup (no subjects or timetable in it).')
+  }
+  if (o.settings !== undefined && (typeof o.settings !== 'object' || o.settings === null)) {
+    throw new Error('That backup is damaged (settings are unreadable).')
+  }
+  return normalizeData(o)
+}

@@ -1644,7 +1644,9 @@ export function entriesToSlots(
   for (const e of entries) {
     if (e.dropped) continue
     const norm = normalizeSubjectShort(e.subjectShort)
-    let id = subjectIdByShort.get(norm)
+    // Exact code first: the import creates subject "VACO-I", and looking it
+    // up only by the suffix-stripped "VACO" silently dropped every such class.
+    let id = subjectIdByShort.get(e.subjectShort.toUpperCase()) ?? subjectIdByShort.get(norm)
     if (!id) {
       const compact = norm.replace(/[^A-Z0-9]/g, '')
       const cands = shorts.filter((s) => {

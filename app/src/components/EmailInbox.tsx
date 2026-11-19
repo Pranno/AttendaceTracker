@@ -123,7 +123,7 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     try {
       const msgs = await fetchInbox(25)
       const parsed = parseMessages(msgs, data.subjects)
-      const fresh = toSuggestions(parsed, data.suggestions)
+      const fresh = toSuggestions(parsed, data.suggestions, data.subjects)
       addSuggestions(fresh)
       setNote(
         fresh.length > 0

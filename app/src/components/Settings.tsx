@@ -6,14 +6,14 @@
 
 import { useState, useEffect } from 'react'
 import { useApp } from '../data/store'
-import { exportData } from '../data/storage'
+import { exportData, parseBackup } from '../data/storage'
 import { SliderField, SectionTitle, Toggle } from './ui/parts'
 import { useTheme } from '../theme/ThemeProvider'
 import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
 import { extractDeadlines, type ExtractedDeadline } from '../logic/deadlines'
 import { todayStr, formatShort } from '../logic/dates'
-import { isNative, ensureNotifyPermission } from '../logic/reminders'
+import { isNative, ensureNotifyPermission, resyncAllNotifications } from '../logic/reminders'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import EmailInbox from './EmailInbox'
 import { defaultRedirectUri, loadGmailConfig, saveGmailConfig } from '../logic/gmail'
@@ -222,7 +222,8 @@ function effDivision(s: { myDivision?: string; myBatch: string }): string {
 }
 
 export default function Settings() {
-  const { data, updateSettings, resetAll, addHoliday, deleteHoliday } = useApp()
+  const { data, setData, updateSettings, resetAll, addHoliday, deleteHoliday } = useApp()
+  const [restoreMsg, setRestoreMsg] = useState<string | null>(null)
   const { choice, setChoice } = useTheme()
   const s = data.settings
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -586,10 +587,34 @@ export default function Settings() {
       <ArchiveSection />
 
       <SectionTitle>YOUR DATA</SectionTitle>
-      <div className="card row">
+      <div className="card row" style={{ flexWrap: 'wrap', gap: 8 }}>
         <button className="secondary big-btn grow" onClick={() => exportData(data)}>
           Export my data
         </button>
+        {/* F7b: restore a previously exported backup (e.g. after changing phones). */}
+        <label className="file-btn big-btn grow">
+          Restore backup
+          <input
+            type="file"
+            accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              e.target.value = '' // allow picking the same file again
+              if (!f) return
+              try {
+                const restored = parseBackup(await f.text())
+                const summary = `${restored.subjects.length} subjects, ${restored.slots.length} classes, ${restored.marks.length} marks`
+                if (!window.confirm(`Replace ALL current data with this backup (${summary})? This cannot be undone.`)) return
+                setData(() => restored)
+                void resyncAllNotifications(restored)
+                setRestoreMsg(`Backup restored: ${summary}.`)
+              } catch (err) {
+                setRestoreMsg(err instanceof Error ? err.message : 'Could not read that backup.')
+              }
+            }}
+          />
+        </label>
         {confirmDelete ? (
           <button
             className="danger big-btn grow"
@@ -606,6 +631,7 @@ export default function Settings() {
           </button>
         )}
       </div>
+      {restoreMsg && <div className="card msg">{restoreMsg}</div>}
     </div>
   )
 }

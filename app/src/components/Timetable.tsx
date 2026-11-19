@@ -34,8 +34,11 @@ export default function Timetable() {
   // Legend subjects (short → full name) read from the uploaded PDF's
   // abbreviation table; used when confirming the import.
   const [legendSubjects, setLegendSubjects] = useState<{ short: string; full: string }[]>([])
+  // After saving: what could NOT be added automatically (shown, not dropped).
+  const [importResult, setImportResult] = useState<string | null>(null)
 
   function applyParsed(res: ImportResult | GridParseResult, legend?: { short: string; full: string }[]) {
+    setImportResult(null)
     setAllParsed(res.entries)
     const mine = filterByBatch(res.entries, myBatch)
     setHiddenOther(res.entries.length - mine.length)
@@ -219,52 +222,72 @@ export default function Timetable() {
     runParse(text)
   }
 
+  /** An entry the importer could not read fully (no day/time, or flagged). */
+  const isProblem = (e: ParsedEntry) => e.needsReview || !e.weekday || !e.startTime
   function confirmImport() {
     if (!parsed) return
-    setData((d) => {
-      // A6: subjects are created from the confirmed timetable.
-      const subjects = [...d.subjects]
-      const byShort = new Map(subjects.map((s) => [s.shortName.toUpperCase(), s.id]))
-      // Legend full names from the uploaded PDF (e.g. VACO → "Value added
-      // career orientation I") — enrich existing/created subjects with them.
-      const legendMap = new Map(legendSubjects.map((l) => [l.short.toUpperCase(), l.full]))
-      // Grid cells print "VACO-I" while the legend key is "VACO".
-      const legendFull = {
-        has: (k: string) => legendMap.has(k) || legendMap.has(k.replace(/-[IVX]+$/, '')),
-        get: (k: string) => legendMap.get(k) ?? legendMap.get(k.replace(/-[IVX]+$/, '')),
-      }
-      for (const e of parsed) {
-        const key = e.subjectShort.toUpperCase()
-        if (!byShort.has(key)) {
-          const subj = { id: newId('subj'), shortName: key, fullName: legendFull.get(key) ?? key, nicknames: [] }
-          subjects.push(subj)
-          byShort.set(key, subj.id)
-        } else if (legendFull.has(key)) {
-          const i = subjects.findIndex((s) => s.id === byShort.get(key))
-          if (i >= 0 && subjects[i].fullName === subjects[i].shortName) {
-            subjects[i] = { ...subjects[i], fullName: legendFull.get(key)! }
-          }
+    // Everything is computed up front from the current data so we know what
+    // was NOT saved — those entries used to be dropped without a word.
+    const subjects = [...data.subjects]
+    const byShort = new Map(subjects.map((s) => [s.shortName.toUpperCase(), s.id]))
+    // Legend full names from the uploaded PDF (e.g. VACO → "Value added
+    // career orientation I") — enrich existing/created subjects with them.
+    const legendMap = new Map(legendSubjects.map((l) => [l.short.toUpperCase(), l.full]))
+    // Grid cells print "VACO-I" while the legend key is "VACO".
+    const legendFull = {
+      has: (k: string) => legendMap.has(k) || legendMap.has(k.replace(/-[IVX]+$/, '')),
+      get: (k: string) => legendMap.get(k) ?? legendMap.get(k.replace(/-[IVX]+$/, '')),
+    }
+    for (const e of parsed) {
+      // Unreadable cells ("A VAC ⚠️") must not create junk subjects.
+      if (isProblem(e)) continue
+      const key = e.subjectShort.toUpperCase()
+      if (!byShort.has(key)) {
+        const subj = { id: newId('subj'), shortName: key, fullName: legendFull.get(key) ?? key, nicknames: [] }
+        subjects.push(subj)
+        byShort.set(key, subj.id)
+      } else if (legendFull.has(key)) {
+        const i = subjects.findIndex((s) => s.id === byShort.get(key))
+        if (i >= 0 && subjects[i].fullName === subjects[i].shortName) {
+          subjects[i] = { ...subjects[i], fullName: legendFull.get(key)! }
         }
       }
-      const { slots, unmatched } = entriesToSlots(parsed, byShort, today)
-      void unmatched // flagged ones simply aren't saved; user fixes them by hand (T9/A4)
-      // J2: the monthly plan starts from the month after the timetable was
-      // first confirmed. Set once — re-imports later don't move it back.
-      const nextMonthMk = (() => {
-        const d = new Date()
-        d.setDate(1)
-        d.setMonth(d.getMonth() + 1)
-        return monthKey(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` as DateStr)
-      })()
-      return {
-        ...d,
-        subjects,
-        slots: [...d.slots, ...slots.map((s) => ({ ...s, id: newId('slot') }))],
-        settings: d.settings.planStartMonth ? d.settings : { ...d.settings, planStartMonth: nextMonthMk },
-      }
-    })
-    setParsed(null)
+    }
+    const good = parsed.filter((e) => !isProblem(e))
+    const { slots, unmatched } = entriesToSlots(good, byShort, today)
+    const notSaved = [...parsed.filter(isProblem), ...unmatched]
+    // J2: the monthly plan starts from the month after the timetable was
+    // first confirmed. Set once — re-imports later don't move it back.
+    const nextMonthMk = (() => {
+      const d = new Date()
+      d.setDate(1)
+      d.setMonth(d.getMonth() + 1)
+      return monthKey(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` as DateStr)
+    })()
+    setData((d) => ({
+      ...d,
+      // existing subjects (possibly with enriched full names) + newly created ones
+      subjects: [
+        ...d.subjects.map((s) => subjects.find((x) => x.id === s.id) ?? s),
+        ...subjects.filter((x) => !d.subjects.some((s) => s.id === x.id)),
+      ],
+      slots: [...d.slots, ...slots.map((s) => ({ ...s, id: newId('slot') }))],
+      settings: d.settings.planStartMonth ? d.settings : { ...d.settings, planStartMonth: nextMonthMk },
+    }))
     setImportText('')
+    if (notSaved.length > 0) {
+      // Keep the panel open on just the entries that still need attention.
+      setParsed(notSaved)
+      setAllParsed(notSaved)
+      setParseWarn([])
+      setImportResult(
+        `Saved ${slots.length} classes. ${notSaved.length} could not be added automatically — they are listed below. ` +
+          'Add them by hand under “Add a lecture”, then remove them here.',
+      )
+      return
+    }
+    setImportResult(null)
+    setParsed(null)
     setImportOpen(false)
   }
 
@@ -391,7 +414,7 @@ export default function Timetable() {
             onChange={(e) => { setImportText(e.target.value); runParse(e.target.value) }}
           />
           <div className="row" style={{ marginTop: 8 }}>
-            <button onClick={() => { setParsed(null); setImportOpen(false) }}>Cancel</button>
+            <button onClick={() => { setParsed(null); setImportResult(null); setImportOpen(false) }}>Cancel</button>
             <button className="secondary" onClick={() => runParse(importText)}>Preview</button>
           </div>
 
@@ -399,9 +422,13 @@ export default function Timetable() {
             <div key={i} className="msg" style={{ marginTop: 8, color: 'var(--danger)' }}>{w}</div>
           ))}
 
+          {importResult && (
+            <div className="card msg" style={{ marginTop: 8, color: 'var(--danger)' }}>{importResult}</div>
+          )}
+
           {parsed && parsed.length > 0 && (
             <>
-              <h3 style={{ marginTop: 12 }}>Review before saving (nothing saved yet)</h3>
+              <h3 style={{ marginTop: 12 }}>{importResult ? 'Not added yet' : 'Review before saving (nothing saved yet)'}</h3>
               {importBatches.length > 0 && (
                 <div className="card msg" style={{ marginTop: 6 }}>
                   Which batch is yours? Pick it to keep only your classes.
@@ -444,11 +471,41 @@ export default function Timetable() {
                   </div>
                 )
               })}
-              <div className="row" style={{ marginTop: 10 }}>
-                <button className="primary grow" onClick={confirmImport}>
-                  Confirm &amp; save {parsed.length} classes
-                </button>
-              </div>
+              {(() => {
+                // Entries with no readable day/time never showed in the day
+                // lists above, so they were invisible — list them here.
+                const noDay = parsed.filter((e) => !e.weekday || !e.startTime)
+                if (noDay.length === 0) return null
+                return (
+                  <div className="card" style={{ marginTop: 6 }}>
+                    <b>Day or time unreadable</b>
+                    {noDay.map((e, i) => (
+                      <div className="row spread" key={`nd_${i}`} style={{ marginTop: 4 }}>
+                        <span className="msg">{e.raw || e.subjectShort} ⚠️</span>
+                        <button onClick={() => setParsed(parsed.filter((x) => x !== e))} aria-label="Remove this entry">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+              {importResult ? (
+                <div className="row" style={{ marginTop: 10 }}>
+                  <button className="secondary grow" onClick={() => { setParsed(null); setImportResult(null); setImportOpen(false) }}>
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <div className="row" style={{ marginTop: 10 }}>
+                  <button className="primary grow" onClick={confirmImport}>
+                    Confirm &amp; save {parsed.filter((e) => !isProblem(e)).length} classes
+                  </button>
+                </div>
+              )}
+              {!importResult && parsed.some(isProblem) && (
+                <div className="msg" style={{ marginTop: 6 }}>
+                  ⚠️ {parsed.filter(isProblem).length} entries couldn’t be read cleanly and won’t be saved — you’ll be shown them after saving.
+                </div>
+              )}
             </>
           )}
         </div>
@@ -462,7 +519,7 @@ export default function Timetable() {
           </div>
           <button
             onClick={() => {
-              if (window.confirm(`Remove ${s.shortName} and all its classes?`)) removeSubject(s.id)
+              if (window.confirm(`Remove ${s.shortName} with all its classes, marks, deadlines, units and scores?`)) removeSubject(s.id)
             }}
           >
             Remove

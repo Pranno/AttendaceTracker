@@ -369,7 +369,10 @@ export function parseMessages(messages: InboxMessage[], subjects: Subject[]): Pa
 }
 
 /** Turn parsed hits into pending Suggestions (dedup by gmail message id, I3). */
-export function toSuggestions(parsed: ParsedMessage[], existing: Suggestion[]): Suggestion[] {
+export function toSuggestions(parsed: ParsedMessage[], existing: Suggestion[], subjects: Subject[] = []): Suggestion[] {
+  // The parser already names the subject (its short name); attach the id so
+  // an accepted suggestion becomes a deadline under that subject.
+  const idByShort = new Map(subjects.map((s) => [s.shortName.toUpperCase(), s.id]))
   const seenMsgIds = new Set(existing.map((s) => s.messageId).filter(Boolean))
   const out: Suggestion[] = []
   for (const p of parsed) {
@@ -379,6 +382,7 @@ export function toSuggestions(parsed: ParsedMessage[], existing: Suggestion[]): 
         id: `sug_${p.message.id}_${i}`,
         kind: 'deadline',
         title: d.title,
+        subjectId: d.subjectHint ? idByShort.get(d.subjectHint.toUpperCase()) : undefined,
         date: d.dueDate,
         sourceSnippet: `${p.message.subject ? p.message.subject + ' — ' : ''}${d.sourceLine}`.slice(0, 200),
         cameFrom: 'gmail',
