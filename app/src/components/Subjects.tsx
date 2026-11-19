@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
+import CgpaPlanner from './CgpaPlanner'
 import { useApp } from '../data/store'
 import type { DateStr } from '../data/model'
 import { buildReport, computeSubjectTotals, freshData, summarizeSubject } from '../logic/attendance'
@@ -98,6 +99,8 @@ export default function Subjects({ go, focusSubjectId }: { go: (t: Tab, subjectI
           ))}
         </>
       )}
+      {/* E11 CGPA planner (moved here from the old Study tab) */}
+      <CgpaPlanner />
     </div>
   )
 }

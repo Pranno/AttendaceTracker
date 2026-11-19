@@ -712,3 +712,66 @@ td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid color-mix(
   background: none; border: none; padding: 0; font: inherit; font-weight: 800;
   cursor: pointer; text-align: left;
 }
+
+/* ---------- Locker tab ---------- */
+.locker-search {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 14px;
+  background: var(--card); border-radius: 16px; padding: 0 12px;
+  box-shadow: 0 4px 14px rgba(30, 27, 46, 0.08); color: var(--soft);
+}
+.locker-search input { border: none; min-height: 46px; padding: 0; background: transparent; }
+.locker-search input:focus { outline: none; }
+.locker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.locker-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  min-height: 118px; margin: 0; padding: 16px; text-align: left;
+}
+.locker-tile-short { font-size: 22px; font-weight: 800; }
+.locker-tile-full { font-size: 12px; color: var(--soft); line-height: 1.3; overflow-wrap: anywhere; flex: 1; }
+.locker-tile-count { font-size: 12px; font-weight: 700; color: var(--text); opacity: 0.8; }
+.search-hit { display: block; }
+.note-text.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 4px; }
+.locker-parts { gap: 8px; margin: 14px 0 12px; }
+
+/* notes: every message shown in full, like a chat */
+.note-filters { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.note-filters select { width: auto; flex: none; min-height: 40px; padding: 6px 10px; font-size: 13px; border-radius: 999px; }
+.note-filters .chip { flex: none; min-height: 40px; padding: 6px 12px; }
+.note-filters input { min-height: 40px; padding: 6px 12px; font-size: 13px; border-radius: 999px; min-width: 0; }
+.note-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.note-bubble {
+  align-self: flex-end; max-width: 88%;
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  border-radius: 20px 20px 6px 20px; padding: 10px 14px 8px;
+  box-shadow: 0 4px 14px rgba(30, 27, 46, 0.08); cursor: pointer;
+}
+.note-bubble.pinned { box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 45%, transparent), 0 4px 14px rgba(30, 27, 46, 0.08); }
+.note-bubble.selected { background: color-mix(in srgb, var(--primary) 20%, var(--card)); }
+.note-bubble.editing { align-self: stretch; max-width: none; cursor: default; }
+.note-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.45; user-select: text; -webkit-user-select: text; }
+.note-text a { color: var(--primary); font-weight: 600; }
+.note-meta { font-size: 11px; color: var(--soft); text-align: right; margin-top: 4px; display: flex; gap: 4px; justify-content: flex-end; }
+.note-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.note-actions button { min-height: 36px; padding: 6px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.note-composer textarea, .note-bubble textarea {
+  width: 100%; resize: vertical; border-radius: 14px; padding: 10px 12px; font: inherit; font-size: 15px;
+  border: 1.5px solid color-mix(in srgb, var(--soft) 30%, transparent); background: var(--card); color: var(--text);
+  box-sizing: border-box;
+}
+.note-composer button, .link-progress + * button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+
+/* links */
+.link-progress .bar { height: 8px; border-radius: 99px; background: color-mix(in srgb, var(--soft) 18%, transparent); margin-top: 8px; overflow: hidden; }
+.link-progress .bar span { display: block; height: 100%; border-radius: 99px; background: var(--safe); transition: width 0.3s; }
+.link-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+.link-row.done .link-name { text-decoration: line-through; opacity: 0.6; }
+.link-check { display: flex; align-items: center; margin: 0; }
+.link-check input { width: 24px; height: 24px; min-height: 0; padding: 0; accent-color: var(--safe); }
+.link-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  background: none; padding: 4px 0; min-height: 0; text-align: left; border-radius: 8px;
+}
+.link-name { font-weight: 700; overflow-wrap: anywhere; }
+.icon-btn.small { min-width: 36px; min-height: 36px; width: 36px; height: 36px; box-shadow: none; flex: none; }
+.link-main > span { align-self: stretch; text-align: left; }
+.note-filters select { padding-right: 28px; }

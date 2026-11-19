@@ -206,3 +206,33 @@ describe('removeSubject cleans up everything that belonged to it', () => {
     cleanup()
   })
 })
+
+describe('Locker notes', () => {
+  it('adds, edits, pins and deletes notes; removing the subject removes its notes', () => {
+    const { result, cleanup } = renderHook(() => useApp())
+    act(() => {
+      result.current.setData((d) => ({
+        ...d,
+        subjects: [
+          { id: 'a', shortName: 'CP', fullName: 'CP', nicknames: [] },
+          { id: 'b', shortName: 'FE', fullName: 'FE', nicknames: [] },
+        ],
+      }))
+    })
+    act(() => result.current.addNote('a', '  Bring lab file  '))
+    act(() => result.current.addNote('a', '   ')) // blank → ignored
+    act(() => result.current.addNote('b', 'FE note'))
+    expect(result.current.data.notes.map((n) => n.text)).toEqual(['Bring lab file', 'FE note'])
+    const id = result.current.data.notes[0].id
+    act(() => result.current.updateNote(id, { text: 'Bring lab file + viva', pinned: true }))
+    const n = result.current.data.notes.find((x) => x.id === id)!
+    expect(n.text).toBe('Bring lab file + viva')
+    expect(n.pinned).toBe(true)
+    expect(n.editedAt).toBeTruthy()
+    act(() => result.current.removeSubject('a'))
+    expect(result.current.data.notes.map((x) => x.text)).toEqual(['FE note'])
+    act(() => result.current.deleteNote(result.current.data.notes[0].id))
+    expect(result.current.data.notes).toHaveLength(0)
+    cleanup()
+  })
+})

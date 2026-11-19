@@ -354,6 +354,18 @@ export interface CalendarEvent {
   source: string
 }
 
+/** Locker note: a message the user wants to keep under a subject. */
+export interface Note {
+  id: string
+  subjectId: string
+  text: string
+  /** ISO timestamp when it was saved (sort key). */
+  createdAt: string
+  /** ISO timestamp of the last edit, if edited. */
+  editedAt?: string
+  pinned?: boolean
+}
+
 /** The whole saved app state. */
 export interface AppData {
   version: 1
@@ -371,6 +383,8 @@ export interface AppData {
   events: CalendarEvent[]
   /** Stretch #5: converted lectures (subject swap on a given day). */
   conversions: Conversion[]
+  /** Locker: messages/notes saved per subject. */
+  notes: Note[]
   /** E11: CGPA planner semesters (kept when a new semester starts, E14). */
   cgpaSemesters?: CgpaSemester[]
 }
@@ -390,6 +404,7 @@ export const EMPTY_DATA: AppData = {
   suggestions: [],
   events: [],
   conversions: [],
+  notes: [],
 }
 
 let counter = 0

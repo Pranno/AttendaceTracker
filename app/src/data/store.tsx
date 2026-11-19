@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, CgpaSemester, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
+import type { AppData, CgpaSemester, Note, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
 import { loadData, normalizeData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
 import type { ArchivedSemester } from '../data/storage'
@@ -35,6 +35,10 @@ interface AppApi {
    *  `subjectId`. Re-converting the same date+slot replaces the old record. */
   addConversion: (date: DateStr, slotId: string, subjectId: string, note?: string) => void
   removeConversion: (id: string) => void
+  /** Locker notes. */
+  addNote: (subjectId: string, text: string) => void
+  updateNote: (id: string, patch: Partial<Pick<Note, 'text' | 'pinned'>>) => void
+  deleteNote: (id: string) => void
   // ---- deadlines (C5 minimal for step 1) ----
   addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }, id?: string) => void
   updateDeadline: (id: string, patch: Partial<Deadline>) => void
@@ -173,6 +177,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             // Everything else that belonged to the subject used to stay behind,
             // pointing at a subject that no longer exists.
             units: d.units.filter((u) => u.subjectId !== id),
+            notes: d.notes.filter((n) => n.subjectId !== id),
             scores: d.scores.filter((sc) => sc.subjectId !== id),
             courseLinks: d.courseLinks.filter((c) => c.subjectId !== id),
             deadlines: d.deadlines
@@ -243,6 +248,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       removeConversion(id) {
         setRaw((d) => ({ ...d, conversions: d.conversions.filter((c) => c.id !== id) }))
+      },
+
+      addNote(subjectId, text) {
+        const t = text.trim()
+        if (!t) return
+        const note: Note = { id: newId('note'), subjectId, text: t, createdAt: new Date().toISOString() }
+        setRaw((d) => ({ ...d, notes: [...d.notes, note] }))
+      },
+
+      updateNote(id, patch) {
+        setRaw((d) => ({
+          ...d,
+          notes: d.notes.map((n) =>
+            n.id !== id
+              ? n
+              : { ...n, ...patch, ...(patch.text !== undefined && patch.text !== n.text ? { editedAt: new Date().toISOString() } : {}) },
+          ),
+        }))
+      },
+
+      deleteNote(id) {
+        setRaw((d) => ({ ...d, notes: d.notes.filter((n) => n.id !== id) }))
       },
 
       addDeadline(dl, id) {

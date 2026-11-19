@@ -11,7 +11,7 @@ import Today from './components/Today'
 import Calendar from './components/Calendar'
 import Subjects from './components/Subjects'
 import Timetable from './components/Timetable'
-import Study from './components/Study'
+import Locker from './components/Locker'
 import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
 import { Capacitor } from '@capacitor/core'
@@ -104,7 +104,7 @@ export default function App() {
   // Native-style swipe between tabs (swipe left → next tab, right → previous).
   // The hook ignores vertical scrolling, horizontally-scrollable strips (like
   // the weekday bar), and taps on buttons/inputs — see hooks/useTabSwipe.ts.
-  const TAB_ORDER: Tab[] = ['today', 'subjects', 'timetable', 'calendar', 'study', 'settings']
+  const TAB_ORDER: Tab[] = ['today', 'subjects', 'timetable', 'calendar', 'locker', 'settings']
   useTabSwipe((dir) => {
     if (showOnboarding) return // the wizard owns the screen — no tab swipes
     setTab((cur) => {
@@ -127,7 +127,7 @@ export default function App() {
         {tab === 'today' && <Today go={go} />}
         {tab === 'calendar' && <Calendar />}
         {tab === 'timetable' && <TimetableView />}
-        {tab === 'study' && <Study />}
+        {tab === 'locker' && <Locker />}
         {(tab === 'subjects' || tab === 'plan') && <Subjects go={go} focusSubjectId={focusSubjectId} />}
         {tab === 'settings' && <Settings />}
         <NavBar tab={tab} onChange={(t) => go(t)} />

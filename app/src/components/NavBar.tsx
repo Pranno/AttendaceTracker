@@ -6,7 +6,7 @@
 // - Hides on scroll down, returns on scroll up; respects safe area
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarDays, CalendarRange, GraduationCap, LayoutGrid, Plus, Settings2, SunMedium } from 'lucide-react'
+import { Archive, CalendarDays, CalendarRange, LayoutGrid, Plus, Settings2, SunMedium } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Sheet } from './ui/parts'
 import { useApp } from '../data/store'
@@ -14,19 +14,19 @@ import type { ClassType, DateStr } from '../data/model'
 import { todayStr } from '../logic/dates'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
 
-// Six bottom tabs: Today · Subjects · Timetable · Calendar · Study · Settings.
+// Six bottom tabs: Today · Subjects · Timetable · Calendar · Locker · Settings.
 // The monthly planner details live inside the Subjects screen (per subject),
 // and the timetable editor is its own tab (it used to be a chip under
 // Subjects). 'plan' stays as a deep-link alias of Subjects so existing
 // go('plan', subjectId) calls keep working.
-export type Tab = 'today' | 'subjects' | 'timetable' | 'calendar' | 'plan' | 'study' | 'settings'
+export type Tab = 'today' | 'subjects' | 'timetable' | 'calendar' | 'plan' | 'locker' | 'settings'
 
 const ITEMS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: 'today', label: 'Today', icon: SunMedium },
   { id: 'subjects', label: 'Subjects', icon: LayoutGrid },
   { id: 'timetable', label: 'Timetable', icon: CalendarRange },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'study', label: 'Study', icon: GraduationCap },
+  { id: 'locker', label: 'Locker', icon: Archive },
   { id: 'settings', label: 'Settings', icon: Settings2 },
 ]
 
