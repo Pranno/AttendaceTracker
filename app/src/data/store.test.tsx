@@ -178,7 +178,7 @@ describe('semester dates keep timetable versions', () => {
 })
 
 describe('removeSubject cleans up everything that belonged to it', () => {
-  it('drops its units, scores, course links and deadlines; keeps other subjects\' data', () => {
+  it('drops its scores, course links and deadlines; keeps other subjects\' data', () => {
     const { result, cleanup } = renderHook(() => useApp())
     act(() => {
       result.current.setData((d) => ({
@@ -186,10 +186,6 @@ describe('removeSubject cleans up everything that belonged to it', () => {
         subjects: [
           { id: 'a', shortName: 'CP', fullName: 'CP', nicknames: [] },
           { id: 'b', shortName: 'FE', fullName: 'FE', nicknames: [] },
-        ],
-        units: [
-          { id: 'u1', subjectId: 'a', title: 'U1', topics: [] } as never,
-          { id: 'u2', subjectId: 'b', title: 'U2', topics: [] } as never,
         ],
         scores: [{ id: 's1', subjectId: 'a' } as never, { id: 's2', subjectId: 'b' } as never],
         deadlines: [
@@ -200,7 +196,6 @@ describe('removeSubject cleans up everything that belonged to it', () => {
     })
     act(() => result.current.removeSubject('a'))
     const d = result.current.data
-    expect(d.units.map((u) => u.id)).toEqual(['u2'])
     expect(d.scores.map((x) => x.id)).toEqual(['s2'])
     expect(d.deadlines.map((x) => x.id)).toEqual(['d2'])
     cleanup()

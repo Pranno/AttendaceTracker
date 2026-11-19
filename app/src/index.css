@@ -810,3 +810,47 @@ body.viewer-open .pillnav, body.viewer-open .fab { display: none; }
 .viewer-image { display: block; margin: 0 auto; max-width: none; height: auto; }
 .viewer-msg { color: #ddd; text-align: center; padding: 40px 20px; font-size: 14px; }
 .viewer-msg.small { padding: 4px 0 12px; font-size: 12px; opacity: 0.7; }
+
+/* Settings → Smart import (AI) */
+.smart-key-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.smart-key-row button { min-height: 40px; padding: 6px 14px; }
+.smart-status { margin-top: 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.smart-status.ok { color: var(--safe); }
+.smart-status.bad { color: var(--danger); }
+.smart-model { display: block; margin-top: 10px; }
+.smart-model select { margin-top: 4px; }
+.smart-guide { margin: 6px 0 12px; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.45; }
+.smart-guide code { font-size: 13px; background: color-mix(in srgb, var(--soft) 14%, transparent); padding: 1px 5px; border-radius: 6px; }
+.smart-guide-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; min-height: 40px; }
+.smart-key-input { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+.smart-key-input input { font-family: ui-monospace, monospace; font-size: 14px; }
+.smart-notes { margin: 12px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+
+/* Timetable tab: reader choice + syllabus import */
+.reader-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 4px; }
+.reader-opt {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  border-radius: 16px; padding: 10px 12px; min-height: 0; border: 1.5px solid transparent;
+}
+.reader-opt span { font-size: 12px; color: var(--soft); line-height: 1.3; }
+.reader-opt.on { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, var(--card)); }
+.smart-busy { margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--primary); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) { .smart-busy { animation: none; } }
+.syllabus-pick { border-top: 1px solid color-mix(in srgb, var(--soft) 20%, transparent); padding: 10px 0; }
+.syllabus-preview { margin: 6px 0; padding-left: 20px; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.syllabus-target { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.syllabus-target select { min-height: 40px; padding: 6px 10px; font-size: 14px; }
+
+/* Subjects tab → syllabus */
+.syl-head { margin-bottom: 10px; }
+.syl-fold { padding: 0; overflow: hidden; margin-bottom: 8px; }
+.syl-fold-head {
+  width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
+  background: none; border-radius: 0; padding: 12px 14px; min-height: 48px;
+}
+.syl-fold-body { padding: 0 14px 12px; }
+.syl-list { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.45; user-select: text; -webkit-user-select: text; }
+.syl-list a { color: var(--primary); font-weight: 600; }
+.syl-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.syl-foot { margin: 4px 2px 12px; }

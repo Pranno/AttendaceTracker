@@ -10,7 +10,10 @@ import { newId, slotMatchesBatch } from '../data/model'
 import { formatShort, monthKey, todayStr, weekdayName } from '../logic/dates'
 import { parseTimetableText, parseTimetablePages, filterByBatch, entriesToSlots, distinctBatches, keepOnlyBatch } from '../logic/timetableImport'
 import type { GridParseResult, ImportResult, ParsedEntry } from '../logic/timetableImport'
-import type { TextItemLike } from '../logic/syllabusReader'
+import type { TextItemLike } from '../logic/pdfText'
+import { hasGeminiKey } from '../logic/gemini'
+import { isSmartReadable, smartReadTimetable } from '../logic/smartImport'
+import SyllabusImport from './SyllabusImport'
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
 
@@ -34,6 +37,29 @@ export default function Timetable() {
   // Legend subjects (short → full name) read from the uploaded PDF's
   // abbreviation table; used when confirming the import.
   const [legendSubjects, setLegendSubjects] = useState<{ short: string; full: string }[]>([])
+  // Reader choice (Standard = offline rule-based, Smart = Gemini AI).
+  const [importMode, setImportMode] = useState<'standard' | 'smart'>(() => (hasGeminiKey() ? 'smart' : 'standard'))
+  const [smartBusy, setSmartBusy] = useState(false)
+
+  async function onSmartFilePicked(f: File | undefined) {
+    if (!f) return
+    if (!isSmartReadable(f)) {
+      setParseWarn(['Smart import reads PDFs and photos (JPG/PNG). For text or CSV, use the Standard reader.'])
+      return
+    }
+    setSmartBusy(true)
+    setParseWarn([])
+    setParsed(null)
+    try {
+      const res = await smartReadTimetable(f)
+      applyParsed(res, res.subjects)
+    } catch (err) {
+      setParseWarn([err instanceof Error ? err.message : 'Smart import failed.'])
+    } finally {
+      setSmartBusy(false)
+    }
+  }
+
   // After saving: what could NOT be added automatically (shown, not dropped).
   const [importResult, setImportResult] = useState<string | null>(null)
 
@@ -397,25 +423,73 @@ export default function Timetable() {
       ) : (
         <div className="card">
           <b>Import your timetable</b>
-          <div className="msg" style={{ margin: '6px 0' }}>
-            Upload a .txt/.csv/PDF export, or open the PDF, press Ctrl/Cmd+A → Copy, and paste below.
-            {myBatch ? ` Only batch ${myBatch} + whole-class rows will be kept.` : ' Set your batch in Settings to filter batches.'}
+          <div className="reader-choice" role="radiogroup" aria-label="Reader">
+            <button
+              role="radio"
+              aria-checked={importMode === 'standard'}
+              className={`reader-opt${importMode === 'standard' ? ' on' : ''}`}
+              onClick={() => setImportMode('standard')}
+            >
+              <b>Standard</b>
+              <span>Offline · reads this college’s PDF grid, text or CSV</span>
+            </button>
+            <button
+              role="radio"
+              aria-checked={importMode === 'smart'}
+              className={`reader-opt${importMode === 'smart' ? ' on' : ''}`}
+              onClick={() => setImportMode('smart')}
+            >
+              <b>✨ Smart (AI)</b>
+              <span>Online · Gemini reads any PDF or photo</span>
+            </button>
           </div>
-          <input
-            type="file"
-            accept=".txt,.csv,application/pdf,.pdf,text/plain,text/csv"
-            onChange={(e) => onFilePicked(e.target.files?.[0])}
-          />
-          <textarea
-            rows={6}
-            style={{ width: '100%', marginTop: 8 }}
-            placeholder={'Monday\t08:00-09:00\tA1 FE (P) PS 2408 …\nor CSV: Monday,08:00,09:00,A1,FE,P,PS,2408'}
-            value={importText}
-            onChange={(e) => { setImportText(e.target.value); runParse(e.target.value) }}
-          />
+          <div className="msg" style={{ margin: '6px 0' }}>
+            {myBatch ? `Only batch ${myBatch} + whole-class classes will be kept.` : 'Set your batch in Settings to filter batches.'}
+          </div>
+
+          {importMode === 'standard' ? (
+            <>
+              <div className="msg" style={{ marginBottom: 6 }}>
+                Upload a .txt/.csv/PDF export, or open the PDF, press Ctrl/Cmd+A → Copy, and paste below.
+              </div>
+              <input
+                type="file"
+                accept=".txt,.csv,application/pdf,.pdf,text/plain,text/csv"
+                onChange={(e) => onFilePicked(e.target.files?.[0])}
+              />
+              <textarea
+                rows={6}
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder={'Monday\t08:00-09:00\tA1 FE (P) PS 2408 …\nor CSV: Monday,08:00,09:00,A1,FE,P,PS,2408'}
+                value={importText}
+                onChange={(e) => { setImportText(e.target.value); runParse(e.target.value) }}
+              />
+            </>
+          ) : !hasGeminiKey() ? (
+            <div className="card msg" style={{ color: 'var(--danger)' }}>
+              Smart import needs your Gemini API key. Add it in <b>Settings → Smart import (AI)</b> — there’s a step-by-step guide there.
+            </div>
+          ) : (
+            <>
+              <div className="msg" style={{ marginBottom: 6 }}>
+                Upload the timetable PDF or a clear photo of it. Gemini reads it; you check everything before saving.
+              </div>
+              <input
+                type="file"
+                accept="application/pdf,.pdf,image/*"
+                disabled={smartBusy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  void onSmartFilePicked(f)
+                }}
+              />
+              {smartBusy && <div className="smart-busy">Reading with Gemini… this can take up to a minute.</div>}
+            </>
+          )}
           <div className="row" style={{ marginTop: 8 }}>
             <button onClick={() => { setParsed(null); setImportResult(null); setImportOpen(false) }}>Cancel</button>
-            <button className="secondary" onClick={() => runParse(importText)}>Preview</button>
+            {importMode === 'standard' && <button className="secondary" onClick={() => runParse(importText)}>Preview</button>}
           </div>
 
           {parseWarn.map((w, i) => (
@@ -511,6 +585,9 @@ export default function Timetable() {
         </div>
       )}
 
+      {/* ---- Import syllabus (Smart AI only) — shown per subject on the Subjects tab ---- */}
+      <SyllabusImport />
+
       <h2>Subjects</h2>
       {data.subjects.map((s) => (
         <div className="card row spread" key={s.id}>
@@ -519,7 +596,7 @@ export default function Timetable() {
           </div>
           <button
             onClick={() => {
-              if (window.confirm(`Remove ${s.shortName} with all its classes, marks, deadlines, units and scores?`)) removeSubject(s.id)
+              if (window.confirm(`Remove ${s.shortName} with all its classes, marks, deadlines, syllabus, notes and files?`)) removeSubject(s.id)
             }}
           >
             Remove

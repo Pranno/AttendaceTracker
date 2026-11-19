@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, CgpaSemester, LockerFile, Note, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
+import type { AppData, CgpaSemester, LockerFile, Note, Syllabus, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
 import { clearFileBlobs, deleteFileBlobs } from '../logic/fileStore'
 import { loadData, normalizeData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
@@ -44,6 +44,9 @@ interface AppApi {
   addFile: (file: LockerFile) => void
   renameFile: (id: string, name: string) => void
   deleteFile: (id: string) => void
+  /** Syllabus (Smart import): one per subject — saving replaces the old one. */
+  setSyllabus: (syllabus: Syllabus) => void
+  deleteSyllabus: (subjectId: string) => void
   // ---- deadlines (C5 minimal for step 1) ----
   addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }, id?: string) => void
   updateDeadline: (id: string, patch: Partial<Deadline>) => void
@@ -73,17 +76,6 @@ interface AppApi {
   dismissSuggestion: (id: string) => void
   clearSeenSuggestions: () => void
   // ---- study units & topics (E-series) ----
-  addUnit: (u: Omit<Unit, 'id' | 'topics'> & { topics?: Topic[] }) => void
-  updateUnit: (id: string, patch: Partial<Unit>) => void
-  deleteUnit: (id: string) => void
-  upsertTopic: (unitId: string, topic: Topic) => void
-  removeTopic: (unitId: string, name: string) => void
-  /** E3/E4: tick a unit or one of its topics as revised on `date`. */
-  markRevised: (unitId: string, topicName: string | null, date: DateStr) => void
-  /** E10: add a practice question to a unit. */
-  addQuestion: (unitId: string, q: Omit<PracticeQuestion, 'id'>) => void
-  updateQuestion: (unitId: string, q: PracticeQuestion) => void
-  removeQuestion: (unitId: string, qid: string) => void
   // ---- marks & scores (E5) ----
   /** E5: add a score to a marking-scheme component. */
   addScore: (s: Omit<Score, 'id'>) => void
@@ -183,9 +175,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             conversions: d.conversions.filter((c) => c.subjectId !== id && !slotIds.includes(c.slotId)),
             // Everything else that belonged to the subject used to stay behind,
             // pointing at a subject that no longer exists.
-            units: d.units.filter((u) => u.subjectId !== id),
             notes: d.notes.filter((n) => n.subjectId !== id),
             files: d.files.filter((f) => f.subjectId !== id),
+            syllabi: d.syllabi.filter((x) => x.subjectId !== id),
             scores: d.scores.filter((sc) => sc.subjectId !== id),
             courseLinks: d.courseLinks.filter((c) => c.subjectId !== id),
             deadlines: d.deadlines
@@ -288,6 +280,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const n = name.trim()
         if (!n) return
         setRaw((d) => ({ ...d, files: d.files.map((f) => (f.id === id ? { ...f, name: n } : f)) }))
+      },
+
+      setSyllabus(syllabus) {
+        setRaw((d) => ({ ...d, syllabi: [...d.syllabi.filter((x) => x.subjectId !== syllabus.subjectId), syllabus] }))
+      },
+
+      deleteSyllabus(subjectId) {
+        setRaw((d) => ({ ...d, syllabi: d.syllabi.filter((x) => x.subjectId !== subjectId) }))
       },
 
       deleteFile(id) {
@@ -449,85 +449,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       clearSeenSuggestions() {
         setRaw((d) => ({ ...d, suggestions: d.suggestions.filter((x) => x.status === 'new') }))
-      },
-
-      addUnit(u) {
-        setRaw((d) => ({
-          ...d,
-          units: [...d.units, { ...u, topics: u.topics ?? [], id: newId('unit') }],
-        }))
-      },
-
-      updateUnit(id, patch) {
-        setRaw((d) => ({ ...d, units: d.units.map((x) => (x.id === id ? { ...x, ...patch } : x)) }))
-      },
-
-      deleteUnit(id) {
-        setRaw((d) => ({ ...d, units: d.units.filter((x) => x.id !== id) }))
-      },
-
-      upsertTopic(unitId, topic) {
-        setRaw((d) => ({
-          ...d,
-          units: d.units.map((u) => {
-            if (u.id !== unitId) return u
-            const exists = u.topics.some((t) => t.name === topic.name)
-            const topics = exists
-              ? u.topics.map((t) => (t.name === topic.name ? topic : t))
-              : [...u.topics, topic]
-            return { ...u, topics }
-          }),
-        }))
-      },
-
-      removeTopic(unitId, name) {
-        setRaw((d) => ({
-          ...d,
-          units: d.units.map((u) => (u.id === unitId ? { ...u, topics: u.topics.filter((t) => t.name !== name) } : u)),
-        }))
-      },
-
-      markRevised(unitId, topicName, date) {
-        setRaw((d) => ({
-          ...d,
-          units: d.units.map((u) => {
-            if (u.id !== unitId) return u
-            if (topicName === null) {
-              // E3: whole unit revised — tick every topic too.
-              return { ...u, revisedDate: date, topics: u.topics.map((t) => ({ ...t, revisedDate: t.revisedDate ?? date })) }
-            }
-            const topics = u.topics.map((t) => (t.name === topicName ? { ...t, revisedDate: date } : t))
-            const allDone = topics.length > 0 && topics.every((t) => t.revisedDate)
-            return { ...u, topics, revisedDate: allDone ? u.revisedDate ?? date : u.revisedDate }
-          }),
-        }))
-      },
-
-      addQuestion(unitId, q) {
-        setRaw((d) => ({
-          ...d,
-          units: d.units.map((u) =>
-            u.id === unitId ? { ...u, questions: [...(u.questions ?? []), { ...q, id: newId('q') }] } : u,
-          ),
-        }))
-      },
-
-      updateQuestion(unitId, q) {
-        setRaw((d) => ({
-          ...d,
-          units: d.units.map((u) =>
-            u.id === unitId ? { ...u, questions: (u.questions ?? []).map((x) => (x.id === q.id ? q : x)) } : u,
-          ),
-        }))
-      },
-
-      removeQuestion(unitId, qid) {
-        setRaw((d) => ({
-          ...d,
-          units: d.units.map((u) =>
-            u.id === unitId ? { ...u, questions: (u.questions ?? []).filter((x) => x.id !== qid) } : u,
-          ),
-        }))
       },
 
       addFocusSession(date, minutes, kind) {

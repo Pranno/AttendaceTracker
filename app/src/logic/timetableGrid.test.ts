@@ -8,7 +8,7 @@ import runLevel from './__fixtures__/tt-divA.json'
 import divC from './__fixtures__/tt-divC.json'
 import divF from './__fixtures__/tt-divF.json'
 import { collegeHour, parseCellEntries, parseTimeRange, parseTimetablePages, type ParsedEntry } from './timetableImport'
-import type { TextItemLike } from './syllabusReader'
+import type { TextItemLike } from './pdfText'
 
 const fmt = (e: ParsedEntry) =>
   `${e.weekday} ${e.startTime}-${e.endTime} ${e.batch ?? '-'} ${e.subjectShort}(${e.type}) ${e.teacher}/${e.room}`

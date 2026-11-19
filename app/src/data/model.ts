@@ -215,50 +215,11 @@ export interface Deadline {
   sourceText?: string
   /** Scheduled reminder dates (kept so deleting cancels them, data rule). */
   reminderDates: DateStr[]
-  /** E6: units this deadline covers. */
-  unitIds?: string[]
   /** H8: course links this deadline is about (e.g. "WAD certificates").
    *  The deadline row shows their progress, e.g. "6 of 10 done". */
   courseLinkIds?: string[]
 }
 
-// ---- Study records (defined now so later steps import from this same file) ----
-
-export interface Topic {
-  name: string
-  taughtDate: DateStr | null
-  revisedDate: DateStr | null
-  /** S14: the group heading it sits under. */
-  group?: string
-}
-
-/** E10: a practice question held by a unit. Boxes 0–4; due after
- * BOX_INTERVALS[box] days (0, 1, 3, 7, 14). */
-export interface PracticeQuestion {
-  id: string
-  text: string
-  code?: string
-  table?: string
-  answer: string
-  box: number
-  dueOn: DateStr | null
-  lastAnswerOn: DateStr | null
-  missedOnce?: boolean
-}
-
-/** Unit (E2, E3). Project subjects use stages ticked "done" instead. */
-export interface Unit {
-  id: string
-  subjectId: string
-  title: string
-  hoursInClass: number
-  topics: Topic[]
-  revisedDate: DateStr | null
-  refreshedDate?: DateStr
-  kind: 'unit' | 'stage'
-  /** E10: practice questions with spaced repetition. */
-  questions?: PracticeQuestion[]
-}
 
 export interface Score {
   id: string
@@ -378,6 +339,44 @@ export interface LockerFile {
   addedAt: string
 }
 
+/** One unit/module of a course syllabus. */
+export interface SyllabusUnit {
+  /** "1", "II", "Module 3"… as printed. */
+  number?: string
+  title: string
+  /** Teaching hours, when the syllabus gives them. */
+  hours?: number
+  /** Every topic, in the order printed. */
+  topics: string[]
+  /** Course outcome codes this unit maps to, e.g. ["CO1", "CO2"]. */
+  outcomes?: string[]
+}
+
+/** A subject's syllabus as read from the uploaded PDF (Smart import). */
+export interface Syllabus {
+  subjectId: string
+  courseCode?: string
+  courseName?: string
+  credits?: number
+  /** e.g. "3-0-2" lecture-tutorial-practical hours. */
+  teachingScheme?: string
+  prerequisites?: string[]
+  objectives?: string[]
+  outcomes?: { code?: string; text: string }[]
+  units: SyllabusUnit[]
+  /** Lab experiments / practical list. */
+  practicals?: string[]
+  /** Evaluation scheme, e.g. { component: "Mid-sem exam", weight: "30%" }. */
+  assessment?: { component: string; weight?: string }[]
+  textbooks?: string[]
+  references?: string[]
+  /** Online courses / links printed in the syllabus. */
+  links?: { name: string; url?: string }[]
+  /** File it was read from and when. */
+  sourceName: string
+  importedAt: string
+}
+
 /** The whole saved app state. */
 export interface AppData {
   version: 1
@@ -387,7 +386,6 @@ export interface AppData {
   marks: Mark[]
   holidays: Holiday[]
   deadlines: Deadline[]
-  units: Unit[]
   scores: Score[]
   focusSessions: FocusSession[]
   courseLinks: CourseLink[]
@@ -399,6 +397,8 @@ export interface AppData {
   notes: Note[]
   /** Locker: uploaded files per subject (contents live in IndexedDB). */
   files: LockerFile[]
+  /** Syllabus per subject, read by Smart import (one per subject). */
+  syllabi: Syllabus[]
   /** E11: CGPA planner semesters (kept when a new semester starts, E14). */
   cgpaSemesters?: CgpaSemester[]
 }
@@ -411,7 +411,6 @@ export const EMPTY_DATA: AppData = {
   marks: [],
   holidays: [],
   deadlines: [],
-  units: [],
   scores: [],
   focusSessions: [],
   courseLinks: [],
@@ -420,6 +419,7 @@ export const EMPTY_DATA: AppData = {
   conversions: [],
   notes: [],
   files: [],
+  syllabi: [],
 }
 
 let counter = 0

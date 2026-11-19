@@ -6,7 +6,7 @@ import divA from './__fixtures__/tt-divA.json'
 import divC from './__fixtures__/tt-divC.json'
 import divF from './__fixtures__/tt-divF.json'
 import { parseTimetablePages, distinctBatches } from './timetableImport'
-import type { TextItemLike } from './syllabusReader'
+import type { TextItemLike } from './pdfText'
 
 const files: [string, unknown][] = [
   ['DivA', divA],

@@ -11,7 +11,7 @@ import {
   entriesToSlots,
   type ParsedEntry,
 } from './timetableImport'
-import type { TextItemLike } from './syllabusReader'
+import type { TextItemLike } from './pdfText'
 
 const pages = fixtures as unknown as TextItemLike[][]
 

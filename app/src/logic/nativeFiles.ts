@@ -14,8 +14,19 @@ function safeName(name: string): string {
   return cleaned || 'file'
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
-  const buf = new Uint8Array(await blob.arrayBuffer())
+/** Blob bytes; FileReader fallback for older WebViews without Blob.arrayBuffer(). */
+function readBytes(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer()
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result as ArrayBuffer)
+    r.onerror = () => reject(r.error ?? new Error('Could not read the file.'))
+    r.readAsArrayBuffer(blob)
+  })
+}
+
+export async function blobToBase64(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await readBytes(blob))
   let bin = ''
   const CHUNK = 0x8000
   for (let i = 0; i < buf.length; i += CHUNK) bin += String.fromCharCode(...buf.subarray(i, i + CHUNK))

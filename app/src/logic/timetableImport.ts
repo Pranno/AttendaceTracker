@@ -361,8 +361,8 @@ export function filterByBatch(entries: ParsedEntry[], myBatch: string): ParsedEn
 // Nothing is guessed: an unreadable fragment is flagged (T9/A5).
 // ============================================================
 
-import type { TextItemLike } from './syllabusReader'
-import { groupItemsIntoLines } from './syllabusReader'
+import type { TextItemLike } from './pdfText'
+import { groupItemsIntoLines } from './pdfText'
 
 /** One positioned text fragment in a single PAGE's coordinate space.
  *  (pdfjs gives every page its own origin — fragments must never be pooled

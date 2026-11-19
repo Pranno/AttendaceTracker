@@ -16,6 +16,7 @@ import { todayStr, formatShort } from '../logic/dates'
 import { isNative, ensureNotifyPermission, resyncAllNotifications } from '../logic/reminders'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import EmailInbox from './EmailInbox'
+import SmartImportSettings from './SmartImportSettings'
 import { defaultRedirectUri, loadGmailConfig, saveGmailConfig } from '../logic/gmail'
 
 // ------------------------------------------------------------
@@ -423,6 +424,9 @@ export default function Settings() {
           classes with no batch tag (like a plain “A SDC (L)”) belong to everyone.
         </div>
       </div>
+
+      <SectionTitle>SMART IMPORT (AI)</SectionTitle>
+      <SmartImportSettings />
 
       <SectionTitle>REMINDERS</SectionTitle>
 

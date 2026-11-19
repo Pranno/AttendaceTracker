@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import CgpaPlanner from './CgpaPlanner'
+import SyllabusView from './SyllabusView'
 import { useApp } from '../data/store'
 import type { DateStr } from '../data/model'
 import { buildReport, computeSubjectTotals, freshData, summarizeSubject } from '../logic/attendance'
@@ -158,6 +159,9 @@ function SubjectDetail({ subjectId, go, onClose }: { subjectId: string; go: (t: 
           <StatusPill tone="neutral">{sl.teacher || '—'}</StatusPill>
         </div>
       ))}
+
+      {/* Syllabus (Smart import), unit by unit */}
+      <SyllabusView subjectId={subjectId} onImport={() => go('timetable')} />
 
       <button type="button" className="btn ghost subj-collapse" onClick={onClose}>Collapse ▲</button>
     </div>

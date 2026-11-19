@@ -7,9 +7,9 @@
 // and the page index is kept so lines from different pages never mix
 // (PDF y-coordinates restart on every page).
 //
-// Used by the timetable importer (Timetable tab). The syllabus reader
-// that used to live here was removed together with its UI — see
-// docs/PROGRESS.md for what remains vs. the requirements doc.
+// Used by the timetable importer (Timetable tab). (This file used to be
+// called syllabusReader.ts; the old rule-based syllabus reader is gone —
+// syllabi are now read by Smart import, see logic/smartImport.ts.)
 // ============================================================
 
 export interface TextItemLike {

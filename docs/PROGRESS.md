@@ -45,7 +45,7 @@ Chronological log of what has been built. Newest first. See [REQUIREMENTS.md](RE
 | Item | Ref | Notes |
 |------|-----|-------|
 | Excel (.xlsx) timetable import UI | A3 | dependency present, needs file-input wiring |
-| Syllabus upload UI | E2 | parser exists, no interface yet |
+| Syllabus upload UI | E2 | Smart import (Gemini, user’s own key): Timetable tab → Import syllabus; shown per subject on the Subjects tab. Old rule-based syllabus reader removed. |
 | Week view | C3 | |
 | Per-subject custom reminder times | D8 | |
 | Permission-status display in Settings | F6 | |
