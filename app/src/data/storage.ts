@@ -21,11 +21,68 @@ export function loadData(): AppData {
  *  versions exist (older snapshots would otherwise crash on `undefined`). */
 export function normalizeData(parsed: Partial<AppData> | null | undefined): AppData {
   const p = parsed && typeof parsed === 'object' ? parsed : {}
-  return {
+  return repairTimetable({
     ...structuredClone(EMPTY_DATA),
     ...p,
     settings: { ...DEFAULT_SETTINGS, ...(p.settings ?? {}) },
+  })
+}
+
+/** Safe one-way repairs for timetables saved by older versions:
+ *  1. Afternoon classes stored as morning times (an old parser bug read
+ *     "1.15 - 2.15" as 01:15-02:15). No college class runs between 1 and 7
+ *     in the morning, so those hours move to the afternoon.
+ *  2. Exact duplicate classes (importing the same timetable twice used to
+ *     add every class again — shown twice, counted twice). Duplicates are
+ *     merged and their attendance marks moved onto the kept class. */
+export function repairTimetable(d: AppData): AppData {
+  if (!Array.isArray(d.slots) || d.slots.length === 0) return d
+  let changed = false
+  const pm = (t: string): string => {
+    const m = /^(\d{2}):(\d{2})$/.exec(t ?? '')
+    if (!m) return t
+    const h = Number(m[1])
+    return h >= 1 && h <= 6 ? `${String(h + 12).padStart(2, '0')}:${m[2]}` : t
   }
+  let slots = d.slots.map((s) => {
+    const startTime = pm(s.startTime)
+    const endTime = pm(s.endTime)
+    if (startTime === s.startTime && endTime === s.endTime) return s
+    changed = true
+    return { ...s, startTime, endTime }
+  })
+  const key = (s: (typeof slots)[number]) =>
+    [s.subjectId, s.weekday, s.startTime, s.endTime, s.type, s.batch ?? '', s.validFrom, s.validUntil ?? ''].join('|')
+  const keep = new Map<string, string>() // key → kept slot id
+  const alias = new Map<string, string>() // dropped id → kept id
+  slots = slots.filter((s) => {
+    const k = key(s)
+    const kept = keep.get(k)
+    if (kept === undefined) {
+      keep.set(k, s.id)
+      return true
+    }
+    alias.set(s.id, kept)
+    return false
+  })
+  let marks = d.marks
+  let conversions = d.conversions
+  if (alias.size > 0) {
+    changed = true
+    const seen = new Set<string>()
+    marks = []
+    // marks on the kept class win; a duplicate's mark fills in only where the kept one has none
+    const ordered = [...d.marks.filter((m) => !alias.has(m.slotId)), ...d.marks.filter((m) => alias.has(m.slotId))]
+    for (const m of ordered) {
+      const slotId = alias.get(m.slotId) ?? m.slotId
+      const k = `${m.date}|${slotId}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      marks.push(slotId === m.slotId ? m : { ...m, slotId, id: `${m.date}_${slotId}` })
+    }
+    conversions = (d.conversions ?? []).map((c) => (alias.has(c.slotId) ? { ...c, slotId: alias.get(c.slotId)! } : c))
+  }
+  return changed ? { ...d, slots, marks, conversions } : d
 }
 
 export function saveData(data: AppData): void {

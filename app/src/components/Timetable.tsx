@@ -4,11 +4,12 @@
 // The weekly grid shows only your batch's classes + whole-class ones (Settings → Class & batch).
 
 import { useState } from 'react'
-import { timetableStart, useApp } from '../data/store'
+import { useApp } from '../data/store'
+import { applyImport } from '../logic/applyImport'
 import type { ClassType, DateStr } from '../data/model'
-import { newId, slotMatchesBatch } from '../data/model'
+import { slotMatchesBatch } from '../data/model'
 import { formatShort, monthKey, todayStr, weekdayName } from '../logic/dates'
-import { parseTimetableText, parseTimetablePages, filterByBatch, entriesToSlots, distinctBatches, keepOnlyBatch } from '../logic/timetableImport'
+import { parseTimetableText, parseTimetablePages, filterByBatch, distinctBatches, keepOnlyBatch } from '../logic/timetableImport'
 import type { GridParseResult, ImportResult, ParsedEntry } from '../logic/timetableImport'
 import type { TextItemLike } from '../logic/pdfText'
 import { hasGeminiKey } from '../logic/gemini'
@@ -255,38 +256,7 @@ export default function Timetable() {
     if (!parsed) return
     // Everything is computed up front from the current data so we know what
     // was NOT saved — those entries used to be dropped without a word.
-    const subjects = [...data.subjects]
-    const byShort = new Map(subjects.map((s) => [s.shortName.toUpperCase(), s.id]))
-    // Legend full names from the uploaded PDF (e.g. VACO → "Value added
-    // career orientation I") — enrich existing/created subjects with them.
-    const legendMap = new Map(legendSubjects.map((l) => [l.short.toUpperCase(), l.full]))
-    // Grid cells print "VACO-I" while the legend key is "VACO".
-    const legendFull = {
-      has: (k: string) => legendMap.has(k) || legendMap.has(k.replace(/-[IVX]+$/, '')),
-      get: (k: string) => legendMap.get(k) ?? legendMap.get(k.replace(/-[IVX]+$/, '')),
-    }
-    for (const e of parsed) {
-      // Unreadable cells ("A VAC ⚠️") must not create junk subjects.
-      if (isProblem(e)) continue
-      const key = e.subjectShort.toUpperCase()
-      if (!byShort.has(key)) {
-        const subj = { id: newId('subj'), shortName: key, fullName: legendFull.get(key) ?? key, nicknames: [] }
-        subjects.push(subj)
-        byShort.set(key, subj.id)
-      } else if (legendFull.has(key)) {
-        const i = subjects.findIndex((s) => s.id === byShort.get(key))
-        if (i >= 0 && subjects[i].fullName === subjects[i].shortName) {
-          subjects[i] = { ...subjects[i], fullName: legendFull.get(key)! }
-        }
-      }
-    }
-    const good = parsed.filter((e) => !isProblem(e))
-    // Imported classes belong to the whole timetable, like hand-added ones:
-    // they start at the semester start (or the earliest class), not on the
-    // import day — otherwise past days showed hand-added classes but not
-    // imported ones.
-    const { slots, unmatched } = entriesToSlots(good, byShort, timetableStart(data, today))
-    const notSaved = [...parsed.filter(isProblem), ...unmatched]
+    const { subjects, newSlots, notSaved, alreadyThere } = applyImport(data, parsed, legendSubjects, today)
     // J2: the monthly plan starts from the month after the timetable was
     // first confirmed. Set once — re-imports later don't move it back.
     const nextMonthMk = (() => {
@@ -302,24 +272,25 @@ export default function Timetable() {
         ...d.subjects.map((s) => subjects.find((x) => x.id === s.id) ?? s),
         ...subjects.filter((x) => !d.subjects.some((s) => s.id === x.id)),
       ],
-      slots: [...d.slots, ...slots.map((s) => ({ ...s, id: newId('slot') }))],
+      slots: [...d.slots, ...newSlots],
       settings: d.settings.planStartMonth ? d.settings : { ...d.settings, planStartMonth: nextMonthMk },
     }))
     setImportText('')
+    const dupNote = alreadyThere ? ` ${alreadyThere} were already in your timetable and were not added again.` : ''
     if (notSaved.length > 0) {
       // Keep the panel open on just the entries that still need attention.
       setParsed(notSaved)
       setAllParsed(notSaved)
       setParseWarn([])
       setImportResult(
-        `Saved ${slots.length} classes. ${notSaved.length} could not be added automatically — they are listed below. ` +
+        `Saved ${newSlots.length} classes.${dupNote} ${notSaved.length} could not be added automatically — they are listed below. ` +
           'Add them by hand under “Add a lecture”, then remove them here.',
       )
       return
     }
-    setImportResult(null)
+    setImportResult(dupNote ? `Saved ${newSlots.length} classes.${dupNote}` : null)
     setParsed(null)
-    setImportOpen(false)
+    if (!dupNote) setImportOpen(false)
   }
 
   // ---- new subject form ----

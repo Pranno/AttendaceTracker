@@ -65,3 +65,38 @@ describe('semester archive storage', () => {
     expect(localStorage.getItem('attendancetracker.data.v1')).toBe('ACTIVE')
   })
 })
+
+describe('repairing timetables saved by older versions', () => {
+  const base = () => structuredClone(EMPTY_DATA)
+  const slot = (id: string, start: string, end: string, extra = {}) => ({
+    id, subjectId: 'cp', weekday: 2, startTime: start, endTime: end, type: 'lecture' as const,
+    room: '', teacher: '', validFrom: '2026-08-03', validUntil: null, ...extra,
+  })
+
+  it('moves afternoon classes stored as 01:15 to 13:15', async () => {
+    const { normalizeData } = await import('../data/storage')
+    const d = normalizeData({ ...base(), slots: [slot('a', '01:15', '02:15'), slot('b', '09:00', '10:00'), slot('c', '12:15', '01:15')] })
+    expect(d.slots.map((s) => `${s.startTime}-${s.endTime}`)).toEqual(['13:15-14:15', '09:00-10:00', '12:15-13:15'])
+  })
+
+  it('merges exact duplicate classes and keeps every mark', async () => {
+    const { normalizeData } = await import('../data/storage')
+    const d = normalizeData({
+      ...base(),
+      slots: [slot('a', '09:00', '10:00'), slot('dup', '09:00', '10:00'), slot('other', '09:00', '10:00', { batch: 'A2' })],
+      marks: [
+        { id: '1', date: '2026-11-03', slotId: 'a', status: 'present' },
+        { id: '2', date: '2026-11-03', slotId: 'dup', status: 'absent' }, // same day: kept class's mark wins
+        { id: '3', date: '2026-11-10', slotId: 'dup', status: 'absent' }, // only on the duplicate: moved
+      ],
+    })
+    expect(d.slots.map((s) => s.id)).toEqual(['a', 'other'])
+    expect(d.marks.map((m) => `${m.date} ${m.slotId} ${m.status}`)).toEqual(['2026-11-03 a present', '2026-11-10 a absent'])
+  })
+
+  it('leaves a healthy timetable untouched', async () => {
+    const { normalizeData } = await import('../data/storage')
+    const d = normalizeData({ ...base(), slots: [slot('a', '09:00', '10:00'), slot('b', '13:15', '14:15')] })
+    expect(d.slots.map((s) => s.id)).toEqual(['a', 'b'])
+  })
+})

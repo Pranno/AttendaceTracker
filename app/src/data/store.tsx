@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import type { AppData, CgpaSemester, LockerFile, Note, Syllabus, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
 import { clearFileBlobs, deleteFileBlobs } from '../logic/fileStore'
+import { timetableStartOf } from '../logic/timetableStart'
 import { loadData, normalizeData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
 import type { ArchivedSemester } from '../data/storage'
 import { markFor, buildReport, freshData } from '../logic/attendance'
@@ -647,14 +648,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
 }
 
-/** First day the timetable applies: the semester start, else the earliest
- *  class's start, else `fallback`. Used for classes that belong to the whole
- *  timetable (hand-added and imported ones alike). */
-export function timetableStart(d: AppData, fallback: DateStr): DateStr {
-  const floor = d.settings.semesterStart
-    ?? (d.slots.length ? d.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), fallback) : fallback)
-  return fallback > floor ? floor : fallback
-}
+/** See logic/timetableStart.ts (kept exported here for existing imports). */
+export const timetableStart = timetableStartOf
 
 export function useApp(): AppApi {
   const ctx = useContext(Ctx)
