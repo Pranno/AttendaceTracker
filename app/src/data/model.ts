@@ -41,6 +41,9 @@ export interface AppSettings {
   /** F4: evening "mark your attendance" reminder on/off and its time. */
   eveningReminderOn: boolean
   eveningReminderTime: string
+  /** How pasted messages and emails are read for deadlines:
+   *  'standard' = offline rule-based reader, 'smart' = Gemini AI. */
+  deadlineReader?: 'standard' | 'smart'
   /** F13: subject cards on Today show the next class room & teacher. */
   showRoomTeacher: boolean
   /** F14: quick actions (Mark / Add deadline) shown in the day sheet. */

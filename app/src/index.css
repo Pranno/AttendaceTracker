@@ -123,7 +123,7 @@ button:active { transform: scale(0.97); }
      still paints dark red so its white greeting/date stay readable. */
   background-color: var(--primary);
   background-image: linear-gradient(180deg, var(--header-from), var(--header-to));
-  padding: calc(16px + env(safe-area-inset-top)) 16px 64px;
+  padding: calc(16px + env(safe-area-inset-top)) 16px 24px;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15); /* keeps white text legible even if a theme swap leaves the bg light momentarily */
   overflow: hidden;
@@ -174,7 +174,9 @@ button:active { transform: scale(0.97); }
 /* hero card overlaps the header */
 .hero-card {
   position: relative; z-index: 2;
-  margin: -44px 0 0; display: flex; align-items: center; gap: 14px;
+  /* Was margin-top: -44px, which pulled the card over the "Paste a college
+     message…" bar so it could never be tapped on the home screen. */
+  margin: 14px 0 0; display: flex; align-items: center; gap: 14px;
 }
 .hero-line { font-size: 16px; line-height: 1.35; }
 
@@ -854,3 +856,6 @@ body.viewer-open .pillnav, body.viewer-open .fab { display: none; }
 .syl-list a { color: var(--primary); font-weight: 600; }
 .syl-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .syl-foot { margin: 4px 2px 12px; }
+.smart-reader { margin-top: 12px; }
+.smart-reader .reader-choice { margin-top: 6px; }
+.reader-opt:disabled { opacity: 0.5; }

@@ -7,6 +7,7 @@
 // Tokens are encrypted at rest (tokenCrypto.ts).
 
 import { extractDeadlines, type ExtractedDeadline } from './deadlines'
+import { readDeadlinesFromMessages, type DeadlineReader } from './smartDeadlines'
 import { fromDate, todayStr } from './dates'
 import { clearEncrypted, decryptJson, encryptJson } from './tokenCrypto'
 import type { DateStr, Suggestion, Subject } from '../data/model'
@@ -366,6 +367,25 @@ export function parseMessages(messages: InboxMessage[], subjects: Subject[]): Pa
     message: m,
     items: extractDeadlines([m.subject, m.body].filter(Boolean).join('\n'), todayStr(), subjects),
   })).filter((p) => p.items.length > 0)
+}
+
+/** Same as parseMessages, with the reader chosen in Settings (Smart reads
+ *  all the emails in one Gemini request; falls back to Standard). */
+export async function parseMessagesWith(
+  messages: InboxMessage[],
+  subjects: Subject[],
+  reader: DeadlineReader,
+): Promise<{ parsed: ParsedMessage[]; reader: DeadlineReader; fallbackReason?: string }> {
+  const res = await readDeadlinesFromMessages(
+    messages.map((m) => ({ id: m.id, text: [m.subject, m.body].filter(Boolean).join('\n') })),
+    todayStr(),
+    subjects,
+    reader,
+  )
+  const parsed = messages
+    .map((m) => ({ message: m, items: res.byId.get(m.id) ?? [] }))
+    .filter((p) => p.items.length > 0)
+  return { parsed, reader: res.reader, fallbackReason: res.fallbackReason }
 }
 
 /** Turn parsed hits into pending Suggestions (dedup by gmail message id, I3). */

@@ -5,7 +5,8 @@ import { useState } from 'react'
 import { ClipboardPaste, Check } from 'lucide-react'
 import { useApp } from '../data/store'
 import { Sheet } from './ui/parts'
-import { extractDeadlines, type ExtractedDeadline } from '../logic/deadlines'
+import type { ExtractedDeadline } from '../logic/deadlines'
+import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
 import { todayStr, formatShort } from '../logic/dates'
 
 export default function PasteDeadlineSheet({
@@ -21,9 +22,17 @@ export default function PasteDeadlineSheet({
   const [checked, setChecked] = useState<boolean[]>([])
   const [savedCount, setSavedCount] = useState<number | null>(null)
 
-  function runExtraction() {
+  const reader = deadlineReaderOf(data.settings)
+  const [reading, setReading] = useState(false)
+  const [readerNote, setReaderNote] = useState<string | null>(null)
+
+  async function runExtraction() {
     if (!text.trim()) return
-    const res = extractDeadlines(text, todayStr(), data.subjects)
+    setReading(true)
+    setReaderNote(null)
+    const { items: res, fallbackReason } = await readDeadlines(text, todayStr(), data.subjects, reader)
+    setReading(false)
+    if (fallbackReason) setReaderNote(`Smart reader unavailable (${fallbackReason}) — used the Standard reader.`)
     setResults(res)
     setChecked(res.map(() => true))
     setSavedCount(null)
@@ -72,7 +81,8 @@ export default function PasteDeadlineSheet({
     <Sheet open={open} onClose={handleClose} title="Paste a college message">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <p className="msg" style={{ margin: 0 }}>
-          Copy any deadline or notice from WhatsApp or email and paste it below. Fixed rules extract the due date and subject.
+          Copy any deadline or notice from WhatsApp or email and paste it below.{' '}
+          {reader === 'smart' ? 'Smart AI reads it and finds every deadline.' : 'Fixed rules extract the due date and subject.'}
         </p>
 
         <textarea
@@ -86,11 +96,11 @@ export default function PasteDeadlineSheet({
         <div className="row" style={{ gap: 8 }}>
           <button
             className="primary big-btn grow"
-            disabled={text.trim().length < 4}
-            onClick={runExtraction}
+            disabled={text.trim().length < 4 || reading}
+            onClick={() => void runExtraction()}
           >
             <ClipboardPaste size={18} />
-            Extract deadline
+            {reading ? 'Reading…' : reader === 'smart' ? '✨ Extract with Smart AI' : 'Extract deadline'}
           </button>
           {results && (
             <button
@@ -104,6 +114,8 @@ export default function PasteDeadlineSheet({
             </button>
           )}
         </div>
+
+        {readerNote && <div className="msg" style={{ color: 'var(--limit)' }}>{readerNote}</div>}
 
         {savedCount !== null && (
           <div className="card row" style={{ background: 'var(--safe)', color: '#fff', gap: 8 }}>

@@ -163,31 +163,18 @@ interface GenerateResponse {
 }
 
 /** Send one file + instructions and get JSON back that matches `schema`. */
-export async function readFileAsJson<T>(opts: {
-  file: Blob
-  mimeType: string
-  prompt: string
-  /** JSON Schema (the subset Gemini supports) describing the answer. */
-  schema: Record<string, unknown>
-  key?: string
-  model?: string
-}): Promise<T> {
+type Part = { text: string } | { inlineData: { mimeType: string; data: string } }
+
+/** One generateContent call that must come back as JSON matching `schema`. */
+async function generateJson<T>(parts: Part[], schema: Record<string, unknown>, opts: { key?: string; model?: string; what: string }): Promise<T> {
   const key = opts.key ?? getGeminiKey()
   const model = opts.model ?? getGeminiModel()
   if (!key) throw new GeminiError('Add your Gemini API key in Settings → Smart import (AI) first.')
-  if (opts.file.size > MAX_SMART_FILE_BYTES) {
-    throw new GeminiError(`The file is over ${Math.round(MAX_SMART_FILE_BYTES / 1024 / 1024)} MB — too big for Smart import.`)
-  }
   const body = {
-    contents: [
-      {
-        role: 'user',
-        parts: [{ inlineData: { mimeType: opts.mimeType, data: await blobToBase64(opts.file) } }, { text: opts.prompt }],
-      },
-    ],
+    contents: [{ role: 'user', parts }],
     generationConfig: {
       responseMimeType: 'application/json',
-      responseJsonSchema: opts.schema,
+      responseJsonSchema: schema,
       temperature: 0,
     },
   }
@@ -198,7 +185,7 @@ export async function readFileAsJson<T>(opts: {
     180_000,
   )) as GenerateResponse
   if (res?.promptFeedback?.blockReason) {
-    throw new GeminiError('Gemini refused to read this file. Try another copy of it.')
+    throw new GeminiError(`Gemini refused to read this ${opts.what}.`)
   }
   const cand = res?.candidates?.[0]
   const text = (cand?.content?.parts ?? [])
@@ -206,12 +193,48 @@ export async function readFileAsJson<T>(opts: {
     .map((p) => p.text)
     .join('')
   if (cand?.finishReason === 'MAX_TOKENS') {
-    throw new GeminiError('The document was too long to read in one go. Upload one subject (or fewer pages) at a time.')
+    throw new GeminiError(
+      opts.what === 'file'
+        ? 'The document was too long to read in one go. Upload one subject (or fewer pages) at a time.'
+        : `The ${opts.what} was too long to read in one go.`,
+    )
   }
-  if (!text.trim()) throw new GeminiError('Gemini returned nothing for this file. Try again, or try a clearer copy.')
+  if (!text.trim()) throw new GeminiError(`Gemini returned nothing for this ${opts.what}. Try again.`)
   try {
     return JSON.parse(text) as T
   } catch {
     throw new GeminiError('Gemini’s answer couldn’t be read. Try again.')
   }
+}
+
+/** Send plain text + instructions and get JSON back that matches `schema`. */
+export function readTextAsJson<T>(opts: {
+  text: string
+  prompt: string
+  schema: Record<string, unknown>
+  key?: string
+  model?: string
+}): Promise<T> {
+  return generateJson<T>([{ text: opts.prompt }, { text: opts.text }], opts.schema, { key: opts.key, model: opts.model, what: 'text' })
+}
+
+/** Send one file + instructions and get JSON back that matches `schema`. */
+export async function readFileAsJson<T>(opts: {
+  file: Blob
+  mimeType: string
+  prompt: string
+  /** JSON Schema (the subset Gemini supports) describing the answer. */
+  schema: Record<string, unknown>
+  key?: string
+  model?: string
+}): Promise<T> {
+  if (!(opts.key ?? getGeminiKey())) throw new GeminiError('Add your Gemini API key in Settings → Smart import (AI) first.')
+  if (opts.file.size > MAX_SMART_FILE_BYTES) {
+    throw new GeminiError(`The file is over ${Math.round(MAX_SMART_FILE_BYTES / 1024 / 1024)} MB — too big for Smart import.`)
+  }
+  return generateJson<T>(
+    [{ inlineData: { mimeType: opts.mimeType, data: await blobToBase64(opts.file) } }, { text: opts.prompt }],
+    opts.schema,
+    { key: opts.key, model: opts.model, what: 'file' },
+  )
 }

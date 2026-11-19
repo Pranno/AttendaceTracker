@@ -8,7 +8,7 @@ import { Mail, RefreshCw, Check, X, Inbox, ClipboardPaste, Plug, Unplug } from '
 import { useApp } from '../data/store'
 import { formatShort, todayStr } from '../logic/dates'
 import type { Suggestion } from '../data/model'
-import { extractDeadlines } from '../logic/deadlines'
+import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
 import {
   beginLogin,
   beginLoginNative,
@@ -21,7 +21,7 @@ import {
   isConnected,
   loadGmailConfig,
   loadPendingNativeCode,
-  parseMessages,
+  parseMessagesWith,
   toSuggestions,
 } from '../logic/gmail'
 
@@ -122,13 +122,18 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     setNote(null)
     try {
       const msgs = await fetchInbox(25)
-      const parsed = parseMessages(msgs, data.subjects)
+      // only emails not seen before are read (saves the Smart reader's free limit)
+      const seenIds = new Set(data.suggestions.map((s) => s.messageId).filter(Boolean))
+      const unseen = msgs.filter((m) => !seenIds.has(m.id))
+      const { parsed, reader, fallbackReason } = await parseMessagesWith(unseen, data.subjects, deadlineReaderOf(data.settings))
       const fresh = toSuggestions(parsed, data.suggestions, data.subjects)
       addSuggestions(fresh)
+      const how = reader === 'smart' ? ' (read by Smart AI)' : ''
       setNote(
-        fresh.length > 0
-          ? `Checked ${msgs.length} recent emails — ${fresh.length} new suggestion${fresh.length === 1 ? '' : 's'}.`
-          : `Checked ${msgs.length} recent emails — nothing new with a date in it.`,
+        (fresh.length > 0
+          ? `Checked ${msgs.length} recent emails${how} — ${fresh.length} new suggestion${fresh.length === 1 ? '' : 's'}.`
+          : `Checked ${msgs.length} recent emails${how} — nothing new with a date in it.`) +
+          (fallbackReason ? ` Smart reader unavailable (${fallbackReason}) — used the Standard reader.` : ''),
       )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not reach Gmail.')
@@ -143,9 +148,13 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     void refreshAuthState()
   }
 
-  function handlePasteAdd() {
+  async function handlePasteAdd() {
     if (!pasteText.trim()) return
-    const items = extractDeadlines(pasteText, todayStr(), data.subjects)
+    setBusy(true)
+    const { items, fallbackReason } = await readDeadlines(pasteText, todayStr(), data.subjects, deadlineReaderOf(data.settings))
+    setBusy(false)
+    const fbNote = fallbackReason ? ` Smart reader unavailable (${fallbackReason}) — used the Standard reader.` : ''
+    if (fbNote) setNote(fbNote.trim())
     if (items.length === 0) {
       setError('No dates found in that text. Include the due date line.')
       return
@@ -163,7 +172,7 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     setPasteText('')
     setPasteOpen(false)
     setError(null)
-    setNote(`${subs.length} suggestion${subs.length === 1 ? '' : 's'} added from pasted text.`)
+    setNote(`${subs.length} suggestion${subs.length === 1 ? '' : 's'} added from pasted text.${fbNote}`)
   }
 
   const configured = hasGmailSetup()
@@ -218,7 +227,7 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
             onChange={(e) => setPasteText(e.target.value)}
             style={{ width: '100%', resize: 'vertical' }}
           />
-          <button className="btn small" onClick={handlePasteAdd} disabled={!pasteText.trim()}>
+          <button className="btn small" onClick={() => void handlePasteAdd()} disabled={!pasteText.trim() || busy}>
             Extract suggestions
           </button>
         </div>

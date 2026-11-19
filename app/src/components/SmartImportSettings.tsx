@@ -16,8 +16,11 @@ import {
   type GeminiModel,
 } from '../logic/gemini'
 import { openExternal } from './Locker'
+import { useApp } from '../data/store'
 
 export default function SmartImportSettings() {
+  const { data, updateSettings } = useApp()
+  const deadlineReader = data.settings.deadlineReader === 'smart' ? 'smart' : 'standard'
   const [saved, setSaved] = useState(getGeminiKey())
   const [draft, setDraft] = useState('')
   const [show, setShow] = useState(false)
@@ -73,7 +76,7 @@ export default function SmartImportSettings() {
         <KeyRound size={22} style={{ flex: 'none', marginTop: 2, color: 'var(--primary)' }} />
         <div className="msg" style={{ color: 'var(--text)' }}>
           Smart import uses Google’s <b>Gemini</b> AI to read your timetable and syllabus PDFs (or photos) — any layout,
-          in full detail. It needs your own free Gemini API key.
+          in full detail — and, if you choose, the deadlines in pasted messages and emails. It needs your own free Gemini API key.
         </div>
       </div>
 
@@ -113,6 +116,36 @@ export default function SmartImportSettings() {
           </select>
         </label>
       )}
+
+      {/* Which reader finds deadlines in pasted messages and emails */}
+      <div className="smart-reader">
+        <span className="small-label">Read deadlines (pasted messages &amp; email) with</span>
+        <div className="reader-choice" role="radiogroup" aria-label="Deadline reader">
+          <button
+            role="radio"
+            aria-checked={deadlineReader === 'standard'}
+            className={`reader-opt${deadlineReader === 'standard' ? ' on' : ''}`}
+            onClick={() => updateSettings({ deadlineReader: 'standard' })}
+          >
+            <b>Standard</b>
+            <span>Offline · fixed rules for dates and keywords</span>
+          </button>
+          <button
+            role="radio"
+            aria-checked={deadlineReader === 'smart'}
+            className={`reader-opt${deadlineReader === 'smart' ? ' on' : ''}`}
+            onClick={() => updateSettings({ deadlineReader: 'smart' })}
+            disabled={!saved}
+          >
+            <b>✨ Smart (AI)</b>
+            <span>Online · understands any wording, “next Friday”, several deadlines in one message</span>
+          </button>
+        </div>
+        {!saved && <div className="msg">Add a key below to use the Smart reader.</div>}
+        {saved && deadlineReader === 'smart' && (
+          <div className="msg">If Smart can’t run (no internet, limit reached) the Standard reader is used and you’re told.</div>
+        )}
+      </div>
 
       <button className="link-btn" style={{ marginTop: 10, paddingLeft: 0 }} onClick={() => setGuideOpen((o) => !o)}>
         {guideOpen ? 'Hide' : 'How do I get a Gemini API key?'}

@@ -11,7 +11,8 @@ import { SliderField, SectionTitle, Toggle } from './ui/parts'
 import { useTheme } from '../theme/ThemeProvider'
 import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
-import { extractDeadlines, type ExtractedDeadline } from '../logic/deadlines'
+import type { ExtractedDeadline } from '../logic/deadlines'
+import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
 import { todayStr, formatShort } from '../logic/dates'
 import { isNative, ensureNotifyPermission, resyncAllNotifications } from '../logic/reminders'
 import { LocalNotifications } from '@capacitor/local-notifications'
@@ -30,9 +31,20 @@ function DeadlinePaste() {
   const [checked, setChecked] = useState<boolean[]>([])
   const [savedMsg, setSavedMsg] = useState<string | null>(null)
 
-  function run() {
-    const r = extractDeadlines(text, todayStr(), data.subjects)
+  const reader = deadlineReaderOf(data.settings)
+  const [reading, setReading] = useState(false)
+
+  async function run() {
+    setReading(true)
+    setSavedMsg(null)
+    const { items: r, fallbackReason } = await readDeadlines(text, todayStr(), data.subjects, reader)
+    setReading(false)
     setResults(r)
+    if (fallbackReason) {
+      setChecked(r.map(() => true))
+      setSavedMsg(`Smart reader unavailable (${fallbackReason}) — used the Standard reader.`)
+      return
+    }
     setChecked(r.map(() => true))
     setSavedMsg(null)
   }
@@ -71,8 +83,8 @@ function DeadlinePaste() {
         onChange={(e) => setText(e.target.value)}
       />
       <div className="row" style={{ marginTop: 8, gap: 8 }}>
-        <button className="secondary big-btn grow" disabled={text.trim().length < 4} onClick={run}>
-          Extract deadlines
+        <button className="secondary big-btn grow" disabled={text.trim().length < 4 || reading} onClick={() => void run()}>
+          {reading ? 'Reading…' : reader === 'smart' ? '✨ Extract with Smart AI' : 'Extract deadlines'}
         </button>
         {results && (
           <button className="danger-quiet big-btn" onClick={() => { setResults(null); setText('') }}>
