@@ -23,7 +23,6 @@ export default function SyllabusImport() {
   const [done, setDone] = useState<string | null>(null)
   const [picks, setPicks] = useState<Pick[] | null>(null)
   const [source, setSource] = useState('')
-  const [addLinks, setAddLinks] = useState(true)
 
   async function read(f: File | undefined) {
     if (!f) return
@@ -65,21 +64,34 @@ export default function SyllabusImport() {
     let links = 0
     for (const p of chosen) {
       setSyllabus(syllabusFor(p.course, p.subjectId, source))
-      if (addLinks) {
-        for (const l of p.course.links ?? []) {
-          if (!l.url) continue
-          const url = normalizeUrl(l.url)
-          const exists = data.courseLinks.some((c) => c.subjectId === p.subjectId && normalizeUrl(c.url) === url)
-          if (exists) continue
-          let host = ''
+      // Every course link in the syllabus goes straight into that subject's
+      // Locker → Links (names without a web address too, as "no link yet").
+      for (const l of p.course.links ?? []) {
+        const url = l.url ? normalizeUrl(l.url) : ''
+        let host = ''
+        if (url) {
           try {
             host = new URL(url).hostname.replace(/^www\./, '')
           } catch {
-            continue
+            host = ''
           }
-          addCourseLink({ subjectId: p.subjectId, name: l.name, platform: host, url, status: 'not started', needsChecking: false })
-          links += 1
         }
+        const name = l.name.trim()
+        const exists = data.courseLinks.some(
+          (c) =>
+            c.subjectId === p.subjectId &&
+            ((url && host && normalizeUrl(c.url) === url) || c.name.trim().toLowerCase() === name.toLowerCase()),
+        )
+        if (exists || !name) continue
+        addCourseLink({
+          subjectId: p.subjectId,
+          name,
+          platform: host,
+          url: host ? url : '',
+          status: 'not started',
+          needsChecking: !host,
+        })
+        links += 1
       }
     }
     const names = chosen.map((p) => data.subjects.find((s) => s.id === p.subjectId)?.shortName).filter(Boolean)
@@ -188,11 +200,10 @@ export default function SyllabusImport() {
               </div>
             )
           })}
-          {picks.some((p) => p.subjectId && (p.course.links ?? []).some((l) => l.url)) && (
-            <label className="row" style={{ gap: 8, alignItems: 'center', marginTop: 8 }}>
-              <input type="checkbox" checked={addLinks} onChange={(e) => setAddLinks(e.target.checked)} style={{ width: 20, minHeight: 0 }} />
-              <span className="msg" style={{ color: 'var(--text)' }}>Also add the online course links to each subject’s Locker</span>
-            </label>
+          {picks.some((p) => p.subjectId && (p.course.links ?? []).length > 0) && (
+            <div className="msg" style={{ marginTop: 8 }}>
+              Course links in the syllabus will be added to each subject’s Locker → Links.
+            </div>
           )}
           <div className="row" style={{ marginTop: 10, gap: 8 }}>
             <button className="grow" onClick={() => setPicks(null)}>Discard</button>

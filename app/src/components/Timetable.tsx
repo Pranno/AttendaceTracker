@@ -4,7 +4,7 @@
 // The weekly grid shows only your batch's classes + whole-class ones (Settings → Class & batch).
 
 import { useState } from 'react'
-import { useApp } from '../data/store'
+import { timetableStart, useApp } from '../data/store'
 import type { ClassType, DateStr } from '../data/model'
 import { newId, slotMatchesBatch } from '../data/model'
 import { formatShort, monthKey, todayStr, weekdayName } from '../logic/dates'
@@ -18,7 +18,8 @@ import SyllabusImport from './SyllabusImport'
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
 
 export default function Timetable() {
-  const { data, setData, addSubject, removeSubject, addSlot, deleteSlot, updateSlot } = useApp()
+  const { data, setData, addSubject, removeSubject, addSlot, deleteSlot, changeSlotFrom } = useApp()
+  const [lectureMsg, setLectureMsg] = useState<string | null>(null)
   const today = todayStr()
   const myBatch = data.settings.myBatch
 
@@ -280,7 +281,11 @@ export default function Timetable() {
       }
     }
     const good = parsed.filter((e) => !isProblem(e))
-    const { slots, unmatched } = entriesToSlots(good, byShort, today)
+    // Imported classes belong to the whole timetable, like hand-added ones:
+    // they start at the semester start (or the earliest class), not on the
+    // import day — otherwise past days showed hand-added classes but not
+    // imported ones.
+    const { slots, unmatched } = entriesToSlots(good, byShort, timetableStart(data, today))
     const notSaved = [...parsed.filter(isProblem), ...unmatched]
     // J2: the monthly plan starts from the month after the timetable was
     // first confirmed. Set once — re-imports later don't move it back.
@@ -367,7 +372,10 @@ export default function Timetable() {
   function toggleDay(wd: number) {
     const existing = matchingSlotOn(wd)
     if (existing) {
-      // Already has this lecture: remove it outright and drop the highlight.
+      // Already has this lecture: tapping the day removes it — but ask first,
+      // a stray tap used to delete a class without any warning.
+      const name = data.subjects.find((s) => s.id === existing.subjectId)?.shortName ?? 'this class'
+      if (!window.confirm(`${weekdayName(wd)} already has ${name} at ${existing.startTime}. Remove it from the timetable?`)) return
       hardRemoveSlot(existing.id)
       setSelectedDays((sel) => sel.filter((x) => x !== wd))
       return
@@ -378,10 +386,19 @@ export default function Timetable() {
   function submitLecture() {
     const sid = subjectId || data.subjects[0]?.id
     if (!sid || selectedDays.length === 0) return
+    // An end time before the start (e.g. 02:00 typed for 2 PM after a 13:00
+    // start) made the class silently disappear from Today/Calendar.
+    if (!startTime || !endTime || endTime <= startTime) {
+      setLectureMsg('The end time must be after the start time (use 24-hour time: 2 PM = 14:00).')
+      return
+    }
+    const skipped: string[] = []
+    let added = 0
     for (const wd of selectedDays) {
       // Skip days that already carry this class (belt & braces — the chip
       // tap normally handles those by removing instead of adding).
-      if (matchingSlotOn(wd)) continue
+      if (matchingSlotOn(wd)) { skipped.push(weekdayName(wd)); continue }
+      added += 1
       addSlot({
         subjectId: sid,
         weekday: wd,
@@ -395,6 +412,16 @@ export default function Timetable() {
         validUntil: null,
       })
     }
+    const b = batch.trim().toUpperCase()
+    const hidden = b && !slotMatchesBatch(b, myBatch)
+    setLectureMsg(
+      [
+        added ? `Added ${added} class${added === 1 ? '' : 'es'}.` : '',
+        skipped.length ? `${skipped.join(', ')} already had it.` : '',
+        // a class tagged with another batch is saved but never shown to you
+        hidden ? `Note: batch ${b} isn’t your batch (${myBatch}), so it won’t show on Today or the Calendar.` : '',
+      ].filter(Boolean).join(' '),
+    )
   }
 
   const allActiveSlots = data.slots.filter((s) => s.validUntil === null || s.validUntil >= today)
@@ -705,6 +732,7 @@ export default function Timetable() {
             Add lecture{selectedDays.length > 0 ? ` (${selectedDays.map(weekdayName).join(', ')})` : ''}
           </button>
         </div>
+        {lectureMsg && <div className="msg" style={{ marginTop: 8 }}>{lectureMsg}</div>}
       </div>
 
       <h2>Weekly timetable</h2>
@@ -747,20 +775,12 @@ export default function Timetable() {
                         <input value={editTeacher} onChange={e => setEditTeacher(e.target.value)} placeholder="Prof X" />
                       </div>
                       <button className="primary" onClick={() => {
-                        // End current slot today and add new slot starting today
-                        updateSlot(s.id, { validUntil: today });
-                        addSlot({
-                          subjectId: s.subjectId,
-                          weekday: s.weekday,
-                          startTime: editStart,
-                          endTime: editEnd,
-                          type: s.type,
-                          room: editRoom.trim(),
-                          teacher: editTeacher.trim(),
-                          batch: s.batch,
-                          validFrom: today,
-                          validUntil: null,
-                        });
+                        if (!editStart || !editEnd || editEnd <= editStart) {
+                          window.alert('The end time must be after the start time (24-hour time: 2 PM = 14:00).')
+                          return
+                        }
+                        // The change applies from today; past days keep the old time.
+                        changeSlotFrom(s.id, { startTime: editStart, endTime: editEnd, room: editRoom.trim(), teacher: editTeacher.trim() }, today);
                         setEditSlotId(null);
                       }}>Save</button>
                       <button className="secondary" onClick={() => setEditSlotId(null)}>Cancel</button>

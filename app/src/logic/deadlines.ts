@@ -93,7 +93,27 @@ function parseDayMonth(s: string): { m: number; d: number; y?: number } | null {
   return null
 }
 
-const KEYWORD = /(submission|submit|deadline|due|last date|final date|hand ?in|to be submitted|to be completed|completed|complete|certificate|certificates|test|exam|quiz|presentation|upload|viva|report|assignment)/i
+// A line is a deadline candidate when it mentions any kind of task with a
+// date: submissions, exams/tests, registrations, forms, fees, applications…
+// (Registration, forms, fees, enrolment and the like used to be missing, so
+// "Hackathon registration closes on 25/11" was silently ignored.)
+const KEYWORD = new RegExp(
+  '(' +
+    [
+      'submission', 'submit', 'deadline', 'due', 'last date', 'final date', 'closes?', 'ends?', 'before', 'by',
+      'hand ?in', 'to be submitted', 'to be completed', 'to be checked', 'completed?',
+      'certificates?', 'tests?', 'exams?', 'examination', 'mid[- ]?sem', 'end[- ]?sem', 'quiz', 'viva', 'oral',
+      'practical', 'journal', 'lab file', 'presentation', 'seminar', 'project', 'upload', 'report', 'assignments?',
+      'registrations?', 'register', 'enrol(?:l)?(?:ment)?', 'forms?', 'apply', 'application', 'fill',
+      'fees?', 'payment', 'pay', 'scholarship', 'internship', 'hall ticket', 'admit card', 'download',
+      'workshop', 'hackathon', 'competition', 'event', 'meeting', 'orientation',
+    ].join('|') +
+    ')',
+  'i',
+)
+
+/** Filler words that say "this is due" but are not part of the task's name. */
+const FILLER = /\b(last date(?: of| for| to)?|final date|deadline(?: for| of| is)?|due(?: on| by| date)?|to be (?:submitted|completed|checked)|closes|ends)\b/gi
 
 /** Core sentence that becomes the deadline title: strip dates, filler words & keywords (M7). */
 function cleanTitle(line: string, dueIdx: number): string {
@@ -103,13 +123,17 @@ function cleanTitle(line: string, dueIdx: number): string {
   t = t.replace(/\b\d{1,2}\s*-\s*\d{1,2}\s*-\s*\d{2,4}\b/g, '')
   t = t.replace(/\b\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*(?:\s+\d{4})?/gi, '')
   t = t.replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}(st|nd|rd|th)?(?:\s+\d{4})?/gi, '')
-  t = t.replace(KEYWORD, '')
+  // keep the task type ("registration", "exam", "form"); drop only filler
+  t = t.replace(FILLER, '')
   // strip filler words at boundaries per M7 ("at", "on", "before", "by")
   t = t.replace(/\b(on|at|before|by)\b\s*$/i, '')
   t = t.replace(/^\s*\b(on|at|before|by)\b/i, '')
   t = t.replace(/[–—-]\s*$/, '').replace(/^\s*[–—:-]+/, '')
   t = t.replace(/[*_~]+/g, '') // strip markdown asterisks and decoration
   t = t.replace(/\s+/g, ' ').trim()
+  t = t.replace(/[,;:.!–—-]+\s*$/, '').trim()
+  // dangling linking words left after removing the date ("DSA assignment is")
+  for (let i = 0; i < 3; i++) t = t.replace(/\s*\b(is|are|was|will be|on|at|before|by|of|for|from|the|from)\s*$/i, '').trim()
   t = t.replace(/[,;:.!–—-]+\s*$/, '').trim()
   void dueIdx
   return t

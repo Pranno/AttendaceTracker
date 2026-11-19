@@ -151,14 +151,24 @@ export function computeSubjectTotals(
       // Start-fresh: only marks the user actually made count; scheduled-but-
       // unmarked classes before today are skipped entirely.
       if (ignorePast && date < today && status === null) continue
+      // Today's (and later) classes that aren't marked yet haven't been
+      // attended OR missed. They used to count as held-but-not-attended, so
+      // the percentage dropped every morning until each class was marked.
+      // (With the "unmarked = present" setting they count as attended.)
+      if (status === null && date >= today) {
+        if (data.settings.unmarkedAsPresent) {
+          held += 1
+          attended += 1
+        }
+        continue
+      }
       held += 1
       if (status === 'present' || status === 'converted') attended += 1
       else if (status === 'absent') {
         /* not attended */
       } else {
-        // unmarked
-        if (date < today) unmarkedPast += 1
-        else if (data.settings.unmarkedAsPresent) attended += 1 // B14 (Stretch setting)
+        // unmarked and in the past (today/future handled above)
+        unmarkedPast += 1
       }
     }
   }

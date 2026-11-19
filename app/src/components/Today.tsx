@@ -20,6 +20,7 @@ import { subjectPalette, subjectTileStyle } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
+import DeadlinesList from './DeadlinesList'
 import EmailInbox from './EmailInbox'
 
 export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void }) {
@@ -39,6 +40,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
   }
   const [popSlot, setPopSlot] = useState<string | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
+  const [deadlinesOpen, setDeadlinesOpen] = useState(false)
   // Stretch #5: the class card whose "Converted into…" picker is open.
   const [convertSlot, setConvertSlot] = useState<string | null>(null)
 
@@ -223,7 +225,7 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
             <span className="shortcut-ico" style={{ background: subjectPalette(2).softBg, color: subjectPalette(2).strong }}>📚</span>
             Subjects
           </button>
-          <button className="shortcut" onClick={() => go('calendar')}>
+          <button className="shortcut" onClick={() => setDeadlinesOpen(true)}>
             <span className="shortcut-ico" style={{ background: subjectPalette(5).softBg, color: subjectPalette(5).strong }}>⏰</span>
             Deadlines
           </button>
@@ -472,7 +474,10 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
       {/* ---------- coming up ---------- */}
       {upcoming.length > 0 && (
         <>
-          <SectionTitle>COMING UP</SectionTitle>
+          <div className="section-title-row">
+            <SectionTitle>COMING UP</SectionTitle>
+            <button className="link-btn" onClick={() => setDeadlinesOpen(true)}>See all</button>
+          </div>
           <div className="hscroll">
             {upcoming.map((dl) => {
               const idx = dl.subjectId ? subjectIndex(dl.subjectId) : 0
@@ -513,6 +518,9 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
 
       {/* I5: pending email suggestions, compact view on Today */}
       <EmailInbox compact />
+
+      {/* Every deadline, closest first */}
+      <DeadlinesList open={deadlinesOpen} onClose={() => setDeadlinesOpen(false)} />
 
       {/* Paste Deadline Sheet (D1) */}
       <PasteDeadlineSheet open={pasteOpen} onClose={() => setPasteOpen(false)} />

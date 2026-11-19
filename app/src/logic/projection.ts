@@ -234,14 +234,17 @@ export function projectSubjectMonth(
       priorHeld = priorTotals.held
       priorAttended = priorTotals.attended
 
-      // Walk from tomorrow to prevMonthEnd assuming all classes are attended
-      let walk = addDays(today, 1)
+      // Walk from today to prevMonthEnd assuming every class not yet marked
+      // is attended. (Today's MARKED classes are already in the totals above;
+      // its unmarked ones are not, so they're assumed here like future ones.)
+      let walk = today
       while (walk <= prevMonthEnd) {
         if (!isHoliday(data, walk)) {
           const slots = rawSlotsForDate(data, walk).filter((sl) => ownerOf(data, walk, sl) === subjectId)
           for (const slot of slots) {
             const m = markFor(data, walk, slot.id)
             if (m === 'noclass' || m === 'cancelled') continue
+            if (walk === today && m !== null) continue // already counted
             priorHeld += 1
             priorAttended += 1 // J11 assumption: attended
           }

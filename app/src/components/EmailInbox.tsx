@@ -9,6 +9,7 @@ import { useApp } from '../data/store'
 import { formatShort, todayStr } from '../logic/dates'
 import type { Suggestion } from '../data/model'
 import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
+import { checkEmailForDeadlines } from '../logic/emailCheck'
 import {
   beginLogin,
   beginLoginNative,
@@ -16,13 +17,10 @@ import {
   completeLoginFromUrl,
   connectedEmail,
   disconnect,
-  fetchInbox,
   hasGmailSetup,
   isConnected,
   loadGmailConfig,
   loadPendingNativeCode,
-  parseMessagesWith,
-  toSuggestions,
 } from '../logic/gmail'
 
 export default function EmailInbox({ compact = false }: { compact?: boolean }) {
@@ -121,18 +119,12 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     setError(null)
     setNote(null)
     try {
-      const msgs = await fetchInbox(25)
-      // only emails not seen before are read (saves the Smart reader's free limit)
-      const seenIds = new Set(data.suggestions.map((s) => s.messageId).filter(Boolean))
-      const unseen = msgs.filter((m) => !seenIds.has(m.id))
-      const { parsed, reader, fallbackReason } = await parseMessagesWith(unseen, data.subjects, deadlineReaderOf(data.settings))
-      const fresh = toSuggestions(parsed, data.suggestions, data.subjects)
-      addSuggestions(fresh)
+      const { checked, fresh, reader, fallbackReason } = await checkEmailForDeadlines(data, addSuggestions, { notify: true })
       const how = reader === 'smart' ? ' (read by Smart AI)' : ''
       setNote(
         (fresh.length > 0
-          ? `Checked ${msgs.length} recent emails${how} — ${fresh.length} new suggestion${fresh.length === 1 ? '' : 's'}.`
-          : `Checked ${msgs.length} recent emails${how} — nothing new with a date in it.`) +
+          ? `Checked ${checked} recent emails${how} — ${fresh.length} new suggestion${fresh.length === 1 ? '' : 's'}.`
+          : `Checked ${checked} recent emails${how} — nothing new with a date in it.`) +
           (fallbackReason ? ` Smart reader unavailable (${fallbackReason}) — used the Standard reader.` : ''),
       )
     } catch (e) {

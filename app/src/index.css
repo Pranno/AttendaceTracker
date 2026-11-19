@@ -859,3 +859,20 @@ body.viewer-open .pillnav, body.viewer-open .fab { display: none; }
 .smart-reader { margin-top: 12px; }
 .smart-reader .reader-choice { margin-top: 6px; }
 .reader-opt:disabled { opacity: 0.5; }
+
+/* Deadlines list (home → Deadlines / See all) */
+.screen.home > .section-title-row { margin-left: 16px; margin-right: 16px; }
+.section-title-row { display: flex; align-items: baseline; justify-content: space-between; }
+.dl-list { display: flex; flex-direction: column; padding-bottom: 12px; }
+.dl-group { margin: 14px 2px 6px; }
+.dl-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid color-mix(in srgb, var(--soft) 16%, transparent); }
+.dl-row.done .dl-title { text-decoration: line-through; opacity: 0.6; }
+.dl-check {
+  flex: none; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%;
+  border: 2px solid var(--soft); background: transparent; display: grid; place-items: center; color: #fff;
+}
+.dl-check.on { background: var(--safe); border-color: var(--safe); }
+.dl-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dl-title { font-weight: 700; overflow-wrap: anywhere; }
+.dl-subj { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 99px; margin-right: 6px; }
+.dl-done-toggle { align-self: flex-start; margin-top: 10px; }

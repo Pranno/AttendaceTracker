@@ -35,7 +35,12 @@ function instructions(today: DateStr, subjects: SubjectRef[]): string {
     : '(none)'
   return `You read messages a college student received (class WhatsApp groups, notices, emails) and pull out deadlines.
 Today is ${today}. The student's subjects: ${list}.
-A deadline is something the student must submit, complete, attend or prepare by a date: assignment/lab file submission, test, quiz, exam, viva, presentation, project, certificate upload, form, fee, registration…
+Extract EVERY dated item the student has to act on, of every kind, for example:
+- exams and tests: mid-sem, end-sem, unit test, quiz, viva, oral, practical exam, hall ticket / admit card download
+- submissions: assignments, lab files / journals, reports, projects, presentations, seminars, certificates, documents
+- registrations and forms: event / hackathon / workshop / course (NPTEL etc.) registration or enrolment, any form to fill, applications (internships, scholarships)
+- payments: exam fees, college fees, fines
+- other dated must-dos: meetings, orientations, mandatory events
 Rules:
 - One item per distinct deadline. Skip anything with no date, and plain announcements with nothing to do.
 - dueDate as YYYY-MM-DD. Dates in these messages are day-first (05/11 = 5 November). Resolve "tomorrow", "next Monday", "this Friday" from today. If the year is not written, use the next such date on or after today and set yearPrinted to false.

@@ -16,6 +16,7 @@ import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
 import { Capacitor } from '@capacitor/core'
 import { StatusBar, Style } from '@capacitor/status-bar'
+import { autoCheckEmail } from './logic/emailCheck'
 import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync, syncDailyNotifications } from './logic/reminders'
 import { todayStr } from './logic/dates'
 
@@ -25,7 +26,7 @@ import { todayStr } from './logic/dates'
  *  fire any deadline reminders that came due while closed and show the evening
  *  "mark attendance" nudge. */
 function ReminderRunner() {
-  const { data } = useApp()
+  const { data, addSuggestions } = useApp()
   const onboarded = data.settings.onboarded
   useEffect(() => {
     if (!onboarded) return // ask only after the wizard is dismissed
@@ -34,6 +35,8 @@ function ReminderRunner() {
       await ensureNotifyPermission()
       if (cancelled) return
       runCatchUpReminders(data)
+      // New deadlines in Gmail (if connected; at most every 6 h) → suggestions + a notification.
+      void autoCheckEmail(data, addSuggestions)
       // Native: arm the two recurring daily notifications (9 PM nudge + next-day
       // class preview) with the OS scheduler so they fire even when the app is
       // closed — same mechanism as the deadline reminders. Web relies on the

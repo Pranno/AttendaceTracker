@@ -248,6 +248,21 @@ export async function fireEveningNudgeAsync(title: string, body: string): Promis
   fireNotification(title, body)
 }
 
+/** Show a notification right now (native or browser). Ids rotate in a
+ *  reserved range so several quick notices don't replace each other. */
+let instantSeq = 0
+export async function notifyNow(title: string, body: string): Promise<void> {
+  if (isNative()) {
+    if (!(await ensureNativePermission())) return
+    instantSeq = (instantSeq + 1) % 50
+    await LocalNotifications.schedule({
+      notifications: [{ id: 999_300 + instantSeq, title, body, schedule: { at: new Date(Date.now() + 500) }, smallIcon: 'ic_stat_icon_config_sample' }],
+    })
+    return
+  }
+  fireNotification(title, body)
+}
+
 /** Name the classes still unmarked for the copy of the recurring nudge. */
 function eveningNudgeBody(names: string[]): string {
   if (names.length === 0) return 'Today\u2019s classes aren\u2019t all marked yet. Open Attendance Buddy to log them.'

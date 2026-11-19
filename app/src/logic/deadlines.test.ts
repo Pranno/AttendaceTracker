@@ -49,12 +49,13 @@ describe('extractDeadlines', () => {
     expect(r).toHaveLength(0)
   })
 
-  it('cleans title of date and keyword tokens', () => {
+  it('cleans the date and filler words from the title but keeps the task type', () => {
     const r = extractDeadlines('Internal assessment 2 submission – 20/11', TODAY)
     expect(r).toHaveLength(1)
-    expect(r[0].title.toLowerCase()).toContain('internal assessment 2')
-    expect(r[0].title).not.toMatch(/submission/i)
-    expect(r[0].title).not.toMatch(/20\/11/)
+    // "submission" says what the task is, so it stays; the date goes
+    expect(r[0].title).toBe('Internal assessment 2 submission')
+    const r2 = extractDeadlines('Last date for DSA assignment is 20/11', TODAY)
+    expect(r2[0].title).toBe('DSA assignment')
   })
 
   it('deduplicates identical title+date pairs', () => {

@@ -293,13 +293,15 @@ describe('Stretch #5 conversions ("WAD became FE")', () => {
       ],
     })
     const fe = computeSubjectTotals(data, 'fe', '2026-01-01', '2026-01-31', '2026-01-06')
-    expect(fe.held).toBe(5) // 4 own Mondays + the Jan-5 WAD period that became FE
-    expect(fe.attended).toBe(1) // only the marked-present converted class; the rest are future/unmarked
+    // Jan 5: FE's own period (marked absent) + the WAD period that became FE
+    // (present). Later Mondays haven't happened yet, so they don't count.
+    expect(fe.held).toBe(2)
+    expect(fe.attended).toBe(1)
     expect(fe.convertedCount).toBe(1)
 
     const wad = computeSubjectTotals(data, 'wad', '2026-01-01', '2026-01-31', '2026-01-06')
-    expect(wad.held).toBe(3) // 4 Mondays minus the one that became FE
-    expect(wad.attended).toBe(0) // all three remaining ones are in the future, unmarked
+    expect(wad.held).toBe(0) // its only past Monday became FE; the rest are in the future
+    expect(wad.attended).toBe(0)
   })
 
   it('without a conversion the same mark stays on the original subject', () => {
@@ -307,8 +309,8 @@ describe('Stretch #5 conversions ("WAD became FE")', () => {
       marks: [{ id: `${MON}_wad1`, date: MON, slotId: 'wad1', status: 'present' }],
     })
     const wad = computeSubjectTotals(data, 'wad', '2026-01-01', '2026-01-31', '2026-01-06')
-    expect(wad.held).toBe(4) // all four Mondays still WAD's
-    expect(wad.attended).toBe(1) // just the marked-present one; others are future/unmarked
+    expect(wad.held).toBe(1) // the past Monday is still WAD's; future Mondays don't count yet
+    expect(wad.attended).toBe(1)
     expect(wad.convertedCount).toBe(0)
   })
 

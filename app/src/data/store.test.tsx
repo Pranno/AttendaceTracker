@@ -257,3 +257,38 @@ describe('Locker files', () => {
     cleanup()
   })
 })
+
+describe('editing a class does not duplicate it', () => {
+  it('old version ends yesterday, new one starts today; each day has exactly one', () => {
+    const { result, cleanup } = renderHook(() => useApp())
+    act(() => {
+      result.current.setData((d) => ({
+        ...d,
+        settings: { ...d.settings, semesterStart: '2026-08-03' },
+        subjects: [{ id: 'cp', shortName: 'CP', fullName: 'CP', nicknames: [] }],
+        slots: [{ id: 's1', subjectId: 'cp', weekday: 1, startTime: '09:00', endTime: '10:00', type: 'lecture', room: '1', teacher: 'T', validFrom: '2026-08-03', validUntil: null }],
+      }))
+    })
+    act(() => result.current.changeSlotFrom('s1', { startTime: '11:00', endTime: '12:00' }, '2026-11-16'))
+    const slots = result.current.data.slots
+    expect(slots).toHaveLength(2)
+    const active = (date: string) => slots.filter((s) => s.validFrom <= date && (s.validUntil === null || date <= s.validUntil))
+    expect(active('2026-11-09').map((s) => s.startTime)).toEqual(['09:00']) // past Monday: old time only
+    expect(active('2026-11-16').map((s) => s.startTime)).toEqual(['11:00']) // from today: new time only
+    cleanup()
+  })
+
+  it('a class created today is just updated in place', () => {
+    const { result, cleanup } = renderHook(() => useApp())
+    act(() => {
+      result.current.setData((d) => ({
+        ...d,
+        subjects: [{ id: 'cp', shortName: 'CP', fullName: 'CP', nicknames: [] }],
+        slots: [{ id: 's1', subjectId: 'cp', weekday: 1, startTime: '09:00', endTime: '10:00', type: 'lecture', room: '1', teacher: 'T', validFrom: '2026-11-16', validUntil: null }],
+      }))
+    })
+    act(() => result.current.changeSlotFrom('s1', { room: '2' }, '2026-11-16'))
+    expect(result.current.data.slots).toMatchObject([{ id: 's1', room: '2', validFrom: '2026-11-16' }])
+    cleanup()
+  })
+})

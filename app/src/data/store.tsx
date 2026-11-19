@@ -9,7 +9,7 @@ import { clearFileBlobs, deleteFileBlobs } from '../logic/fileStore'
 import { loadData, normalizeData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
 import type { ArchivedSemester } from '../data/storage'
 import { markFor, buildReport, freshData } from '../logic/attendance'
-import { todayStr } from '../logic/dates'
+import { addDays, todayStr } from '../logic/dates'
 import { scheduleDeadlineNotification, cancelDeadlineNotification, resyncAllNotifications, syncDailyNotifications } from '../logic/reminders'
 
 interface AppApi {
@@ -21,7 +21,13 @@ interface AppApi {
   /** F2 (Stretch): per-subject settings, e.g. thresholdOverride. Pass null to
    *  clear the override and fall back to the global threshold. */
   updateSubject: (id: string, patch: Partial<Omit<Subject, 'id'>> & { thresholdOverride?: number | null }) => void
-  addSlot: (slot: Omit<Slot, 'id'>) => void
+  /** Add a weekly class. By default it is backdated to the timetable start
+   *  (it's part of the timetable, not a change from today). Pass
+   *  `{ fromExactDate: true }` for a CHANGE that must start on slot.validFrom
+   *  (editing a class's time/room). */
+  addSlot: (slot: Omit<Slot, 'id'>, opts?: { fromExactDate?: boolean }) => void
+  /** Change a class from `date` onward: past days keep the old version. */
+  changeSlotFrom: (id: string, patch: Partial<Omit<Slot, 'id' | 'validFrom' | 'validUntil'>>, date: DateStr) => void
   /** Hard-delete a slot. Use for lectures added by mistake that haven't
    *  happened yet — no attendance history to preserve. */
   deleteSlot: (id: string) => void
@@ -192,18 +198,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
       },
 
-      addSlot(slot) {
+      addSlot(slot, opts) {
         // Hand-added lectures are part of the current timetable, not a change
         // that starts "today": backdate validFrom to the semester start (or
         // the earliest existing slot) so previously imported/added classes
         // keep showing and the new one appears on every past weekday too.
         setRaw((d) => {
-          const floor = d.settings.semesterStart
-            ?? (d.slots.length
-              ? d.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), slot.validFrom)
-              : slot.validFrom)
-          const validFrom = slot.validFrom > floor ? floor : slot.validFrom
+          const validFrom = opts?.fromExactDate ? slot.validFrom : timetableStart(d, slot.validFrom)
           return { ...d, slots: [...d.slots, { ...slot, validFrom, id: newId('slot') }] }
+        })
+      },
+
+      changeSlotFrom(id, patch, date) {
+        // Editing used to end the old class TODAY and add the new one through
+        // addSlot — which backdated it to the semester start. Every past day
+        // (and today) then had BOTH versions: the class showed twice and was
+        // counted twice in attendance. Now: old version ends yesterday, new
+        // version starts on `date`; a class that only started today is just
+        // updated in place.
+        setRaw((d) => {
+          const old = d.slots.find((s) => s.id === id)
+          if (!old) return d
+          if (old.validFrom >= date) {
+            return { ...d, slots: d.slots.map((s) => (s.id === id ? { ...s, ...patch } : s)) }
+          }
+          const yesterday = addDays(date, -1)
+          return {
+            ...d,
+            slots: [
+              ...d.slots.map((s) => (s.id === id ? { ...s, validUntil: yesterday } : s)),
+              { ...old, ...patch, id: newId('slot'), validFrom: date, validUntil: old.validUntil },
+            ],
+          }
         })
       },
 
@@ -619,6 +645,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [data])
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
+}
+
+/** First day the timetable applies: the semester start, else the earliest
+ *  class's start, else `fallback`. Used for classes that belong to the whole
+ *  timetable (hand-added and imported ones alike). */
+export function timetableStart(d: AppData, fallback: DateStr): DateStr {
+  const floor = d.settings.semesterStart
+    ?? (d.slots.length ? d.slots.reduce((min, s) => (s.validFrom < min ? s.validFrom : min), fallback) : fallback)
+  return fallback > floor ? floor : fallback
 }
 
 export function useApp(): AppApi {
