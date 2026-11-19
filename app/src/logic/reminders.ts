@@ -37,11 +37,11 @@ export function deadlinesNeedingReminder(data: AppData, onOrBefore: DateStr): De
 export function eveningNudgeDue(data: AppData, today: DateStr, nowTime: string): boolean {
   if (!data.settings.eveningReminderOn) return false
   if (nowTime < data.settings.eveningReminderTime) return false
-  const slots = data.slots.filter(
-    (s) =>
-      s.validFrom <= today &&
-      (s.validUntil === null || today <= s.validUntil),
-  )
+  if (isHoliday(data, today)) return false
+  // Only TODAY's classes (weekday, batch, validity) — the old filter took every
+  // slot of the week, so on any day some other weekday's class was "unmarked"
+  // and the nudge fired even after everything had been marked.
+  const slots = slotsForDate(data, today)
   if (slots.length === 0) return false
   return slots.some((s) => !data.marks.some((m) => m.date === today && m.slotId === s.id))
 }
@@ -77,20 +77,31 @@ export function runCatchUpReminders(data: AppData): number {
   const today = todayStr()
   let fired = 0
   for (const dl of data.deadlines) {
-    if (dl.done || !dl.dueDate) continue
-    for (const st of deadlineReminderStages(dl, data.settings.reminderLeadDays)) {
-      if (st.date > today || dl.dueDate < today) continue // stage not due yet / deadline passed
-      const key = `attendancetracker.notified.${dl.id}.${st.stage}`
+    if (dl.done || !dl.dueDate || dl.dueDate < today) continue // deadline passed
+    // Stages that came due while the app was closed and haven't been shown.
+    // Only the LATEST one is fired (opening the app the day before used to
+    // pop "in 7 days", "in 3 days" and "tomorrow" all at once); the earlier
+    // ones are just marked as seen.
+    const pending = deadlineReminderStages(dl, data.settings.reminderLeadDays).filter((st) => {
+      if (st.date > today) return false
       try {
-        if (localStorage.getItem(key)) continue
-        localStorage.setItem(key, '1')
+        return !localStorage.getItem(`attendancetracker.notified.${dl.id}.${st.stage}`)
+      } catch {
+        return true
+      }
+    })
+    if (pending.length === 0) continue
+    for (const st of pending) {
+      try {
+        localStorage.setItem(`attendancetracker.notified.${dl.id}.${st.stage}`, '1')
       } catch {
         /* storage may be unavailable; still fire */
       }
-      const copy = deadlineCopy(dl, st.stage, data.settings.reminderLeadDays)
-      fireNotification(copy.title, copy.body)
-      fired += 1
     }
+    const latest = pending[pending.length - 1]
+    const copy = deadlineCopy(dl, latest.stage, data.settings.reminderLeadDays)
+    fireNotification(copy.title, copy.body)
+    fired += 1
   }
   return fired
 }
@@ -132,9 +143,10 @@ export async function ensureNativePermission(): Promise<boolean> {
 }
 
 function reminderDateTime(date: DateStr, time: string): Date {
-  const [h, m] = (time || '18:00').split(':')
+  const [h, m] = (time || '18:00').split(':').map(Number)
   const d = new Date(date + 'T00:00:00')
-  d.setHours(Number(h) || 18, Number(m) || 0, 0, 0)
+  // `Number(h) || 18` turned a valid 00:xx into 18:xx
+  d.setHours(Number.isFinite(h) ? h : 18, Number.isFinite(m) ? m : 0, 0, 0)
   return d
 }
 
@@ -155,6 +167,8 @@ export function deadlineReminderStages(dl: Deadline, leadDays: number): { stage:
   const out: { stage: number; date: DateStr }[] = []
   for (const w of wanted) {
     if (seen.has(w.date)) continue // e.g. lead = 3 → stage 0 and 1 share a date
+    // lead < 3 days: the "in 3 days" stage would fire BEFORE the lead reminder
+    if (w.date < wanted[0].date) continue
     seen.add(w.date)
     out.push(w)
   }

@@ -396,8 +396,13 @@ export function neededSgpa(
   nextCredits: number,
 ): { needed: number | null; message: string } {
   const cur = cgpaOf(semesters)
-  const ptsSoFar = cur ? cur.cgpa * cur.credits : 0
-  const crSoFar = cur ? cur.credits : 0
+  // Exact grade points, not the 2-dp-rounded CGPA × credits (that drifted the answer).
+  let ptsSoFar = 0
+  let crSoFar = 0
+  for (const sem of semesters) {
+    const r = sgpaOf(sem)
+    if (r) { ptsSoFar += r.points; crSoFar += r.credits }
+  }
   if (!(nextCredits > 0)) return { needed: null, message: 'Enter next semester credits.' }
   const raw = (target * (crSoFar + nextCredits) - ptsSoFar) / nextCredits
   if (raw > 10) {
@@ -408,7 +413,8 @@ export function neededSgpa(
     const safe = cur ? cur.cgpa : target
     return { needed: 0, message: `You're already safe. Any SGPA keeps you at ${safe.toFixed(2)} or above.` }
   }
-  const needed = Math.ceil(raw * 100) / 100
+  // epsilon: 8.5 computed as 8.5000000001 must not become 8.51
+  const needed = Math.ceil(raw * 100 - 1e-9) / 100
   return { needed, message: `You need an SGPA of about ${needed.toFixed(2)} next semester.` }
 }
 

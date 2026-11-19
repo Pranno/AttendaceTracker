@@ -227,7 +227,12 @@ export default function Timetable() {
       const byShort = new Map(subjects.map((s) => [s.shortName.toUpperCase(), s.id]))
       // Legend full names from the uploaded PDF (e.g. VACO → "Value added
       // career orientation I") — enrich existing/created subjects with them.
-      const legendFull = new Map(legendSubjects.map((l) => [l.short.toUpperCase(), l.full]))
+      const legendMap = new Map(legendSubjects.map((l) => [l.short.toUpperCase(), l.full]))
+      // Grid cells print "VACO-I" while the legend key is "VACO".
+      const legendFull = {
+        has: (k: string) => legendMap.has(k) || legendMap.has(k.replace(/-[IVX]+$/, '')),
+        get: (k: string) => legendMap.get(k) ?? legendMap.get(k.replace(/-[IVX]+$/, '')),
+      }
       for (const e of parsed) {
         const key = e.subjectShort.toUpperCase()
         if (!byShort.has(key)) {

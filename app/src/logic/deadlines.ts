@@ -44,17 +44,24 @@ function toDateStr(y: number, m: number, d: number): DateStr {
  * Rule M5/C12: 09-11 with a hyphen is accepted ONLY with a year (9-11-2026),
  * so that "Grades 1-12" is never read as 1 December. */
 function parseDayMonth(s: string): { m: number; d: number; y?: number } | null {
-  // Slashed or dotted: 5/1, 05.01, 5/11/2026
-  let mm = s.match(/\b(\d{1,2})\s*[/.]\s*(\d{1,2})(?:[/.](\d{2,4}))?\b/)
-  if (mm) {
+  // Slashed or dotted: 5/1, 05.01, 5/11/2026.
+  // A dotted pair followed by am/pm/hrs is a clock time ("10.30 am"), not a
+  // date — it used to be read (via the mm/dd swap) as 30 Oct and win over the
+  // real "5 Jan" later on the line. Keep scanning past such matches, and fall
+  // through to the month-name formats when no numeric date is valid.
+  for (const mm of s.matchAll(/\b(\d{1,2})\s*([/.])\s*(\d{1,2})(?:[/.](\d{2,4}))?\b/g)) {
+    const after = s.slice((mm.index ?? 0) + mm[0].length)
+    if (/^\s*(?:am|pm|a\.m|p\.m|hrs?|hours|o'?clock)\b/i.test(after)) continue
+    if (mm[2] === '.' && !mm[4] && /^\s*[-–]\s*\d{1,2}[.:]\d{2}/.test(after)) continue // "10.30 - 11.30"
     const d = Number(mm[1])
-    const m = Number(mm[2])
-    const rawY = mm[3] ? Number(mm[3]) : undefined
+    const m = Number(mm[3])
+    const rawY = mm[4] ? Number(mm[4]) : undefined
     const y = rawY ? (rawY < 100 ? 2000 + rawY : rawY) : undefined
     if (d >= 1 && d <= 31 && m >= 1 && m <= 12) return { m, d, y }
-    if (m >= 1 && m <= 31 && d >= 1 && d <= 12) return { m: d, d: m, y } // fallback
-    return null
+    // mm/dd fallback — slash only; "10.30" style dotted pairs are times
+    if (mm[2] === '/' && m >= 1 && m <= 31 && d >= 1 && d <= 12) return { m: d, d: m, y }
   }
+  let mm: RegExpMatchArray | null
 
   // Hyphenated ONLY with a year (M5/C12): 9-11-2026 or 09-11-26
   let mmHyphen = s.match(/\b(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{2,4})\b/)
@@ -138,7 +145,10 @@ export function extractDeadlines(
         cand = new Date(y, dm.m - 1, dm.d)
       }
     }
-    const rolled = y !== ty
+    // Invalid calendar dates ("31/2") used to roll over silently into the next month.
+    if (cand.getMonth() !== dm.m - 1 || cand.getDate() !== dm.d) continue
+    // Tentative only when WE picked next year — an explicitly written year is certain.
+    const rolled = !dm.y && y !== ty
     const dueDate = toDateStr(cand.getFullYear(), cand.getMonth() + 1, cand.getDate())
 
     let title = cleanTitle(line, i)

@@ -10,20 +10,31 @@ export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return structuredClone(EMPTY_DATA)
-    const parsed = JSON.parse(raw) as Partial<AppData>
-    // Merge so new fields get defaults after an app update.
-    return {
-      ...structuredClone(EMPTY_DATA),
-      ...parsed,
-      settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
-    }
+    return normalizeData(JSON.parse(raw) as Partial<AppData>)
   } catch {
     return structuredClone(EMPTY_DATA)
   }
 }
 
+/** Merge saved/archived data over the defaults so fields added in later app
+ *  versions exist (older snapshots would otherwise crash on `undefined`). */
+export function normalizeData(parsed: Partial<AppData> | null | undefined): AppData {
+  const p = parsed && typeof parsed === 'object' ? parsed : {}
+  return {
+    ...structuredClone(EMPTY_DATA),
+    ...p,
+    settings: { ...DEFAULT_SETTINGS, ...(p.settings ?? {}) },
+  }
+}
+
 export function saveData(data: AppData): void {
-  localStorage.setItem(KEY, JSON.stringify(data))
+  try {
+    localStorage.setItem(KEY, JSON.stringify(data))
+  } catch (err) {
+    // Storage full / unavailable (private mode): keep the app running with
+    // the in-memory state instead of crashing the render.
+    console.warn('Could not save app data', err)
+  }
 }
 
 export function clearData(): void {
@@ -95,6 +106,10 @@ export function exportData(data: AppData): void {
   const a = document.createElement('a')
   a.href = url
   a.download = `attendance-tracker-${new Date().toISOString().slice(0, 10)}.json`
+  // Firefox only follows clicks on attached anchors, and revoking the URL in
+  // the same tick can cancel the download before it starts (Safari/Firefox).
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

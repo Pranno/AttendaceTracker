@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { AppData, CgpaSemester, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
-import { loadData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
+import { loadData, normalizeData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
 import type { ArchivedSemester } from '../data/storage'
 import { markFor, buildReport, freshData } from '../logic/attendance'
 import { todayStr } from '../logic/dates'
@@ -120,6 +120,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const api = useMemo<AppApi>(() => {
     const setData = (updater: (d: AppData) => AppData) => setRaw((d) => updater(d))
 
+    // Build the deadline OUTSIDE the state updater: React runs updaters
+    // lazily, so a value captured inside one was usually still unset right
+    // after setRaw() returned and the reminder was never scheduled.
+    const addDeadlineImpl: AppApi['addDeadline'] = (dl, id) => {
+      const item: Deadline = { reminderDates: [], tentative: false, ...dl, id: id ?? newId('dl'), done: false }
+      setRaw((d) => ({ ...d, deadlines: [...d.deadlines, item] }))
+      void scheduleDeadlineNotification(item, data.settings.reminderLeadDays, data.settings.notificationTime)
+    }
+
     return {
       data,
       setData,
@@ -221,16 +230,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       addDeadline(dl, id) {
-        let created: Deadline | null = null
-        setRaw((d) => {
-          const item: Deadline = { reminderDates: [], tentative: false, ...dl, id: id ?? newId('dl'), done: false }
-          created = item
-          return { ...d, deadlines: [...d.deadlines, item] }
-        })
         // D6: on native, arm the OS notification immediately (no-op on web).
-        if (created) {
-          void scheduleDeadlineNotification(created, data.settings.reminderLeadDays, data.settings.notificationTime)
-        }
+        addDeadlineImpl(dl, id)
       },
 
       updateDeadline(id, patch) {
@@ -253,6 +254,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }))
         const was = data.deadlines.find((x) => x.id === id)
         if (was && !was.done) void cancelDeadlineNotification(id) // now done → cancel reminder
+        else if (was) {
+          // un-ticked → open again, so its reminder must come back
+          void scheduleDeadlineNotification({ ...was, done: false }, data.settings.reminderLeadDays, data.settings.notificationTime)
+        }
       },
 
       deleteDeadline(id) {
@@ -355,7 +360,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!sug || sug.status !== 'new' || !sug.date) return
         // I4: accepting turns the suggestion into a real deadline — same path as
         // manual add (including D6 native notification arming).
-        this.addDeadline({
+        // Not `this.addDeadline`: components destructure the API
+        // (`const { acceptSuggestion } = useApp()`), leaving `this` undefined.
+        addDeadlineImpl({
           title: sug.title,
           dueDate: sug.date,
           subjectId: sug.subjectId,
@@ -599,7 +606,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })
         }
         deleteArchive(id)
-        setRaw(arch.data)
+        // Older snapshots lack fields added since — fill in defaults.
+        setRaw(normalizeData(arch.data))
         return true
       },
     }

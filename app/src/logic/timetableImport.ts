@@ -44,7 +44,15 @@ export function weekdayFromName(name: string): number | null {
   return i >= 0 ? i + 1 : null
 }
 
-/** "8:00 - 9:00", "11.15 – 12.15", "1.15 - 2.15" → ["08:00","09:00"]. */
+/** College grids print afternoon periods in 12-hour form without am/pm
+ *  ("1.15 - 2.15", "4.30– 5.30"). No class runs between 1 and 7 in the
+ *  morning, so hours 1–6 are afternoon. Without this the slots were stored
+ *  as 01:15/02:15, sorted before the 8:00 class and reminders fired at night. */
+export function collegeHour(h: number): number {
+  return h >= 1 && h <= 6 ? h + 12 : h
+}
+
+/** "8:00 - 9:00", "11.15 – 12.15", "1.15 - 2.15" → ["08:00","09:00"], …, ["13:15","14:15"]. */
 export function parseTimeRange(text: string): [string, string] | null {
   const m = /(\d{1,2})[.:](\d{2})?\s*[-–—]\s*(\d{1,2})[.:](\d{2})?/.exec(text)
   if (!m) return null
@@ -53,7 +61,7 @@ export function parseTimeRange(text: string): [string, string] | null {
   if (h1 > 23 || h2 > 23 || m1 > 59 || m2 > 59) return null
   const fmt = (h: number, mi: number) => `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
   // "2:15 - 3:15" after lunch is afternoon; ranges never cross midnight here.
-  return [fmt(h1, m1), fmt(h2, m2)]
+  return [fmt(collegeHour(h1), m1), fmt(collegeHour(h2), m2)]
 }
 
 /** Course-type letter per the college note: L-lecture, P-practical(lab), T-tutorial, S-studio. */
@@ -131,7 +139,10 @@ export function parseCellEntries(cell: string, rawLine: string): ParsedEntry[] {
   const norm = normalizeTypeTok(cell.replace(/\s+/g, ' ').trim())
   // Split on boundaries where a new BATCH(+num)/division + SUBJECT pair starts.
   const parts = norm
-    .split(new RegExp(`(?=(?:${BATCH_G}[1-9]?[.\\s-]+)${SUBJ_G}\\s*${TYPE_TOK})`))
+    // A new entry only starts at the beginning of a word: without the
+    // lookbehind "A VACO-I (L)" split inside the code ("VAC" + batch "O",
+    // subject "I") and the class landed in NEEDS REVIEW.
+    .split(new RegExp(`(?<=^|\\s)(?=(?:${BATCH_G}[1-9]?[.\\s-]+)${SUBJ_G}\\s*${TYPE_TOK})`))
     .map((p) => p.trim())
     .filter(Boolean)
   for (const part of parts) {
@@ -367,58 +378,26 @@ const DAY_HEAD_RE = /^(mon|tues|tue|wed|thu|fri|sat|sun)(day|nesday|rsday|urday)
  *  spellings pdf.js emits on some exports ("ShortBreak", "LUNCHBREAK"). */
 const BREAK_TEXT_RE = /short\s*h?\s*break|lunch\s*break|lunch|tea\s*break|\bbreak\b/i
 
-/** A period band that is itself a break (10:00–10:15 short break, lunch):
- *  no real class can occupy it, so boxes inside it are skipped entirely.
- *  This kills the classic symptom where a wrapped room number or teacher
- *  initials under the break label get re-emitted as a 10:00 class duplicating
- *  the 10:15 one. */
-const BREAK_PERIOD_RE = /^(10:00|12:15)$/
-
-/** Is this band a break/lunch period on THIS page? Two signals, either is
- *  enough when the page prints break labels at all:
- *  1. the hard-coded break slot names (10:00-10:15, 12:15-13:15), and
- *  2. a break word ("Short Break", "LUNCH BREAK") printed on the band's own
- *     time-label row — catches slots like 4:15-4:30 that rule 1 misses.
- * Without signal 2 the classes stacked just below a break label fall into
- * the NEXT band and get duplicated under both periods. */
+/** Is this period band a break (short break / lunch) rather than a class
+ *  period? Two signals:
+ *  1. it is too short to be a class (10:00–10:15, 4:15–4:30 — every class
+ *     period is ≥ 1 h), or
+ *  2. its own time-label row carries a break word ("Short Break",
+ *     "LUNCH BREAK") and NO class entry.
+ * Signal 2 must ignore rows that also hold classes: colleges stagger lunch
+ * per day, so "LUNCH BREAK" printed in Wednesday's 11:15 cell sits on the
+ * same row as Monday's and Tuesday's 11:15 classes. The old rule (any break
+ * word on the row, or a hard-coded 10:00/12:15 start) dropped those whole
+ * rows; individual break CELLS are skipped by the cell reader instead. */
 function isBreakBand(band: { start: string; end: string; yTop: number; page: number }, frags: Frag[]): boolean {
-  if (!pageHasBreakLabels(frags)) return false
-  if (BREAK_PERIOD_RE.test(band.start)) return true
+  const dur = toMinutes(band.end) - toMinutes(band.start)
+  if (dur > 0 && dur <= 20) return true
   const row = frags.filter((f) => f.page === band.page && Math.abs(f.y - band.yTop) <= 6)
   const joined = normalizeTypeTok(row.map((f) => f.str).join(' '))
-  // the band's own time label must be present on the row (so we look at the
-  // label row, not some stray cell fragment)
-  return new RegExp(`${band.start.replace(':', '[.:]')}\\s*[-–—]`).test(joined) && BREAK_TEXT_RE.test(joined)
+  return BREAK_TEXT_RE.test(joined) && !/\(\s*[LPTS]\s*\)/.test(joined)
 }
 
-/** Does this page's grid contain an actual break-period label ("10:00-10:15"
- *  short break)? Only then may 10:00/12:15 bands be treated as breaks — on
- *  divisions whose periods start straight at 10:00 or 12:15 those are normal
- *  class rows and must still be read.
- *  Two spellings occur in real exports: a single fragment holding the whole
- *  range ("8:00 - 9:00 … 10:00 -10:15") AND split fragments where the end
- *  time sits in its own item ("10:00", "–", "10:15"). The split form is what
- *  Div F's Monday header page uses — without joining same-row fragments
- *  first, every period of that page was misread as a break row and ALL its
- *  classes vanished (the "DivF: 0 entries" bug). */
-function pageHasBreakLabels(frags: Frag[]): boolean {
-  // Group fragments into visual rows (per page), join left→right, then test.
-  const rows = new Map<string, Frag[]>()
-  for (const f of frags) {
-    let matched: string | undefined
-    for (const [k, g] of rows) {
-      if (g[0].page !== f.page) continue
-      if (Math.abs(g[0].y - f.y) <= 6) { matched = k; break }
-    }
-    if (matched === undefined) rows.set(`${f.page}|${f.y}`, [f])
-    else rows.get(matched)!.push(f)
-  }
-  for (const row of rows.values()) {
-    const joined = normalizeTypeTok(row.sort((a, b) => a.x - b.x).map((f) => f.str).join(' '))
-    if (/\d{1,2}[:.]\d{2}\s*[-–—]\s*1?0[:.](00|15|30)/.test(joined)) return true
-  }
-  return false
-}
+const toMinutes = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
 
 /** NOTE/legend prose that sits below the grid and bleeds into the last band. */
 const PROSE_RE = /NOTE\s*:|fortnightly|Mentee Meetings|Teacher-name|Initials-Room|Batch-Course|Course\s*Type|Theory Lecture|Practical Lecture|Tutorial Course|Course:|\bAbbreviation\b|abbreviation|Faculty Member|Online\s+Session|Online|\(?\s*SATKAA|\bSession\s*\)?\s*$|R\.\s*Patil|Kailas/i
@@ -438,7 +417,9 @@ function splitGluedWords(s: string): string {
     })
     // FE(L) / ASEP(P) → add space BEFORE the marker (ENTRY_RE wants "CODE (X)").
     // The lookbehind excludes ")" so the (P)(L) boundary rule below is untouched.
-    .replace(/(?<![)\s(])(?=[A-Za-z0-9]\([LPTS]\))/g, ' ')
+    // (The old lookahead put the space one character too early: "ASEP(P)" →
+    // "ASE P(P)", read as subject "ASE-P"; "SDC(L)" → "SD-C".)
+    .replace(/(?<=[A-Za-z0-9])(?=\([LPTS]\))/g, ' ')
     // "JSA2407" → "JSA 2407": initials glued to the wrapped room number.
     .replace(/([A-Za-z])(\d{3,4})(?=\s|$)/g, '$1 $2')
 }
@@ -689,7 +670,47 @@ export interface GridParseResult {
  *  (what pdfjs produces). Handles multi-page grids: the continuation pages
  *  repeat the header furniture but not the day names, so the day columns
  *  found on the first grid page are reused for later pages. */
+/** Some PDF producers make pdf.js emit ONE item per word ("A1", "FE", "(P)",
+ *  "PS", "2408") instead of one item per text run. Every heuristic below is
+ *  tuned for run-level items (a whole "A1 FE (P) PS 2408" entry per item), and
+ *  on word-level pages batch tags get separated from their entry, hyphenated
+ *  codes split and continuation pages are lost. Re-join such pages into runs:
+ *  consecutive words on the same baseline with a word-space-sized gap
+ *  (inter-cell gaps are several times larger) become one item. Pages that
+ *  already contain multi-word items are left untouched. */
+function mergeWordItems(items: TextItemLike[]): TextItemLike[] {
+  const positioned = items.filter(
+    (it) => typeof it.str === 'string' && Array.isArray(it.transform) && it.transform.length >= 6 &&
+      Number.isFinite(it.transform[4]) && Number.isFinite(it.transform[5]),
+  )
+  const nonEmpty = positioned.filter((it) => it.str.trim())
+  if (nonEmpty.length < 20 || nonEmpty.some((it) => /\S\s+\S/.test(it.str.trim()))) return items
+  const widthOf = (it: TextItemLike) => it.width ?? it.str.length * 6
+  const sorted = [...nonEmpty].sort((a, b) => b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4])
+  const out: TextItemLike[] = []
+  let cur: TextItemLike | null = null
+  for (const it of sorted) {
+    if (cur !== null) {
+      const prev: TextItemLike = cur
+      const curEnd = prev.transform[4] + widthOf(prev)
+      const gap = it.transform[4] - curEnd
+      const fontSize = Math.abs(it.transform[3] || it.transform[0] || 10)
+      if (Math.abs(prev.transform[5] - it.transform[5]) <= 0.5 && gap >= -1 && gap <= Math.max(4.5, fontSize * 0.45)) {
+        const end = it.transform[4] + widthOf(it)
+        cur = { ...prev, str: `${prev.str.trimEnd()} ${it.str.trimStart()}`, width: end - prev.transform[4] }
+        continue
+      }
+      out.push(prev)
+    }
+    cur = { ...it, transform: [...it.transform] }
+  }
+  if (cur) out.push(cur)
+  // keep items without a usable position so the caller can still count them
+  return [...out, ...items.filter((it) => !positioned.includes(it))]
+}
+
 export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
+  pages = pages.map(mergeWordItems)
   // Guard: pdfjs text items carry their position in `transform` [a,b,c,d,e,f]
   // with x=e, y=f. Some extraction paths (older fixtures, hand-built item
   // lists, web-worker clones) deliver items WITHOUT a usable transform —
@@ -788,10 +809,21 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   // A page is exempt only if it has NO day-heading row of its own; pages that
   // DO carry the weekday header are always grid pages even when a stray
   // numeric-SN + word pattern appears on them.
-  const gridPageFrags = pageFrags.map((frags, pi) => ({ frags, cols: colsByPage[pi] })).filter(({ frags }) => findDayColumns(frags).length >= 4 || !pageHasLegendTable(frags))
+  // A page may carry BOTH the tail of the grid (afternoon periods) and, lower
+  // down, the NOTE block + abbreviation table. Excluding such a page outright
+  // silently dropped every class on it (Div A lost 12:15 onwards), so only the
+  // part ABOVE the NOTE / table header is offered to the grid reader.
+  const gridPageFrags = pageFrags.map((frags, pi) => {
+    if (findDayColumns(frags).length >= 4 || !pageHasLegendTable(frags)) return { frags, cols: colsByPage[pi] }
+    const cutY = Math.max(
+      ...frags.filter((f) => /^S\.?\s*N\.?$/i.test(f.str.trim()) || /^NOTE\s*:?$/i.test(f.str.trim())).map((f) => f.y),
+    )
+    return { frags: frags.filter((f) => f.y > cutY + 8), cols: colsByPage[pi] }
+  }).filter(({ frags }) => frags.length > 0)
   const entries: ParsedEntry[] = []
   const warnings: string[] = []
   const gridFrags: Frag[][] = []
+  let carry: { start: string; end: string } | null = null
   for (const { frags, cols } of gridPageFrags) {
     if (!cols || cols.length < 4) continue
     const hasHeader = findDayColumns(frags).length >= 4
@@ -803,8 +835,10 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
       const cov = pageColumnCoverage(frags, cols)
       if (cov.size < 2) continue
     }
-    gridFrags.push(frags)
-    entries.push(...readGridBoxes(frags, cols, warnings))
+    gridFrags.push(pageFrags[frags[0].page])
+    const read = readGridBoxes(frags, cols, warnings, carry)
+    entries.push(...read.entries)
+    carry = read.lastPeriod
   }
   if (dayCols.length < 4 && entries.length === 0) {
     return { entries: [], batches: [], subjects: [], warnings: ['No weekday heading row found in the file — add the classes by hand or paste the table as text.'] }
@@ -816,7 +850,9 @@ export function parseTimetablePages(pages: TextItemLike[][]): GridParseResult {
   // ALL fragments to the reader; the table pass itself re-filters per page.
   void pageFrags
   const otherFrags = pageFrags.filter((f) => !gridFrags.includes(f))
-  const legendFrags = otherFrags.length ? [...otherFrags.flat(), ...all] : all
+  // De-duplicated: passing the same fragments twice doubled every legend
+  // name ("Computer Programming Computer Programming").
+  const legendFrags = [...new Set([...otherFrags.flat(), ...all])]
   const res = finishGridParse(entries, legendFrags)
   if (skippedNoPos > 0) {
     res.warnings.push(`${skippedNoPos} text fragments had no readable position and were skipped.`)
@@ -918,6 +954,10 @@ const TIME_TOKEN_RE = /^\d{1,2}[.:]\d{2}$/
 /** Merge dash-split fragments: "12.15" "-" "1." "15" → {12:15→13:15};
  *  "9:00" "-10:00" → {09:00→10:00}; "4.30–5.30" stays whole. */
 function extractRowTimes(parts: string[]): { start: string; end: string }[] {
+  // "1. 15" / "10 :15" as one item → "1.15" / "10:15" (Div C prints its
+  // 12:15 label as "12.15" "-" "1. 15"; the spaced token was not recognised
+  // and the whole 12:15 period was lost).
+  parts = parts.map((p) => p.replace(/^(\d{1,2})\s*([.:])\s*(\d{2})$/, '$1$2$3'))
   // Step 1: glue "N." + "NN" minute fragments into full times.
   const glued: string[] = []
   for (let i = 0; i < parts.length; i++) {
@@ -934,7 +974,8 @@ function extractRowTimes(parts: string[]): { start: string; end: string }[] {
   const expanded: string[] = []
   for (const p of glued) {
     const m = /^(\d{1,2}\s*[.:]\s*\d{2})\s*[-–—]+\s*(\d{1,2}\s*[.:]\s*\d{2})$/.exec(p.trim())
-    if (m && m[1] !== m[2]) expanded.push(m[1], '-', m[2])
+    // strip inner spaces ("1. 15" → "1.15") so the endpoints read as clock tokens
+    if (m && m[1] !== m[2]) expanded.push(m[1].replace(/\s+/g, ''), '-', m[2].replace(/\s+/g, ''))
     else expanded.push(p)
   }
   glued.length = 0
@@ -987,7 +1028,7 @@ function extractRowTimes(parts: string[]): { start: string; end: string }[] {
     if (!m) return null
     const h = Number(m[1]), mi = Number(m[2])
     if (h > 23 || mi > 59) return null
-    return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
+    return `${String(collegeHour(h)).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
   }
   const out: { start: string; end: string }[] = []
   for (let i = 0; i + 1 < times.length; i += 2) {
@@ -998,14 +1039,25 @@ function extractRowTimes(parts: string[]): { start: string; end: string }[] {
 }
 
 /** Read every (period band × day column) box on one grid page. */
-export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: number }[], warnings: string[]): ParsedEntry[] {
+/** Read every (period band × day column) box on one grid page.
+ *  `carry` is the previous page's last class period: on a continuation page,
+ *  class rows printed ABOVE the first time label are the tail of that period's
+ *  cells (a two-hour lab block broken across the page). Returns the entries
+ *  plus this page's last class period for the next page. */
+export function readGridBoxes(
+  allFrags: Frag[],
+  dayCols: { weekday: number; x: number }[],
+  warnings: string[],
+  carry: { start: string; end: string } | null = null,
+): { entries: ParsedEntry[]; lastPeriod: { start: string; end: string } | null } {
   // Only this page's fragments participate — `frags` arrives as one page's list,
   // but guard anyway so a pooled array can never mix coordinate spaces.
   const homePage = allFrags[0]?.page ?? 0
   const frags = allFrags.filter((f) => f.page === homePage)
 
   // ---- T3: period rows anchored at the leftmost column ----
-  interface Band { start: string; end: string; yTop: number; yBottom: number; page: number }
+  /** `label` is the y of the period's time label; yTop/yBottom bound its cell box. */
+  interface Band { start: string; end: string; yTop: number; yBottom: number; page: number; label: number; carried?: boolean }
   const leftLimit = dayCols[0].x - 20
   // Bands are built PER PAGE: pdfjs gives every page its own coordinate space,
   // so two pages' time labels can share a y value without being the same row.
@@ -1026,7 +1078,7 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
   for (const { y, row } of yGroups.values()) {
     const pg = row[0].page
     for (const t of extractRowTimes(row.sort((a, b) => a.x - b.x).map((f) => f.str.trim()))) {
-      rawBands.push({ start: t.start, end: t.end, yTop: y, yBottom: y, page: pg })
+      rawBands.push({ start: t.start, end: t.end, yTop: y, yBottom: y, page: pg, label: y })
     }
   }
   // Merge bands that sit within ~5pt of each other on the same page: pdf.js
@@ -1074,125 +1126,50 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
     }
     merged.push(b)
   }
-  // A cell may stack two periods sharing an endpoint (10:00-10:15 break then
-  // 10:15-11:15 class): give such a short band only the sliver above the next.
-  // The NEXT band is the one just BELOW this one in reading order — but PDF y
-  // grows upward, so after sorting top→bottom, `merged[i+1]` must have a LOWER
-  // y. When two bands share the same y (a split label like "2:15 - 3:15" plus
-  // "3.15 – 4.15" glued onto one visual row), they are SIBLINGS: the second
-  // owns everything below the first's bottom, and the pair together bounds the
-  // row underneath. Treat same-y neighbours as siblings by offsetting their
-  // effective tops a hair so ordering stays deterministic.
-  // NOTE: the old same-y "sibling" clamp (dur === nextDur → yBottom =
-  // next.yTop + 6) is intentionally gone. When one visual row carries two
-  // period labels (Div F prints "10:15–11:15 ASEP(P)" and "1.15–2.15 …" on
-  // the same baseline), the second label's cell block sits BELOW the first
-  // label's rows — clamping the upper band cut that block off and silently
-  // dropped every class of the lower period. The band-growth pass below now
-  // assigns each entry baseline to the vertically closest band, so no row
-  // is ever double-claimed or orphaned.
-  for (let i = 0; i < merged.length; i++) {
-    const next = merged[i + 1]
-    if (!next || next.page !== merged[i].page) { merged[i].yBottom = -Infinity; continue }
-    if (merged[i].yBottom === -Infinity) merged[i].yBottom = next.yTop - 12
-    else merged[i].yBottom = Math.min(merged[i].yBottom, next.yTop - 12)
-  }
   const uniqBands = merged
 
-  // The NOTE/legend block sits below the last period row of each page; anything
-  // under that page's lowest time label is prose, not a class. Cut there — per
-  // page, because every page has its own y origin (a legend page's bottom row
-  // can sit at the same y as a grid page's first period).
-  // ---- stacked batch rows ------------------------------------------------
-  // Cells hold one entry per text baseline: in the 8:00-9:00 Monday cell the
-  // three batches sit at y=334.5 (A1), 320.7 (A2) and 306.9 (A3) while the
-  // time label itself sits on just ONE of those baselines. With bands clamped
-  // to their own label row, only that middle baseline falls inside the box
-  // and the other batch rows are silently dropped (their tags never reach
-  // distinctBatches()). Assign every entry-bearing baseline to exactly ONE
-  // period band: the band whose label row is vertically closest (within ~2
-  // periods; ties go to the upper band). This keeps multi-row cells intact
-  // without ever letting a band swallow the next period's rows.
-  {
-    // Entry-bearing baselines are measured on ENTRY FRAGMENT ROWS (true
-    // baselines), not grouped visual lines: the extractor puts each stacked
-    // batch row on its own baseline (A1 334.5, A2 320.7, A3 306.9) while the
-    // period label sits at just one of them. Grouped rows would glue those
-    // three batches into one line and lose their tags entirely.
-    const baseRow = (f: Frag): number => Math.round(f.y * 2) / 2
-    // Entry-bearing baselines are measured on GROUPED visual rows just like
-    // the cell reader does — but with a TIGHT tolerance. pdf.js stacks batch
-    // rows ~6.9pt apart ("A1 FE (P) PS" at y=334.5, "8:00 - 9:00 A2 WAD…" at
-    // 320.7); grouping with ±3 would glue those two rows into one line whose
-    // text starts with "A1 …", so the whole row gets attributed to whichever
-    // band owns the top fragment and the period label's own baseline never
-    // reaches its band. With ±2 every batch row stays its own line: the ones
-    // starting with an entry pattern mark baselines; label rows (starting
-    // with the time range) don't match ENTRY_RE and stay neutral.
-    interface ERow { page: number; y: number; frags: Frag[] }
-    const eRows: ERow[] = []
-    for (const f of frags) {
-      let r = eRows.find((x) => x.page === f.page && Math.abs(x.y - f.y) <= 2)
-      if (!r) { r = { page: f.page, y: baseRow(f), frags: [] }; eRows.push(r) }
-      r.frags.push(f)
-    }
-    /** Does this joined line START with a real class entry? ENTRY_RE alone is
-     *  anchored only at "^" and every optional group can match empty, so it
-     *  fires on any uppercase word anywhere ("Short Break", wrapped rooms).
-     *  Require the subject code + type marker to begin within the first few
-     *  characters (after an optional batch tag). */
-    const startsWithEntry = (ln: string): boolean => {
-      const m = ENTRY_RE.exec(ln)
-      return !!m && m.index <= 4 && /\(\s*[LPTS]\s*\)|\([LPTS][A-Za-z(]/.test(ln.slice(m.index, m.index + 40))
-    }
-    // Rows that are PURE break labels ("Short Break", "LUNCH BREAK") never
-    // anchor a band's box — otherwise the break row's own baseline becomes an
-    // "entry row" and the period above grows its box down to swallow it, then
-    // re-emits every class of the NEXT period under its own time (the 10:00/
-    // 10:15 duplicate symptom). Mixed rows (a class cell + a break label on
-    // the same baseline) still count as entry rows for that class's block.
-    const isPureBreakRow = (ln: string): boolean => {
-      const nt = normalizeTypeTok(ln)
-      return BREAK_TEXT_RE.test(nt) && !/\(\s*[LPTS]\s*\)/.test(nt)
-    }
-    const entryRows = eRows.filter((r) => {
-      const ln = normalizeTypeTok(
-        [...r.frags].sort((a, b) => a.x - b.x).map((f) => f.str.trim()).filter(Boolean).join(' '),
-      )
-      return !!ln && !isPureBreakRow(ln) && startsWithEntry(ln)
+  // ---- Period boxes ------------------------------------------------------
+  // Every period's cell block is printed vertically CENTRED on its time
+  // label: stacked batch rows sit both above and below the label baseline
+  // (Div A 8:00: A1 @+14, A2 on the label row, A3 @-14). So each text row
+  // belongs to the class period whose label is vertically closest, i.e. the
+  // box boundary between two adjacent periods is the midpoint of their
+  // labels. Break periods (Short Break / LUNCH BREAK rows) hold no cells and
+  // are left out of the midpoint computation so they never steal the
+  // neighbouring periods' rows. The first/last period of a page extends by
+  // the same half-gap on its open side.
+  //
+  // The old rule set each box bottom to `next.yTop - 12` — BELOW the next
+  // label, since PDF y grows upward — so every period also swallowed the
+  // upper half of the following period and its classes were emitted twice
+  // (e.g. a 9:00 class also showing at 8:00).
+  const breakSet = new Set(uniqBands.filter((b) => isBreakBand({ ...b, yTop: b.label }, frags)))
+  for (const pg of new Set(uniqBands.map((b) => b.page))) {
+    const classBands = uniqBands
+      .filter((b) => b.page === pg && !breakSet.has(b))
+      .sort((a, b) => b.yTop - a.yTop)
+    const labelY = classBands.map((b) => b.label)
+    classBands.forEach((b, i) => {
+      const up = i > 0 ? (labelY[i - 1] - labelY[i]) / 2 : null
+      const down = i + 1 < labelY.length ? (labelY[i] - labelY[i + 1]) / 2 : null
+      const half = (fallback: number | null) => fallback ?? 30
+      b.yTop = labelY[i] + half(up ?? down)
+      b.yBottom = labelY[i] - half(down ?? up)
     })
-    // Anchor each period band's box over its stacked batch rows. The time
-    // label sits on ONE baseline of the block (e.g. 8:00-9:00 at y=320.7 with
-    // A1@334.5 above and A3@306.9 below), so grow BOTH ways from the label —
-    // but never past the next period's own cell block. Consecutive entry rows
-    // are ~6.9pt apart; a gap of more than two pitches (~16pt) means the cell
-    // ended and the next block began, so growth stops there. This is what
-    // keeps the previous period's lowest batch row from being swallowed by
-    // the band below (the duplicate-class symptom).
-    const sortedBands = [...uniqBands].sort((a, b) => a.page - b.page || b.yTop - a.yTop)
-    for (const band of sortedBands) {
-      let curTop = band.yTop
-      for (;;) {
-        const cand = entryRows.filter((r) => r.page === band.page && r.y > curTop + 3 && r.y < curTop + 16)
-        if (!cand.length) break
-        curTop = Math.min(...cand.map((r) => r.y))
-      }
-      let curBot = band.yBottom
-      for (;;) {
-        const cand = entryRows.filter((r) => r.page === band.page && r.y < curBot - 3 && r.y > curBot - 16)
-        if (!cand.length) break
-        curBot = Math.max(...cand.map((r) => r.y))
-      }
-      band.yTop = curTop
-      band.yBottom = curBot
-    }
   }
+  const classBandsAll = uniqBands.filter((b) => !breakSet.has(b))
+  const hasOwnHeader = findDayColumns(frags).length >= 4
+  if (carry && !hasOwnHeader && classBandsAll.length) {
+    const topBand = classBandsAll.reduce((a, b) => (b.yTop > a.yTop ? b : a))
+    uniqBands.push({ start: carry.start, end: carry.end, yTop: Infinity, yBottom: topBand.yTop, page: topBand.page, label: topBand.yTop, carried: true })
+  }
+
 
   const proseCutByPage = new Map<number, number>()
   for (const b of uniqBands) {
     if (proseCutByPage.has(b.page)) continue
     const pageBands = uniqBands.filter((o) => o.page === b.page)
-    const lowestBandY = Math.min(...pageBands.map((o) => o.yTop))
+    const lowestBandY = Math.min(...pageBands.map((o) => o.label))
     const noteFrag = frags.find(
       (f) => f.page === b.page && f.y < lowestBandY - 6 && /NOTE\s*:?/i.test(f.str),
     )
@@ -1213,14 +1190,18 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
     // row. Wrapped room numbers or teacher initials that visually fall inside
     // the break box used to be re-emitted as a "10:00" class duplicating the
     // real 10:15 one.
-    if (isBreakBand(band, frags)) continue
+    if (breakSet.has(band)) continue
     for (let ci = 0; ci < dayCols.length; ci++) {
-      const lo = dayCols[ci].x - 30
+      // Columns tile the row: each starts where the previous one ends. The
+      // old fixed `x - 30` left edge left gaps between columns, so narrow
+      // cells printed near a column's left side (Div A's Monday "ASEP(P)")
+      // belonged to no day at all and were silently dropped.
+      const lo = ci > 0 ? colMid(ci - 1) : dayCols[0].x - (dayCols.length > 1 ? (dayCols[1].x - dayCols[0].x) / 2 : 30)
       const hi = colMid(ci)
       const inBox = frags.filter(
         (f) =>
           f.page === band.page &&
-          f.y <= band.yTop + 6 &&
+          f.y <= band.yTop &&
           f.y > Math.max(band.yBottom, proseCutByPage.get(band.page) ?? -Infinity) &&
           overlapFracX(f, lo, hi) >= 0.5,
       )
@@ -1237,6 +1218,9 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
         const nt = normalizeTypeTok(text)
         if (BREAK_TEXT_RE.test(nt) && !/\(\s*[LPTS]\s*\)/.test(nt)) continue // T8
         if (PROSE_RE.test(nt)) continue // NOTE/legend prose under the grid
+        // Above the first label of a continuation page only real class rows
+        // count — the page-header furniture lives there too.
+        if (band.carried && !/\(\s*[LPTS]\s*\)/.test(nt)) continue
         // A cell line whose every entry is an untagged subject with neither
         // teacher nor room is almost always wrapped furniture from the
         // neighbouring period ("2407" continuation rows landing here). Keep
@@ -1252,7 +1236,8 @@ export function readGridBoxes(allFrags: Frag[], dayCols: { weekday: number; x: n
     }
   }
   void warnings
-  return out
+  const lastClass = classBandsAll.length ? classBandsAll.reduce((a, b) => (b.label < a.label ? b : a)) : null
+  return { entries: out, lastPeriod: lastClass ? { start: lastClass.start, end: lastClass.end } : carry }
 }
 
 /** All fragments of one cell box joined into a single string (top→bottom). */
@@ -1495,23 +1480,51 @@ export function readLegend(frags: Frag[]): { short: string; full: string }[] {
   // have bare numbers too (times like "10", rooms) but no code column, so
   // requiring one here keeps NOTE-block words from becoming phantom subjects.
   const hasCodeRe = /^[A-Z]{2,6}(?:-[IVX]+)?$/
+  // Column geometry per page. Read from the table's own header row ("S.N." |
+  // "Course abbreviation" | "Course Name" | "Teacher-name initials") when it
+  // is present: the old fixed x positions only fit Div A's page size, so on
+  // larger pages (Div F is printed ~1.9× wider) no legend row was ever read
+  // and every subject came out named after its code.
+  interface Geo { snMaxX: number; codeMaxX: number; teacherLo: number; rowTol: number; nearTol: number }
+  const geoByPage = new Map<number, Geo>()
+  for (const [pg, arr] of byPage) {
+    const sn = arr.find((f) => /^S\.?\s*N\.?$/i.test(f.str.trim()))
+    const hdr = sn ? arr.filter((f) => Math.abs(f.y - sn.y) <= 8 && f.x > sn.x).sort((a, b) => a.x - b.x) : []
+    const abbr = hdr.find((f) => /abbrev/i.test(f.str))
+    const name = hdr.find((f) => /course\s*name|^name$/i.test(f.str.trim()))
+    const teacher = hdr.find((f) => /teacher/i.test(f.str))
+    if (sn && abbr && teacher && teacher.x > sn.x) {
+      const scale = (teacher.x - sn.x) / 370 // 370 ≈ S.N.→Teacher distance on the Div A page
+      geoByPage.set(pg, {
+        snMaxX: abbr.x,
+        codeMaxX: name ? name.x : abbr.end + 40 * scale,
+        teacherLo: teacher.x - 15 * scale,
+        rowTol: 6 * scale,
+        nearTol: 14 * scale,
+      })
+    } else {
+      geoByPage.set(pg, { snMaxX: 110, codeMaxX: NAME_COL_LO, teacherLo: TEACHER_COL_X, rowTol: 6, nearTol: 14 })
+    }
+  }
   const snRows: Frag[] = []
-  for (const arr of byPage.values()) {
+  for (const [pg, arr] of byPage) {
     if (!arr.some((f) => hasCodeRe.test(f.str))) continue
+    const geo = geoByPage.get(pg)!
     arr
-      .filter((f) => /^\d{1,2}$/.test(f.str) && f.x < 110)
+      .filter((f) => /^\d{1,2}$/.test(f.str) && f.x < geo.snMaxX)
       .sort((a, b) => b.y - a.y)
       .forEach((f) => snRows.push(f))
   }
   snRows.sort((a, b) => a.page - b.page || b.y - a.y)
   for (const sn of snRows) {
     const pageFrags = byPage.get(sn.page)!
+    const geo = geoByPage.get(sn.page)!
     // Rows are ~13pt apart; ±8 would bleed into the neighbour row and pull
     // in another subject's words (e.g. "SDC … Calculus JSA Jameel S. Ansari").
     const row = pageFrags
-      .filter((f) => Math.abs(f.y - sn.y) <= 6 && f.x > sn.end)
+      .filter((f) => Math.abs(f.y - sn.y) <= geo.rowTol && f.x > sn.end)
       .sort((a, b) => a.x - b.x)
-    const codes = row.filter((f) => CODE_RE.test(f.str) && f.x < NAME_COL_LO)
+    const codes = row.filter((f) => CODE_RE.test(f.str) && f.x < geo.codeMaxX)
     if (codes.length === 0) continue
     const codeCol = codes[0]
     // Full name: words strictly between the abbreviation column and the
@@ -1519,19 +1532,21 @@ export function readLegend(frags: Frag[]): { short: string; full: string }[] {
     // below the anchor row (PDF y grows up), e.g. "Statistics and
     // Differential" at y+7 with "Calculus" at y-7 — so look both ways.
     const nearRow = pageFrags
-      .filter((f) => Math.abs(f.y - sn.y) <= 14 && f.x >= NAME_COL_LO && f.x < TEACHER_COL_X)
+      .filter((f) => Math.abs(f.y - sn.y) <= geo.nearTol && f.x > codeCol.end && f.x < geo.teacherLo)
       .sort((a, b) => b.y - a.y || a.x - b.x)
     const words: string[] = []
     let lastY: number | null = null
     for (const f of nearRow) {
       if (lastY !== null && Math.abs(f.y - lastY) > 3) words.push(' ') // line break
-      if (/^[A-Za-z][A-Za-z&,.']*$/.test(f.str)) words.push(f.str)
+      // A fragment may carry one word or a whole run ("Computer Programming").
+      for (const w of f.str.trim().split(/\s+/)) if (/^[A-Za-z][A-Za-z&,.']*$/.test(w)) words.push(w)
       lastY = f.y
     }
     const full = words
       .join(' ')
       .replace(/\s+/g, ' ')
       .replace(/\s+(\w)/, (_, c: string) => ' ' + c)
+      .replace(/\b(\w+)(?: \1\b)+/g, '$1') // "orientation I I" (code suffix read twice) → "orientation I"
       .trim()
     if (!full || full.length < 5) continue
     const short = codeCol.str.replace(/-I+$/, '') // grid cells use "VACO", not "VACO-I"
@@ -1545,7 +1560,10 @@ export function readLegend(frags: Frag[]): { short: string; full: string }[] {
   // table here even though "ASEP(P)" fills grid cells). Harvest every
   // CODE or CODE(L/T/P/S) fragment from the grid pages and emit the ones we
   // couldn't read from the table, with a known full name when available.
-  const GRID_CODE_RE = /^([A-Z]{2,6})(?:\s*\(\s*[LPTS]\s*\))?$/
+  // The type marker is REQUIRED: a bare uppercase word in the grid is just as
+  // likely teacher initials ("KRP") or a break label ("LUNCH", "BREAK"), and
+  // those used to be offered as phantom subjects.
+  const GRID_CODE_RE = /^([A-Z]{2,6})\s*\(\s*[LPTS]\s*\)$/
   for (const f of frags) {
     const m = GRID_CODE_RE.exec(f.str.trim())
     if (!m) continue
