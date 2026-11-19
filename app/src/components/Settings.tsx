@@ -5,9 +5,12 @@
 // second tap to confirm (F8).
 
 import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { hasGeminiKey } from '../logic/gemini'
 import { useApp } from '../data/store'
 import { exportData, parseBackup } from '../data/storage'
-import { SliderField, SectionTitle, Toggle } from './ui/parts'
+import { SliderField, Toggle } from './ui/parts'
 import { useTheme } from '../theme/ThemeProvider'
 import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
@@ -235,6 +238,42 @@ function effDivision(s: { myDivision?: string; myBatch: string }): string {
   return d || divisionOf(s.myBatch)
 }
 
+/** One Settings section: a card you tap to open, showing a one-line summary
+ *  of its current values while closed. Open sections are remembered. */
+function Group({ id, icon, title, summary, children }: { id: string; icon: string; title: string; summary: string; children: ReactNode }) {
+  const storeKey = `at.settings.open.${id}`
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(storeKey) === '1'
+    } catch {
+      return false
+    }
+  })
+  function toggle() {
+    setOpen((o) => {
+      try {
+        localStorage.setItem(storeKey, o ? '0' : '1')
+      } catch {
+        /* ignore */
+      }
+      return !o
+    })
+  }
+  return (
+    <section className={`settings-group${open ? ' open' : ''}`}>
+      <button className="settings-group-head" onClick={toggle} aria-expanded={open}>
+        <span className="settings-group-icon" aria-hidden>{icon}</span>
+        <span className="grow" style={{ minWidth: 0 }}>
+          <b>{title}</b>
+          {!open && <span className="settings-group-summary">{summary}</span>}
+        </span>
+        <ChevronDown size={20} className={`subj-chevron ${open ? 'open' : ''}`} />
+      </button>
+      {open && <div className="settings-group-body">{children}</div>}
+    </section>
+  )
+}
+
 export default function Settings() {
   const { data, setData, updateSettings, resetAll, addHoliday, deleteHoliday } = useApp()
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null)
@@ -273,422 +312,460 @@ export default function Settings() {
     <div className="screen pad">
       <h1 style={{ margin: '8px 0 12px' }}>Settings</h1>
 
-      <SectionTitle>ATTENDANCE TARGET</SectionTitle>
-      <SliderField
-        label="Minimum attendance to keep"
-        value={s.threshold}
-        min={1}
-        max={100}
-        emojiFor={thresholdEmoji}
-        onChange={(n) => updateSettings({ threshold: n })}
-        hint="Every warning and “can skip” number uses this."
-      />
+      <p className="msg" style={{ margin: '0 0 12px' }}>Tap a section to open it.</p>
 
-      <SliderField
-        label="Assumed attendance for past unmarked classes"
-        value={s.assumedPastAttendance}
-        min={0}
-        max={100}
-        onChange={(n) => updateSettings({ assumedPastAttendance: n })}
-        hint={
-          s.unmarkedAsPresent
-            ? 'Not used right now — “Count unmarked classes as present” is on.'
-            : s.ignorePastAttendance
-              ? 'Not used right now — “Start counting from today only” is on.'
-              : 'Used until you mark a day or type real ERP totals.'
-        }
-      />
-
-      {/* "Start fresh": mid-semester adopters can ignore everything before today. */}
-      <label className={`card row spread toggle-row ${s.ignorePastAttendance ? 'on' : ''}`} style={{ alignItems: 'center' }}>
-        <span>
-          <b>Start counting from today only</b>
-          <div className="class-meta">
-            {s.ignorePastAttendance
-              ? `Counting only the classes you mark from ${formatShort(countFromOf(data, todayStr()), true)} — nothing before, no assumed attendance. Uncheck to go back to the whole semester.`
-              : 'Off: everything since the semester start counts (your marks + assumed attendance for the rest).'}
-          </div>
-        </span>
-        <input
-          type="checkbox"
-          checked={s.ignorePastAttendance}
-          onChange={(e) => updateSettings({ ignorePastAttendance: e.target.checked })}
+      <Group id="attendance" icon="📊" title="Attendance"
+        summary={`Target ${s.threshold}% · ${s.ignorePastAttendance ? `counting from ${formatShort(countFromOf(data, todayStr()))}` : 'whole semester'}${s.unmarkedAsPresent ? ' · unmarked = present' : ''}`}>
+        <SliderField
+          label="Minimum attendance to keep"
+          value={s.threshold}
+          min={1}
+          max={100}
+          emojiFor={thresholdEmoji}
+          onChange={(n) => updateSettings({ threshold: n })}
+          hint="Every warning and “can skip” number uses this."
         />
-      </label>
-      {s.ignorePastAttendance && (
-        <label className="card row spread" style={{ alignItems: 'center' }}>
-          <span className="msg" style={{ color: 'var(--text)' }}>Count from</span>
+
+        <SliderField
+          label="Assumed attendance for past unmarked classes"
+          value={s.assumedPastAttendance}
+          min={0}
+          max={100}
+          onChange={(n) => updateSettings({ assumedPastAttendance: n })}
+          hint={
+            s.unmarkedAsPresent
+              ? 'Not used right now — “Count unmarked classes as present” is on.'
+              : s.ignorePastAttendance
+                ? 'Not used right now — “Start counting from today only” is on.'
+                : 'Used until you mark a day or type real ERP totals.'
+          }
+        />
+
+        {/* "Start fresh": mid-semester adopters can ignore everything before today. */}
+        <label className={`card row spread toggle-row ${s.ignorePastAttendance ? 'on' : ''}`} style={{ alignItems: 'center' }}>
+          <span>
+            <b>Start counting from today only</b>
+            <div className="class-meta">
+              {s.ignorePastAttendance
+                ? `Counting only the classes you mark from ${formatShort(countFromOf(data, todayStr()), true)} — nothing before, no assumed attendance. Uncheck to go back to the whole semester.`
+                : 'Off: everything since the semester start counts (your marks + assumed attendance for the rest).'}
+            </div>
+          </span>
           <input
-            type="date"
-            value={countFromOf(data, todayStr())}
-            max={todayStr()}
-            min={s.semesterStart ?? undefined}
-            onChange={(e) => e.target.value && updateSettings({ countFromDate: e.target.value })}
-            style={{ width: 'auto' }}
-            aria-label="Count attendance from"
+            type="checkbox"
+            checked={s.ignorePastAttendance}
+            onChange={(e) => updateSettings({ ignorePastAttendance: e.target.checked })}
           />
         </label>
-      )}
-
-      {/* B14: what an unmarked class means */}
-      <label className={`card row spread toggle-row ${s.unmarkedAsPresent ? 'on' : ''}`} style={{ alignItems: 'center' }}>
-        <span>
-          <b>Count unmarked classes as present</b>
-          <div className="class-meta">
-            {s.unmarkedAsPresent
-              ? 'On: any class you don’t mark counts as attended (today’s too). Mark Absent when you miss one.'
-              : 'Off: past unmarked classes use the assumed % above; today’s count once you mark them.'}
-          </div>
-        </span>
-        <input
-          type="checkbox"
-          checked={!!s.unmarkedAsPresent}
-          onChange={(e) => updateSettings({ unmarkedAsPresent: e.target.checked })}
-        />
-      </label>
-
-      <SectionTitle>THEME</SectionTitle>
-      <div className="theme-tiles">
-        {themes.map((t) => (
-          <button
-            key={t.id}
-            className={`theme-tile ${choice === t.id ? 'on' : ''}`}
-            onClick={() => setChoice(t.id)}
-            aria-pressed={choice === t.id}
-          >
-            {t.tokens ? (
-              <span
-                className="theme-preview"
-                style={{
-                  background: THEME_TOKENS[t.tokens].bg,
-                  borderTop: `8px solid ${THEME_TOKENS[t.tokens].headerTo}`,
-                }}
-              >
-                <i style={{ background: THEME_TOKENS[t.tokens].card }} />
-                <i style={{ background: THEME_TOKENS[t.tokens].primary }} />
-                <i style={{ background: THEME_TOKENS[t.tokens].safe }} />
-              </span>
-            ) : (
-              <span className="theme-preview auto">🌗</span>
-            )}
-            <b>{t.label}</b>
-          </button>
-        ))}
-      </div>
-
-      <SectionTitle>SEMESTER</SectionTitle>
-      <div className="card">
-        <label className="small-label">Semester name</label>
-        <input
-          value={s.semesterName}
-          onChange={(e) => updateSettings({ semesterName: e.target.value })}
-          placeholder="Semester 1"
-        />
-        <div className="field-row">
-          <div className="grow">
-            <label className="small-label">Start date</label>
+        {s.ignorePastAttendance && (
+          <label className="card row spread" style={{ alignItems: 'center' }}>
+            <span className="msg" style={{ color: 'var(--text)' }}>Count from</span>
             <input
               type="date"
-              className="fill"
-              value={semStart}
-              onChange={(e) => {
-                setSemStart(e.target.value)
-                setSemSaved(false)
-              }}
+              value={countFromOf(data, todayStr())}
+              max={todayStr()}
+              min={s.semesterStart ?? undefined}
+              onChange={(e) => e.target.value && updateSettings({ countFromDate: e.target.value })}
+              style={{ width: 'auto' }}
+              aria-label="Count attendance from"
             />
-          </div>
-          <div className="grow">
-            <label className="small-label">Tentative end</label>
-            <input
-              type="date"
-              className="fill"
-              value={semEnd}
-              min={semStart || undefined}
-              onChange={(e) => {
-                setSemEnd(e.target.value)
-                setSemSaved(false)
-              }}
-            />
-          </div>
-        </div>
-        <button
-          className="primary big-btn"
-          style={{ width: '100%', marginTop: 10 }}
-          disabled={!semValid || !semDirty}
-          onClick={saveSemesterDates}
-        >
-          {semSaved ? '✓ Saved!' : semDirty ? 'Save semester dates' : 'Semester dates saved ✓'}
-        </button>
-        <div className="msg">
-          Classes only appear inside this range; the monthly plan needs both. Saving re-dates your timetable to the
-          start date so Today, Calendar and the Plan update immediately.
-        </div>
-      </div>
+          </label>
+        )}
 
-      {/* Batch rule (doc T8 + user requirement): div A has batches A1/A2/A3.
-          The app shows only slots tagged with my batch or untagged (whole class). */}
-      <SectionTitle>CLASS &amp; BATCH</SectionTitle>
-      <div className="card">
-        <label className="small-label">Division</label>
-        {/* Division is a chip row so it can be changed with one tap (and
-            re-tapped to deselect) — same pattern as the batch picker. */}
-        <div className="batch-grid" role="radiogroup" aria-label="Division">
-          {(['', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const).map((d) => {
-            const on = effDivision(s) === d
-            return (
-              <button
-                key={d || 'none'}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                className={`batch-opt ${on ? 'on' : ''}`}
-                onClick={() => updateSettings({ myDivision: on ? '' : d })}
-              >
-                {d === '' ? 'Not set' : `Division ${d}`}
-              </button>
-            )
-          })}
-        </div>
-        <label className="small-label" style={{ marginTop: 8 }}>Batch</label>
-        <div className="batch-grid" role="radiogroup" aria-label="Batch">
-          {(['', '1', '2', '3'] as const).map((b) => {
-            const division = effDivision(s)
-            const on = division !== '' && batchNumberOf(s.myBatch) === b
-            return (
-              <button
-                key={b || 'all'}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                disabled={division === ''}
-                className={`batch-opt ${on ? 'on' : ''}`}
-                onClick={() => updateSettings({ myBatch: `${division}${b}` })}
-              >
-                {b === '' ? 'Whole division' : `Batch ${division}${b}`}
-              </button>
-            )
-          })}
-        </div>
-        <div className="msg" style={{ marginTop: 8 }}>
-          Your timetable is filtered by this: classes marked for other batches are hidden;
-          classes with no batch tag (like a plain “A SDC (L)”) belong to everyone.
-        </div>
-      </div>
-
-      <SectionTitle>SMART IMPORT (AI)</SectionTitle>
-      <SmartImportSettings />
-
-      <SectionTitle>REMINDERS</SectionTitle>
-
-      {/* Escape hatch: if the user dismissed the Android 13+ permission prompt
-          (or denied it), requestPermissions() never re-prompts — this button
-          gives them a way to trigger the system dialog again. */}
-      <NotifyPermissionRow />
-
-      <SliderField
-        label="Remind me before a deadline by"
-        value={s.reminderLeadDays}
-        min={1}
-        max={14}
-        suffix=" days"
-        onChange={(n) => updateSettings({ reminderLeadDays: n })}
-        hint="Notifications arrive this many days early (Step 5 fires them)."
-      />
-
-      <div className="card">
-        <label className="small-label">Notification arrival time</label>
-        <input
-          type="time"
-          value={s.notificationTime}
-          onChange={(e) => updateSettings({ notificationTime: e.target.value || '18:00' })}
-        />
-        <div className="msg">Time of day deadline reminder notifications arrive (F3).</div>
-      </div>
-
-      {/* F4: evening "mark your attendance" nudge (B11) */}
-      <div className="card row spread">
-        <div>
-          <b>Evening mark reminder</b>
-          <div className="msg">Nudges you if today’s classes aren’t all marked.</div>
-        </div>
-        <Toggle
-          checked={s.eveningReminderOn}
-          onChange={(v) => updateSettings({ eveningReminderOn: v })}
-          label="Evening mark reminder"
-        />
-      </div>
-      {s.eveningReminderOn && (
-        <div className="field-row">
-          <label className="small-label">At time</label>
+        {/* B14: what an unmarked class means */}
+        <label className={`card row spread toggle-row ${s.unmarkedAsPresent ? 'on' : ''}`} style={{ alignItems: 'center' }}>
+          <span>
+            <b>Count unmarked classes as present</b>
+            <div className="class-meta">
+              {s.unmarkedAsPresent
+                ? 'On: any class you don’t mark counts as attended (today’s too). Mark Absent when you miss one.'
+                : 'Off: past unmarked classes use the assumed % above; today’s count once you mark them.'}
+            </div>
+          </span>
           <input
-            type="time"
-            value={s.eveningReminderTime}
-            onChange={(e) => updateSettings({ eveningReminderTime: e.target.value || '20:00' })}
+            type="checkbox"
+            checked={!!s.unmarkedAsPresent}
+            onChange={(e) => updateSettings({ unmarkedAsPresent: e.target.checked })}
           />
-        </div>
-      )}
+        </label>
 
-      {/* F13 / F14 display toggles */}
-      <div className="card row spread">
-        <div>
-          <b>Show room &amp; teacher</b>
-          <div className="msg">On subject cards and class lists.</div>
-        </div>
-        <Toggle
-          checked={s.showRoomTeacher}
-          onChange={(v) => updateSettings({ showRoomTeacher: v })}
-          label="Show room and teacher"
-        />
-      </div>
-      <div className="card row spread">
-        <div>
-          <b>Quick actions</b>
-          <div className="msg">Mark-all and add-deadline buttons on the day screen.</div>
-        </div>
-        <Toggle
-          checked={s.showQuickActions}
-          onChange={(v) => updateSettings({ showQuickActions: v })}
-          label="Quick actions"
-        />
-      </div>
 
-      <div className="card row spread">
-        <div>
-          <b>Sunday classes</b>
-          <div className="msg">Sunday is off by default.</div>
+          <div className="settings-sub">Real totals from the college ERP</div>
+        <div className="msg" style={{ marginBottom: 8 }}>
+          Typing totals replaces the app’s calculated figures for that subject.
         </div>
-        <Toggle
-          checked={s.sundayClasses}
-          onChange={(v) => updateSettings({ sundayClasses: v })}
-          label="Sunday classes"
-        />
-      </div>
+        {data.subjects.length === 0 && <div className="card msg">No subjects yet.</div>}
+        {data.subjects.map((sub) => (
+          <ErpRow key={sub.id} id={sub.id} short={sub.shortName} attended={sub.typedAttended} held={sub.typedHeld} />
+        ))}
 
-      <SectionTitle>HOLIDAYS &amp; EXAM DAYS</SectionTitle>
-      <div className="msg" style={{ marginBottom: 8 }}>
-        Holidays hide that day’s classes; exam days are marked on the calendar but still count normally (A12).
-      </div>
-      {data.holidays.length === 0 && <div className="card msg">No holidays or exam days yet.</div>}
-      {data.holidays.map((h) => (
-        <div className="card row spread" key={h.id}>
-          <div>
-            <b>{h.isExamDay ? '📝' : '🎉'} {h.label}</b>
-            <div className="msg">
-              {formatShort(h.startDate)}
-              {h.endDate !== h.startDate ? ` → ${formatShort(h.endDate)}` : ''} ·{' '}
-              {h.isExamDay ? 'exam day' : 'holiday'}
+
+      </Group>
+
+      <Group id="semester" icon="🎓" title="Semester &amp; classes"
+        summary={[s.semesterStart && s.semesterEnd ? `${formatShort(s.semesterStart)} – ${formatShort(s.semesterEnd, true)}` : 'Semester dates not set', s.myBatch ? `batch ${s.myBatch}` : 'no batch chosen', `${data.holidays.length} holiday${data.holidays.length === 1 ? '' : 's'}`].join(' · ')}>
+          <div className="settings-sub">Semester</div>
+        <div className="card">
+          <label className="small-label">Semester name</label>
+          <input
+            value={s.semesterName}
+            onChange={(e) => updateSettings({ semesterName: e.target.value })}
+            placeholder="Semester 1"
+          />
+          <div className="field-row">
+            <div className="grow">
+              <label className="small-label">Start date</label>
+              <input
+                type="date"
+                className="fill"
+                value={semStart}
+                onChange={(e) => {
+                  setSemStart(e.target.value)
+                  setSemSaved(false)
+                }}
+              />
+            </div>
+            <div className="grow">
+              <label className="small-label">Tentative end</label>
+              <input
+                type="date"
+                className="fill"
+                value={semEnd}
+                min={semStart || undefined}
+                onChange={(e) => {
+                  setSemEnd(e.target.value)
+                  setSemSaved(false)
+                }}
+              />
             </div>
           </div>
-          <button onClick={() => deleteHoliday(h.id)}>Remove</button>
-        </div>
-      ))}
-      <div className="card">
-        <label>Label</label>
-        <input value={holLabel} onChange={(e) => setHolLabel(e.target.value)} placeholder="Diwali break / Mid-terms" />
-        <div className="field-row">
-          <div className="grow">
-            <label className="small-label">From</label>
-            <input type="date" value={holStart} onChange={(e) => setHolStart(e.target.value)} />
-          </div>
-          <div className="grow">
-            <label className="small-label">To</label>
-            <input type="date" value={holEnd || holStart} onChange={(e) => setHolEnd(e.target.value)} />
+          <button
+            className="primary big-btn"
+            style={{ width: '100%', marginTop: 10 }}
+            disabled={!semValid || !semDirty}
+            onClick={saveSemesterDates}
+          >
+            {semSaved ? '✓ Saved!' : semDirty ? 'Save semester dates' : 'Semester dates saved ✓'}
+          </button>
+          <div className="msg">
+            Classes only appear inside this range; the monthly plan needs both. Saving re-dates your timetable to the
+            start date so Today, Calendar and the Plan update immediately.
           </div>
         </div>
-        <div className="card row spread" style={{ marginTop: 6 }}>
+
+        {/* Batch rule (doc T8 + user requirement): div A has batches A1/A2/A3.
+            The app shows only slots tagged with my batch or untagged (whole class). */}
+
+          <div className="settings-sub">Class &amp; batch</div>
+        <div className="card">
+          <label className="small-label">Division</label>
+          {/* Division is a chip row so it can be changed with one tap (and
+              re-tapped to deselect) — same pattern as the batch picker. */}
+          <div className="batch-grid" role="radiogroup" aria-label="Division">
+            {(['', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const).map((d) => {
+              const on = effDivision(s) === d
+              return (
+                <button
+                  key={d || 'none'}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  className={`batch-opt ${on ? 'on' : ''}`}
+                  onClick={() => updateSettings({ myDivision: on ? '' : d })}
+                >
+                  {d === '' ? 'Not set' : `Division ${d}`}
+                </button>
+              )
+            })}
+          </div>
+          <label className="small-label" style={{ marginTop: 8 }}>Batch</label>
+          <div className="batch-grid" role="radiogroup" aria-label="Batch">
+            {(['', '1', '2', '3'] as const).map((b) => {
+              const division = effDivision(s)
+              const on = division !== '' && batchNumberOf(s.myBatch) === b
+              return (
+                <button
+                  key={b || 'all'}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  disabled={division === ''}
+                  className={`batch-opt ${on ? 'on' : ''}`}
+                  onClick={() => updateSettings({ myBatch: `${division}${b}` })}
+                >
+                  {b === '' ? 'Whole division' : `Batch ${division}${b}`}
+                </button>
+              )
+            })}
+          </div>
+          <div className="msg" style={{ marginTop: 8 }}>
+            Your timetable is filtered by this: classes marked for other batches are hidden;
+            classes with no batch tag (like a plain “A SDC (L)”) belong to everyone.
+          </div>
+        </div>
+
+
+        <div className="card row spread">
           <div>
-            <b>Exam day</b>
-            <div className="msg">Off by mistake? No — exam days keep counting for attendance.</div>
+            <b>Sunday classes</b>
+            <div className="msg">Sunday is off by default.</div>
           </div>
-          <Toggle checked={holIsExam} onChange={setHolIsExam} label="Exam day" />
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <button
-            className="primary"
-            disabled={!holLabel.trim() || !holStart}
-            onClick={() => {
-              const start = holStart
-              const end = holEnd && holEnd >= holStart ? holEnd : holStart
-              addHoliday({ label: holLabel.trim(), startDate: start, endDate: end, isExamDay: holIsExam })
-              setHolLabel('')
-              setHolStart('')
-              setHolEnd('')
-              setHolIsExam(false)
-            }}
-          >
-            Add {holIsExam ? 'exam day' : 'holiday'}
-          </button>
-        </div>
-      </div>
-
-      <SectionTitle>PASTE A DEADLINE MESSAGE</SectionTitle>
-      <DeadlinePaste />
-
-      <SectionTitle>COLLEGE EMAIL</SectionTitle>
-      <GmailSetup />
-      <EmailInbox />
-
-      <SectionTitle>REAL TOTALS FROM THE COLLEGE ERP</SectionTitle>
-      <div className="msg" style={{ marginBottom: 8 }}>
-        Typing totals replaces the app’s calculated figures for that subject.
-      </div>
-      {data.subjects.length === 0 && <div className="card msg">No subjects yet.</div>}
-      {data.subjects.map((sub) => (
-        <ErpRow key={sub.id} id={sub.id} short={sub.shortName} attended={sub.typedAttended} held={sub.typedHeld} />
-      ))}
-
-      <SectionTitle>SEMESTER ARCHIVE</SectionTitle>
-      <ArchiveSection />
-
-      <SectionTitle>YOUR DATA</SectionTitle>
-      <div className="card row" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <button className="secondary big-btn grow" onClick={() => {
-            setRestoreMsg(null)
-            exportData(data).catch((err: unknown) => setRestoreMsg(err instanceof Error ? `Export failed: ${err.message}` : 'Export failed.'))
-          }}>
-          Export my data
-        </button>
-        {/* F7b: restore a previously exported backup (e.g. after changing phones). */}
-        <label className="file-btn big-btn grow">
-          Restore backup
-          <input
-            type="file"
-            accept="application/json,.json"
-            style={{ display: 'none' }}
-            onChange={async (e) => {
-              const f = e.target.files?.[0]
-              e.target.value = '' // allow picking the same file again
-              if (!f) return
-              try {
-                const restored = parseBackup(await f.text())
-                const summary = `${restored.subjects.length} subjects, ${restored.slots.length} classes, ${restored.marks.length} marks`
-                if (!window.confirm(`Replace ALL current data with this backup (${summary})? This cannot be undone.`)) return
-                setData(() => restored)
-                void resyncAllNotifications(restored)
-                setRestoreMsg(`Backup restored: ${summary}.`)
-              } catch (err) {
-                setRestoreMsg(err instanceof Error ? err.message : 'Could not read that backup.')
-              }
-            }}
+          <Toggle
+            checked={s.sundayClasses}
+            onChange={(v) => updateSettings({ sundayClasses: v })}
+            label="Sunday classes"
           />
-        </label>
-        {confirmDelete ? (
-          <button
-            className="danger big-btn grow"
-            onClick={() => {
-              resetAll()
-              setConfirmDelete(false)
-            }}
-          >
-            Tap again to confirm
-          </button>
-        ) : (
-          <button className="danger-quiet big-btn grow" onClick={() => setConfirmDelete(true)}>
-            Delete all my data
-          </button>
+        </div>
+
+
+          <div className="settings-sub">Holidays &amp; exam days</div>
+        <div className="msg" style={{ marginBottom: 8 }}>
+          Holidays hide that day’s classes; exam days are marked on the calendar but still count normally (A12).
+        </div>
+        {data.holidays.length === 0 && <div className="card msg">No holidays or exam days yet.</div>}
+        {data.holidays.map((h) => (
+          <div className="card row spread" key={h.id}>
+            <div>
+              <b>{h.isExamDay ? '📝' : '🎉'} {h.label}</b>
+              <div className="msg">
+                {formatShort(h.startDate)}
+                {h.endDate !== h.startDate ? ` → ${formatShort(h.endDate)}` : ''} ·{' '}
+                {h.isExamDay ? 'exam day' : 'holiday'}
+              </div>
+            </div>
+            <button onClick={() => deleteHoliday(h.id)}>Remove</button>
+          </div>
+        ))}
+        <div className="card">
+          <label>Label</label>
+          <input value={holLabel} onChange={(e) => setHolLabel(e.target.value)} placeholder="Diwali break / Mid-terms" />
+          <div className="field-row">
+            <div className="grow">
+              <label className="small-label">From</label>
+              <input type="date" value={holStart} onChange={(e) => setHolStart(e.target.value)} />
+            </div>
+            <div className="grow">
+              <label className="small-label">To</label>
+              <input type="date" value={holEnd || holStart} onChange={(e) => setHolEnd(e.target.value)} />
+            </div>
+          </div>
+          <div className="card row spread" style={{ marginTop: 6 }}>
+            <div>
+              <b>Exam day</b>
+              <div className="msg">Off by mistake? No — exam days keep counting for attendance.</div>
+            </div>
+            <Toggle checked={holIsExam} onChange={setHolIsExam} label="Exam day" />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <button
+              className="primary"
+              disabled={!holLabel.trim() || !holStart}
+              onClick={() => {
+                const start = holStart
+                const end = holEnd && holEnd >= holStart ? holEnd : holStart
+                addHoliday({ label: holLabel.trim(), startDate: start, endDate: end, isExamDay: holIsExam })
+                setHolLabel('')
+                setHolStart('')
+                setHolEnd('')
+                setHolIsExam(false)
+              }}
+            >
+              Add {holIsExam ? 'exam day' : 'holiday'}
+            </button>
+          </div>
+        </div>
+
+
+      </Group>
+
+      <Group id="notifications" icon="🔔" title="Notifications"
+        summary={`Deadlines ${s.reminderLeadDays} day${s.reminderLeadDays === 1 ? '' : 's'} before, at ${s.notificationTime} · evening reminder ${s.eveningReminderOn ? `at ${s.eveningReminderTime}` : 'off'}`}>
+
+        {/* Escape hatch: if the user dismissed the Android 13+ permission prompt
+            (or denied it), requestPermissions() never re-prompts — this button
+            gives them a way to trigger the system dialog again. */}
+        <NotifyPermissionRow />
+
+        <SliderField
+          label="Remind me before a deadline by"
+          value={s.reminderLeadDays}
+          min={1}
+          max={14}
+          suffix=" days"
+          onChange={(n) => updateSettings({ reminderLeadDays: n })}
+          hint="Notifications arrive this many days early (Step 5 fires them)."
+        />
+
+        <div className="card">
+          <label className="small-label">Notification arrival time</label>
+          <input
+            type="time"
+            value={s.notificationTime}
+            onChange={(e) => updateSettings({ notificationTime: e.target.value || '18:00' })}
+          />
+          <div className="msg">Time of day deadline reminder notifications arrive (F3).</div>
+        </div>
+
+        {/* F4: evening "mark your attendance" nudge (B11) */}
+        <div className="card row spread">
+          <div>
+            <b>Evening mark reminder</b>
+            <div className="msg">Nudges you if today’s classes aren’t all marked.</div>
+          </div>
+          <Toggle
+            checked={s.eveningReminderOn}
+            onChange={(v) => updateSettings({ eveningReminderOn: v })}
+            label="Evening mark reminder"
+          />
+        </div>
+        {s.eveningReminderOn && (
+          <div className="field-row">
+            <label className="small-label">At time</label>
+            <input
+              type="time"
+              value={s.eveningReminderTime}
+              onChange={(e) => updateSettings({ eveningReminderTime: e.target.value || '20:00' })}
+            />
+          </div>
         )}
-      </div>
-      {restoreMsg && <div className="card msg">{restoreMsg}</div>}
+
+
+      </Group>
+
+      <Group id="smart" icon="✨" title="Smart import (AI)"
+        summary={`${hasGeminiKey() ? 'Gemini key added' : 'No Gemini key yet'} · deadlines read by ${s.deadlineReader === 'smart' && hasGeminiKey() ? 'Smart AI' : 'Standard'}`}>
+        <SmartImportSettings />
+
+
+      </Group>
+
+      <Group id="deadlines" icon="📬" title="Deadlines &amp; email"
+        summary="Paste a college message · connect Gmail">
+          <div className="settings-sub">Paste a deadline message</div>
+        <DeadlinePaste />
+
+
+          <div className="settings-sub">College email</div>
+        <GmailSetup />
+        <EmailInbox />
+
+
+      </Group>
+
+      <Group id="appearance" icon="🎨" title="Appearance"
+        summary={`${choice === 'system' ? 'Follows the phone' : choice === 'midnight' ? 'Midnight' : 'Sunrise'} theme`}>
+        <div className="theme-tiles">
+          {themes.map((t) => (
+            <button
+              key={t.id}
+              className={`theme-tile ${choice === t.id ? 'on' : ''}`}
+              onClick={() => setChoice(t.id)}
+              aria-pressed={choice === t.id}
+            >
+              {t.tokens ? (
+                <span
+                  className="theme-preview"
+                  style={{
+                    background: THEME_TOKENS[t.tokens].bg,
+                    borderTop: `8px solid ${THEME_TOKENS[t.tokens].headerTo}`,
+                  }}
+                >
+                  <i style={{ background: THEME_TOKENS[t.tokens].card }} />
+                  <i style={{ background: THEME_TOKENS[t.tokens].primary }} />
+                  <i style={{ background: THEME_TOKENS[t.tokens].safe }} />
+                </span>
+              ) : (
+                <span className="theme-preview auto">🌗</span>
+              )}
+              <b>{t.label}</b>
+            </button>
+          ))}
+        </div>
+
+
+        {/* F13 / F14 display toggles */}
+        <div className="card row spread">
+          <div>
+            <b>Show room &amp; teacher</b>
+            <div className="msg">On subject cards and class lists.</div>
+          </div>
+          <Toggle
+            checked={s.showRoomTeacher}
+            onChange={(v) => updateSettings({ showRoomTeacher: v })}
+            label="Show room and teacher"
+          />
+        </div>
+        <div className="card row spread">
+          <div>
+            <b>Quick actions</b>
+            <div className="msg">Mark-all and add-deadline buttons on the day screen.</div>
+          </div>
+          <Toggle
+            checked={s.showQuickActions}
+            onChange={(v) => updateSettings({ showQuickActions: v })}
+            label="Quick actions"
+          />
+        </div>
+
+
+      </Group>
+
+      <Group id="data" icon="💾" title="Backup &amp; data"
+        summary="Export, restore, archive a semester, delete">
+        <div className="card row" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <button className="secondary big-btn grow" onClick={() => {
+              setRestoreMsg(null)
+              exportData(data).catch((err: unknown) => setRestoreMsg(err instanceof Error ? `Export failed: ${err.message}` : 'Export failed.'))
+            }}>
+            Export my data
+          </button>
+          {/* F7b: restore a previously exported backup (e.g. after changing phones). */}
+          <label className="file-btn big-btn grow">
+            Restore backup
+            <input
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const f = e.target.files?.[0]
+                e.target.value = '' // allow picking the same file again
+                if (!f) return
+                try {
+                  const restored = parseBackup(await f.text())
+                  const summary = `${restored.subjects.length} subjects, ${restored.slots.length} classes, ${restored.marks.length} marks`
+                  if (!window.confirm(`Replace ALL current data with this backup (${summary})? This cannot be undone.`)) return
+                  setData(() => restored)
+                  void resyncAllNotifications(restored)
+                  setRestoreMsg(`Backup restored: ${summary}.`)
+                } catch (err) {
+                  setRestoreMsg(err instanceof Error ? err.message : 'Could not read that backup.')
+                }
+              }}
+            />
+          </label>
+          {confirmDelete ? (
+            <button
+              className="danger big-btn grow"
+              onClick={() => {
+                resetAll()
+                setConfirmDelete(false)
+              }}
+            >
+              Tap again to confirm
+            </button>
+          ) : (
+            <button className="danger-quiet big-btn grow" onClick={() => setConfirmDelete(true)}>
+              Delete all my data
+            </button>
+          )}
+        </div>
+        {restoreMsg && <div className="card msg">{restoreMsg}</div>}
+
+          <div className="settings-sub">Semester archive</div>
+        <ArchiveSection />
+
+
+      </Group>
     </div>
   )
 }
