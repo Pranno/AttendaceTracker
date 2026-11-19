@@ -236,3 +236,29 @@ describe('Locker notes', () => {
     cleanup()
   })
 })
+
+describe('Locker files', () => {
+  it('adds, renames and deletes file entries; removing the subject removes its files', () => {
+    const { result, cleanup } = renderHook(() => useApp())
+    act(() => {
+      result.current.setData((d) => ({
+        ...d,
+        subjects: [
+          { id: 'a', shortName: 'CP', fullName: 'CP', nicknames: [] },
+          { id: 'b', shortName: 'FE', fullName: 'FE', nicknames: [] },
+        ],
+      }))
+    })
+    const f = (id: string, subjectId: string) => ({ id, subjectId, name: `${id}.pdf`, type: 'application/pdf', size: 10, addedAt: '2026-11-19T10:00:00.000Z' })
+    act(() => result.current.addFile(f('f1', 'a')))
+    act(() => result.current.addFile(f('f2', 'a')))
+    act(() => result.current.addFile(f('f3', 'b')))
+    act(() => result.current.renameFile('f1', '  Unit 1.pdf '))
+    act(() => result.current.renameFile('f1', '   ')) // blank → ignored
+    expect(result.current.data.files.find((x) => x.id === 'f1')!.name).toBe('Unit 1.pdf')
+    act(() => result.current.deleteFile('f2'))
+    act(() => result.current.removeSubject('a'))
+    expect(result.current.data.files.map((x) => x.id)).toEqual(['f3'])
+    cleanup()
+  })
+})

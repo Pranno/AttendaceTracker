@@ -366,6 +366,18 @@ export interface Note {
   pinned?: boolean
 }
 
+/** Locker file: details only — the contents are in IndexedDB under `id`. */
+export interface LockerFile {
+  id: string
+  subjectId: string
+  name: string
+  /** MIME type, e.g. application/pdf */
+  type: string
+  size: number
+  /** ISO timestamp when uploaded. */
+  addedAt: string
+}
+
 /** The whole saved app state. */
 export interface AppData {
   version: 1
@@ -385,6 +397,8 @@ export interface AppData {
   conversions: Conversion[]
   /** Locker: messages/notes saved per subject. */
   notes: Note[]
+  /** Locker: uploaded files per subject (contents live in IndexedDB). */
+  files: LockerFile[]
   /** E11: CGPA planner semesters (kept when a new semester starts, E14). */
   cgpaSemesters?: CgpaSemester[]
 }
@@ -405,6 +419,7 @@ export const EMPTY_DATA: AppData = {
   events: [],
   conversions: [],
   notes: [],
+  files: [],
 }
 
 let counter = 0

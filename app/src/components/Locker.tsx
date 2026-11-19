@@ -12,14 +12,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { ArrowLeft, Check, ClipboardPaste, Copy, ExternalLink, Pencil, Pin, PinOff, Search, Send, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, ClipboardPaste, Copy, ExternalLink, File as FileIcon, FileText, Image as ImageIcon, MoreVertical, Pencil, Pin, PinOff, Search, Send, Share2, Trash2, Upload } from 'lucide-react'
 import { useApp } from '../data/store'
-import type { CourseLink, Note, Subject } from '../data/model'
+import type { CourseLink, LockerFile, Note, Subject } from '../data/model'
+import { newId } from '../data/model'
+import { MAX_FILE_BYTES, formatBytes, getFileBlob, guessType, putFileBlob, viewerKind } from '../logic/fileStore'
+import { openWithOtherApp, shareFile } from '../logic/nativeFiles'
+import FileViewer from './FileViewer'
 import { normalizeUrl } from '../logic/courseLinks'
 import { formatShort, todayStr } from '../logic/dates'
 import { subjectTileStyle } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
-import { SectionTitle } from './ui/parts'
+import { SectionTitle, Sheet } from './ui/parts'
 
 // ---------- helpers ----------
 
@@ -119,19 +123,20 @@ function LockerHome({ query, setQuery, onOpen }: { query: string; setQuery: (q: 
     const links = data.courseLinks.filter(
       (c) => subj.has(c.subjectId) && (c.name.toLowerCase().includes(q) || c.url.toLowerCase().includes(q)),
     )
-    return { notes, links, subj }
-  }, [q, data.notes, data.courseLinks, data.subjects])
+    const files = data.files.filter((f) => subj.has(f.subjectId) && f.name.toLowerCase().includes(q))
+    return { notes, links, files, subj }
+  }, [q, data.notes, data.courseLinks, data.files, data.subjects])
 
   return (
     <div className="screen pad locker">
       <h1 style={{ margin: '8px 0 4px' }}>Locker</h1>
-      <div className="msg" style={{ marginBottom: 10 }}>Notes and course links for each subject, kept in one place.</div>
+      <div className="msg" style={{ marginBottom: 10 }}>Notes, files and course links for each subject, kept in one place.</div>
 
       <label className="locker-search">
         <Search size={18} aria-hidden />
         <input
           type="search"
-          placeholder="Search all notes and links"
+          placeholder="Search notes, files and links"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -146,6 +151,14 @@ function LockerHome({ query, setQuery, onOpen }: { query: string; setQuery: (q: 
               <b>{results.subj.get(n.subjectId)?.shortName}</b>
               <span className="msg"> · {noteTime(n.createdAt)}</span>
               <div className="note-text clamp">{n.text}</div>
+            </button>
+          ))}
+          <SectionTitle>FILES · {results.files.length}</SectionTitle>
+          {results.files.length === 0 && <div className="card msg">No files match.</div>}
+          {results.files.map((f) => (
+            <button key={f.id} className="card search-hit" onClick={() => onOpen(f.subjectId)}>
+              <b>{results.subj.get(f.subjectId)?.shortName}</b>
+              <span className="msg"> · {f.name}</span>
             </button>
           ))}
           <SectionTitle>LINKS · {results.links.length}</SectionTitle>
@@ -163,6 +176,7 @@ function LockerHome({ query, setQuery, onOpen }: { query: string; setQuery: (q: 
         <div className="locker-grid">
           {data.subjects.map((s, i) => {
             const notes = data.notes.filter((n) => n.subjectId === s.id).length
+            const files = data.files.filter((f) => f.subjectId === s.id).length
             const links = data.courseLinks.filter((c) => c.subjectId === s.id)
             const done = links.filter(isDone).length
             return (
@@ -171,6 +185,7 @@ function LockerHome({ query, setQuery, onOpen }: { query: string; setQuery: (q: 
                 <span className="locker-tile-full">{s.fullName !== s.shortName ? s.fullName : ''}</span>
                 <span className="locker-tile-count">
                   {notes} note{notes === 1 ? '' : 's'}
+                  {files > 0 ? ` · ${files} file${files === 1 ? '' : 's'}` : ''}
                   {links.length > 0 ? ` · ${done}/${links.length} links` : ''}
                 </span>
               </button>
@@ -186,8 +201,9 @@ function LockerHome({ query, setQuery, onOpen }: { query: string; setQuery: (q: 
 
 function SubjectLocker({ subject, onBack }: { subject: Subject; onBack: () => void }) {
   const { data } = useApp()
-  const [part, setPart] = useState<'notes' | 'links'>('notes')
+  const [part, setPart] = useState<'notes' | 'files' | 'links'>('notes')
   const noteCount = data.notes.filter((n) => n.subjectId === subject.id).length
+  const fileCount = data.files.filter((f) => f.subjectId === subject.id).length
   const links = data.courseLinks.filter((c) => c.subjectId === subject.id)
 
   return (
@@ -206,12 +222,17 @@ function SubjectLocker({ subject, onBack }: { subject: Subject; onBack: () => vo
         <button role="tab" aria-selected={part === 'notes'} className={`chip grow${part === 'notes' ? ' on' : ''}`} onClick={() => setPart('notes')}>
           Notes · {noteCount}
         </button>
+        <button role="tab" aria-selected={part === 'files'} className={`chip grow${part === 'files' ? ' on' : ''}`} onClick={() => setPart('files')}>
+          Files · {fileCount}
+        </button>
         <button role="tab" aria-selected={part === 'links'} className={`chip grow${part === 'links' ? ' on' : ''}`} onClick={() => setPart('links')}>
           Links · {links.filter(isDone).length}/{links.length}
         </button>
       </div>
 
-      {part === 'notes' ? <NotesPart subject={subject} /> : <LinksPart subject={subject} />}
+      {part === 'notes' && <NotesPart subject={subject} />}
+      {part === 'files' && <FilesPart subject={subject} />}
+      {part === 'links' && <LinksPart subject={subject} />}
     </div>
   )
 }
@@ -389,6 +410,208 @@ function NoteBubble({ note, selected, onSelect }: { note: Note; selected: boolea
         </div>
       )}
     </div>
+  )
+}
+
+// ---------- Files ----------
+
+function fileTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return formatShort(ds, d.getFullYear() !== new Date().getFullYear())
+}
+
+function KindIcon({ f }: { f: LockerFile }) {
+  const k = viewerKind(f.type, f.name)
+  if (k === 'pdf') return <FileText size={22} />
+  if (k === 'image') return <ImageIcon size={22} />
+  return <FileIcon size={22} />
+}
+
+const MISSING =
+  'This file’s contents aren’t on this device. Backups only carry notes and links, not files — upload it again here.'
+
+function FilesPart({ subject }: { subject: Subject }) {
+  const { data, addFile, renameFile, deleteFile } = useApp()
+  const files = data.files
+    .filter((f) => f.subjectId === subject.id)
+    .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
+  const totalAll = data.files.reduce((n, f) => n + f.size, 0)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [menuFor, setMenuFor] = useState<LockerFile | null>(null)
+  const [viewing, setViewing] = useState<{ file: LockerFile; blob: Blob; kind: 'pdf' | 'image' } | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  async function upload(list: FileList | null) {
+    if (!list || list.length === 0) return
+    setMsg(null)
+    const skipped: string[] = []
+    let saved = 0
+    const picked = [...list]
+    for (let i = 0; i < picked.length; i++) {
+      const f = picked[i]
+      setBusy(`Saving ${i + 1} of ${picked.length}…`)
+      if (f.size > MAX_FILE_BYTES) {
+        skipped.push(`${f.name} (over ${formatBytes(MAX_FILE_BYTES)})`)
+        continue
+      }
+      try {
+        const id = newId('file')
+        await putFileBlob(id, f)
+        addFile({ id, subjectId: subject.id, name: f.name, type: guessType(f.name, f.type), size: f.size, addedAt: new Date().toISOString() })
+        saved += 1
+      } catch (err) {
+        skipped.push(`${f.name} (${err instanceof Error ? err.message : 'could not be saved'})`)
+      }
+    }
+    setBusy(null)
+    if (skipped.length) setMsg(`${saved ? `Saved ${saved}. ` : ''}Not saved: ${skipped.join('; ')}`)
+  }
+
+  async function blobOf(f: LockerFile): Promise<Blob | null> {
+    try {
+      const b = await getFileBlob(f.id)
+      if (!b) setMsg(MISSING)
+      return b
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Could not read the file.')
+      return null
+    }
+  }
+
+  async function open(f: LockerFile) {
+    setMsg(null)
+    const blob = await blobOf(f)
+    if (!blob) return
+    const kind = viewerKind(f.type, f.name)
+    if (kind) setViewing({ file: f, blob, kind })
+    else await openWith(f, blob)
+  }
+
+  async function openWith(f: LockerFile, given?: Blob) {
+    setMsg(null)
+    const blob = given ?? (await blobOf(f))
+    if (!blob) return
+    try {
+      await openWithOtherApp(blob, f.name, f.type)
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Could not open the file.')
+    }
+  }
+
+  async function share(f: LockerFile) {
+    setMsg(null)
+    const blob = await blobOf(f)
+    if (!blob) return
+    try {
+      await shareFile(blob, f.name, f.type)
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Could not share the file.')
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const list = e.target.files
+          void upload(list).finally(() => {
+            if (inputRef.current) inputRef.current.value = ''
+          })
+        }}
+      />
+      <button className="primary file-upload" onClick={() => inputRef.current?.click()} disabled={!!busy}>
+        <Upload size={18} /> {busy ?? 'Upload files'}
+      </button>
+      <div className="msg" style={{ margin: '6px 2px 12px' }}>
+        PDFs, photos, Word, PowerPoint… up to {formatBytes(MAX_FILE_BYTES)} each. PDFs and photos open right here.
+      </div>
+      {msg && <div className="card msg" style={{ color: 'var(--danger)' }}>{msg}</div>}
+
+      {files.length === 0 && <div className="card empty-card">No files for {subject.shortName} yet.</div>}
+      {files.map((f) => (
+        <div
+          key={f.id}
+          className="card file-row"
+          onContextMenu={(e) => {
+            // long-press on Android / right-click on desktop
+            e.preventDefault()
+            setMenuFor(f)
+          }}
+        >
+          <button className="file-main" onClick={() => void open(f)}>
+            <span className="file-icon"><KindIcon f={f} /></span>
+            <span className="file-text">
+              <span className="file-name">{f.name}</span>
+              <span className="msg">{formatBytes(f.size)} · {fileTime(f.addedAt)}</span>
+            </span>
+          </button>
+          <button className="icon-btn small" onClick={() => setMenuFor(f)} aria-label={`More for ${f.name}`}>
+            <MoreVertical size={18} />
+          </button>
+        </div>
+      ))}
+
+      {data.files.length > 0 && (
+        <div className="msg" style={{ textAlign: 'center', margin: '4px 0 12px' }}>
+          Locker files use {formatBytes(totalAll)} on this device.
+        </div>
+      )}
+
+      <Sheet open={!!menuFor} onClose={() => setMenuFor(null)} title={menuFor?.name ?? ''}>
+        {menuFor && (
+          <div className="file-menu">
+            {viewerKind(menuFor.type, menuFor.name) && (
+              <button onClick={() => { const f = menuFor; setMenuFor(null); void open(f) }}>
+                <FileText size={18} /> Open here
+              </button>
+            )}
+            <button onClick={() => { const f = menuFor; setMenuFor(null); void openWith(f) }}>
+              <ExternalLink size={18} /> Open with another app
+            </button>
+            <button onClick={() => { const f = menuFor; setMenuFor(null); void share(f) }}>
+              <Share2 size={18} /> Share
+            </button>
+            <button
+              onClick={() => {
+                const f = menuFor
+                setMenuFor(null)
+                const n = window.prompt('Rename file', f.name)
+                if (n && n.trim()) renameFile(f.id, n)
+              }}
+            >
+              <Pencil size={18} /> Rename
+            </button>
+            <button
+              className="danger-quiet"
+              onClick={() => {
+                const f = menuFor
+                setMenuFor(null)
+                if (window.confirm(`Delete “${f.name}”?`)) deleteFile(f.id)
+              }}
+            >
+              <Trash2 size={18} /> Delete
+            </button>
+          </div>
+        )}
+      </Sheet>
+
+      {viewing && (
+        <FileViewer
+          blob={viewing.blob}
+          name={viewing.file.name}
+          kind={viewing.kind}
+          onClose={() => setViewing(null)}
+          onOpenWith={() => void openWith(viewing.file, viewing.blob)}
+        />
+      )}
+    </>
   )
 }
 

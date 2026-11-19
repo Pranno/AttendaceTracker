@@ -3,8 +3,9 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, CgpaSemester, Note, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
+import type { AppData, CgpaSemester, LockerFile, Note, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion, Unit, Topic, PracticeQuestion } from '../data/model'
 import { mergeCourseLinks, newId } from '../data/model'
+import { clearFileBlobs, deleteFileBlobs } from '../logic/fileStore'
 import { loadData, normalizeData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
 import type { ArchivedSemester } from '../data/storage'
 import { markFor, buildReport, freshData } from '../logic/attendance'
@@ -39,6 +40,10 @@ interface AppApi {
   addNote: (subjectId: string, text: string) => void
   updateNote: (id: string, patch: Partial<Pick<Note, 'text' | 'pinned'>>) => void
   deleteNote: (id: string) => void
+  /** Locker files: details only (contents are written to IndexedDB first). */
+  addFile: (file: LockerFile) => void
+  renameFile: (id: string, name: string) => void
+  deleteFile: (id: string) => void
   // ---- deadlines (C5 minimal for step 1) ----
   addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }, id?: string) => void
   updateDeadline: (id: string, patch: Partial<Deadline>) => void
@@ -162,6 +167,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       removeSubject(id) {
+        // Its files' contents go too (they live outside the app data).
+        void deleteFileBlobs(data.files.filter((f) => f.subjectId === id).map((f) => f.id)).catch(() => {})
         // Its deadlines' reminders must not keep firing after it is gone.
         for (const dl of data.deadlines) if (dl.subjectId === id) void cancelDeadlineNotification(dl.id)
         setRaw((d) => {
@@ -178,6 +185,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             // pointing at a subject that no longer exists.
             units: d.units.filter((u) => u.subjectId !== id),
             notes: d.notes.filter((n) => n.subjectId !== id),
+            files: d.files.filter((f) => f.subjectId !== id),
             scores: d.scores.filter((sc) => sc.subjectId !== id),
             courseLinks: d.courseLinks.filter((c) => c.subjectId !== id),
             deadlines: d.deadlines
@@ -270,6 +278,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       deleteNote(id) {
         setRaw((d) => ({ ...d, notes: d.notes.filter((n) => n.id !== id) }))
+      },
+
+      addFile(file) {
+        setRaw((d) => ({ ...d, files: [...d.files, file] }))
+      },
+
+      renameFile(id, name) {
+        const n = name.trim()
+        if (!n) return
+        setRaw((d) => ({ ...d, files: d.files.map((f) => (f.id === id ? { ...f, name: n } : f)) }))
+      },
+
+      deleteFile(id) {
+        void deleteFileBlobs([id]).catch(() => {})
+        setRaw((d) => ({ ...d, files: d.files.filter((f) => f.id !== id) }))
       },
 
       addDeadline(dl, id) {
@@ -608,6 +631,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       resetAll() {
         clearData()
+        void clearFileBlobs().catch(() => {})
         setRaw(loadData())
       },
 

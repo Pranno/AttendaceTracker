@@ -3,6 +3,7 @@
 
 import type { AppData } from '../data/model'
 import { EMPTY_DATA, DEFAULT_SETTINGS } from '../data/model'
+import { saveGeneratedFile } from '../logic/nativeFiles'
 
 const KEY = 'attendancetracker.data.v1'
 
@@ -100,18 +101,13 @@ export function loadArchive(id: string): ArchivedSemester | null {
 }
 
 /** F7: Export my data — download the whole store as a JSON file. */
-export function exportData(data: AppData): void {
+export async function exportData(data: AppData): Promise<void> {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `attendance-tracker-${new Date().toISOString().slice(0, 10)}.json`
-  // Firefox only follows clicks on attached anchors, and revoking the URL in
-  // the same tick can cancel the download before it starts (Safari/Firefox).
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  const d = new Date()
+  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  // Browser: normal download. Android app: the WebView ignores download
+  // links (Export used to do nothing there), so it opens the share sheet.
+  await saveGeneratedFile(blob, `attendance-tracker-${stamp}.json`, 'application/json')
 }
 
 /** F7b: Restore from an exported backup file. Validates the shape before

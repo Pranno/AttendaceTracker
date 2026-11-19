@@ -588,7 +588,10 @@ export default function Settings() {
 
       <SectionTitle>YOUR DATA</SectionTitle>
       <div className="card row" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <button className="secondary big-btn grow" onClick={() => exportData(data)}>
+        <button className="secondary big-btn grow" onClick={() => {
+            setRestoreMsg(null)
+            exportData(data).catch((err: unknown) => setRestoreMsg(err instanceof Error ? `Export failed: ${err.message}` : 'Export failed.'))
+          }}>
           Export my data
         </button>
         {/* F7b: restore a previously exported backup (e.g. after changing phones). */}
