@@ -13,12 +13,11 @@ import { ClipboardPaste, Moon, SunMedium, BookOpenCheck } from 'lucide-react'
 import { useApp } from '../data/store'
 import type { DateStr, MarkStatus } from '../data/model'
 import { buildReport, freshData, slotsForDate, isHoliday, markFor, conversionFor } from '../logic/attendance'
-import { addDays, diffDays, formatShort, monthKey, todayStr, weekdayName, weekdayOf } from '../logic/dates'
-import { PercentRing, SectionTitle, StatusPill } from './ui/parts'
+import { addDays, diffDays, formatShort, todayStr, weekdayName, weekdayOf } from '../logic/dates'
+import { PercentRing, SectionTitle } from './ui/parts'
 import { subjectPalette, subjectTileStyle } from '../theme/tokens'
 import { useTheme } from '../theme/ThemeProvider'
 import type { Tab } from './NavBar'
-import { projectSubjectMonth } from '../logic/projection'
 import PasteDeadlineSheet from './PasteDeadlineSheet'
 import EmailInbox from './EmailInbox'
 
@@ -89,15 +88,6 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
         : overallTone === 'limit'
           ? "At the limit. Don't miss the next class"
           : `Below ${data.settings.threshold}% — attend the next classes to get back on track`
-
-  // This-month rows per subject: Section J numbers (Classes, Must attend, Can skip)
-  const curMonthKey = monthKey(today)
-  const monthRows = useMemo(() => {
-    return report.bySubject.map((s, i) => {
-      const plan = projectSubjectMonth(data, s.subjectId, curMonthKey, today, { ignorePast: data.settings.ignorePastAttendance })
-      return { summary: s, index: i, plan }
-    })
-  }, [report, data, curMonthKey, today])
 
   // Coming-up deadlines (next 3 weeks).
   const upcoming = useMemo(
@@ -283,38 +273,6 @@ export default function Today({ go }: { go: (t: Tab, subjectId?: string) => void
           </button>
         </div>
       )}
-
-      {/* ---------- this month (Section J) ---------- */}
-      <SectionTitle>THIS MONTH · {new Date().toLocaleString('en', { month: 'long' })}</SectionTitle>
-      {monthRows.length === 0 && (
-        <div className="card msg">No subjects yet — add your timetable under Subjects.</div>
-      )}
-      {monthRows.map(({ summary: s, index, plan }) => (
-        <button
-          key={s.subjectId}
-          className="month-row card-like"
-          style={subjectTileStyle(index, active)}
-          onClick={() => go('subjects', s.subjectId)}
-        >
-          <span className="subj-dot" style={{ background: 'var(--subj-strong)', color: 'var(--subj-on)' }}>
-            {s.shortName.slice(0, 2)}
-          </span>
-          <span className="grow" style={{ textAlign: 'left' }}>
-            <b>{s.shortName}</b>
-            <span className="msg month-row-verdict" style={{ display: 'block', fontSize: 12 }}>
-              {plan.verdict}
-            </span>
-          </span>
-          {/* Three pill figures: classes, must attend, can skip (Section J / Screen designs) */}
-          <StatusPill tone="neutral">{plan.classesInMonth} classes</StatusPill>
-          <StatusPill tone="neutral">{plan.mustAttend} to attend</StatusPill>
-          <StatusPill
-            tone={plan.status === 'safe' ? 'safe' : plan.status === 'limit' ? 'limit' : plan.status === 'below' ? 'below' : 'neutral'}
-          >
-            {plan.outOfReach ? 'Out of reach' : `skip ${plan.canSkip}`}
-          </StatusPill>
-        </button>
-      ))}
 
       {/* ---------- today's classes (B1: Present / Absent / No class) ---------- */}
       <SectionTitle>CLASSES · {formatShort(viewDate)}</SectionTitle>
