@@ -42,7 +42,22 @@ function ReminderRunner() {
       if (cancelled) return
       const now = new Date()
       const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-      if (eveningNudgeDue(data, todayStr(), hhmm)) {
+      // Native builds get the nudge from the OS schedule armed just above;
+      // firing here as well doubled it. On web, show it at most once a day
+      // (it used to pop on every app open after the evening time).
+      const nudgeKey = `attendancetracker.eveningNudge.${todayStr()}`
+      let shownToday = false
+      try {
+        shownToday = localStorage.getItem(nudgeKey) === '1'
+      } catch {
+        /* storage unavailable */
+      }
+      if (!Capacitor.isNativePlatform() && !shownToday && eveningNudgeDue(data, todayStr(), hhmm)) {
+        try {
+          localStorage.setItem(nudgeKey, '1')
+        } catch {
+          /* ignore */
+        }
         void fireEveningNudgeAsync('Mark your attendance', "Today's classes aren't all marked yet.")
       }
     })()

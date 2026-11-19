@@ -267,39 +267,42 @@ export function unmarkedTodayClasses(data: AppData, today: DateStr): string[] {
   return names
 }
 
-/** Schedule (or replace) the recurring evening nudge for the next occurrence
- *  of the user's chosen time. Cancelled when the toggle is off. */
-async function armEveningNudge(data: AppData): Promise<void> {
-  try {
-    await LocalNotifications.cancel({ notifications: [{ id: EVENING_NUDGE_ID }] })
-  } catch {
-    /* nothing armed yet */
-  }
-  if (!data.settings.eveningReminderOn) return
+// ---- Daily notifications are ONE-SHOT, one per day, never `repeats: true` ----
+// The Capacitor Android plugin implements `{ at, repeats: true }` as
+// setRepeating(at, interval = at − now): the repeat interval is "time from
+// arming until the first fire". The app re-arms on every mark, so a nudge
+// armed 10 minutes before 18:00 then fired every 10 minutes, with a frozen
+// body, every day — including holidays and fully-marked days. Instead we
+// schedule separate one-shot notifications for the next DAYS_AHEAD days, each
+// computed for its own date, and re-sync whenever data changes (marking the
+// last class of a day removes that day's nudge).
+const DAYS_AHEAD = 7
+const EVENING_BASE_ID = 999_100
+const TOMORROW_BASE_ID = 999_200
+const allDailyIds = (): number[] => [
+  EVENING_NUDGE_ID, // legacy repeating alarms from older versions — cancel them too
+  TOMORROW_PLAN_ID,
+  ...Array.from({ length: 14 }, (_, i) => EVENING_BASE_ID + i),
+  ...Array.from({ length: 14 }, (_, i) => TOMORROW_BASE_ID + i),
+]
+
+/** Evening "mark attendance" nudges for the coming days: only for days that
+ *  have classes for you, are not holidays, and still have something unmarked.
+ *  Pure — testable. */
+export function plannedEveningNudges(data: AppData, now: Date): { id: number; at: Date; title: string; body: string }[] {
+  if (!data.settings.eveningReminderOn) return []
+  const out: { id: number; at: Date; title: string; body: string }[] = []
   const today = todayStr()
-  let at = reminderDateTime(today, data.settings.eveningReminderTime)
-  if (at.getTime() <= Date.now()) at = reminderDateTime(addDays(today, 1), data.settings.eveningReminderTime)
-  // Stay silent when the timetable is empty or every slot has expired.
-  const tomorrow = addDays(today, 1)
-  const hasAnySlots = data.slots.some((s) => s.validUntil === null || tomorrow <= s.validUntil)
-  if (!hasAnySlots) return
-  // The snapshot taken now names whatever is still unmarked today; the sync
-  // re-arms on every mark, so by evening it lists exactly what's missing.
-  const body = eveningNudgeBody(unmarkedTodayClasses(data, today))
-  if (!(await ensureNativePermission())) return
-  await LocalNotifications.schedule({
-    notifications: [
-      {
-        id: EVENING_NUDGE_ID,
-        title: 'Mark your attendance',
-        body,
-        // Repeats daily at the chosen time; fires even under Doze so the
-        // nudge isn't silently delayed by battery optimisation.
-        schedule: { at, repeats: true, allowWhileIdle: true },
-        smallIcon: 'ic_stat_icon_config_sample',
-      },
-    ],
-  })
+  for (let i = 0; i < DAYS_AHEAD; i++) {
+    const day = addDays(today, i)
+    const at = reminderDateTime(day, data.settings.eveningReminderTime)
+    if (at.getTime() <= now.getTime()) continue
+    if (isHoliday(data, day)) continue
+    const unmarked = unmarkedTodayClasses(data, day)
+    if (unmarked.length === 0) continue // no classes, or everything already marked
+    out.push({ id: EVENING_BASE_ID + i, at, title: 'Mark your attendance', body: eveningNudgeBody(unmarked) })
+  }
+  return out
 }
 
 /** A subject sits exactly at the threshold (canMiss === 0) — skipping one
@@ -324,6 +327,9 @@ export function classifyTomorrowSlots(
   const skip: string[] = []
   const warn: string[] = []
   for (const slot of slotsForDate(data, tomorrow)) {
+    // already marked "No class" / "Cancelled" in advance → nothing to attend
+    const pre = data.marks.find((m) => m.date === tomorrow && m.slotId === slot.id)?.status
+    if (pre === 'noclass' || pre === 'cancelled') continue
     const subj = data.subjects.find((s) => s.id === slot.subjectId)
     if (!subj) continue
     const label = `${subj.shortName || subj.fullName} ${slot.startTime}`
@@ -358,32 +364,20 @@ export function buildTomorrowPlanContent(data: AppData, tomorrow: DateStr): { ti
   return { title: "Tomorrow's classes", body }
 }
 
-/** Schedule (or replace) the recurring next-day class preview. Fires every
- *  day at the user's chosen arrival time; only armed when there is something
- *  to show for tomorrow (the app re-arms on every open, so a new week's
- *  plan lands as soon as the user touches the app). */
-async function armTomorrowPlan(data: AppData): Promise<void> {
-  try {
-    await LocalNotifications.cancel({ notifications: [{ id: TOMORROW_PLAN_ID }] })
-  } catch {
-    /* nothing armed yet */
+/** "Tomorrow's classes" previews: on day D at the chosen time, about day D+1 —
+ *  only when D+1 has classes for you and is not a holiday. Pure — testable. */
+export function plannedTomorrowPlans(data: AppData, now: Date): { id: number; at: Date; title: string; body: string }[] {
+  const out: { id: number; at: Date; title: string; body: string }[] = []
+  const today = todayStr()
+  for (let i = 0; i < DAYS_AHEAD; i++) {
+    const day = addDays(today, i)
+    const at = reminderDateTime(day, data.settings.notificationTime)
+    if (at.getTime() <= now.getTime()) continue
+    const content = buildTomorrowPlanContent(data, addDays(day, 1))
+    if (!content) continue
+    out.push({ id: TOMORROW_BASE_ID + i, at, ...content })
   }
-  const content = buildTomorrowPlanContent(data, addDays(todayStr(), 1))
-  if (!content) return // holiday / no classes tomorrow — stay silent
-  if (!(await ensureNativePermission())) return
-  let at = reminderDateTime(todayStr(), data.settings.notificationTime)
-  if (at.getTime() <= Date.now()) at = reminderDateTime(addDays(todayStr(), 1), data.settings.notificationTime)
-  await LocalNotifications.schedule({
-    notifications: [
-      {
-        id: TOMORROW_PLAN_ID,
-        title: content.title,
-        body: content.body,
-        schedule: { at, repeats: true, allowWhileIdle: true },
-        smallIcon: 'ic_stat_icon_config_sample',
-      },
-    ],
-  })
+  return out
 }
 
 /** Arm/disarm both recurring daily notifications. Called whenever data or
@@ -392,6 +386,22 @@ async function armTomorrowPlan(data: AppData): Promise<void> {
  *  every launch, which keeps the plan fresh in practice. */
 export async function syncDailyNotifications(data: AppData): Promise<void> {
   if (!isNative()) return
-  await armEveningNudge(data)
-  await armTomorrowPlan(data)
+  try {
+    await LocalNotifications.cancel({ notifications: allDailyIds().map((id) => ({ id })) })
+  } catch {
+    /* nothing armed yet */
+  }
+  const now = new Date()
+  const planned = [...plannedEveningNudges(data, now), ...plannedTomorrowPlans(data, now)]
+  if (planned.length === 0) return
+  if (!(await ensureNativePermission())) return
+  await LocalNotifications.schedule({
+    notifications: planned.map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      schedule: { at: n.at, allowWhileIdle: true },
+      smallIcon: 'ic_stat_icon_config_sample',
+    })),
+  })
 }
