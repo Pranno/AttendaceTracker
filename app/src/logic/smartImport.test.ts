@@ -124,3 +124,35 @@ describe('Smart syllabus answer → courses', () => {
     expect(matchCourseToSubject({ courseName: 'Engineering Graphics', units }, subjects)).toBeNull()
   })
 })
+
+describe('Gemini busy handling', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
+  it('retries a busy model, then switches to another Flash model', async () => {
+    vi.useFakeTimers()
+    setGeminiKey('AIzaTESTKEY1234')
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url)
+      const j = (b: unknown, st = 200) => new Response(JSON.stringify(b), { status: st })
+      if (url.includes('/models?')) return j({ models: [{ name: 'models/gemini-flash-latest', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] })
+      if (url.includes('gemini-flash-latest')) return j({ error: { code: 503, message: 'The model is overloaded. Please try again later.' } }, 503)
+      return j({ candidates: [{ content: { parts: [{ text: '{"ok":1}' }] }, finishReason: 'STOP' }] })
+    }))
+    const p = readFileAsJson({ file: new Blob(['x']), mimeType: 'application/pdf', prompt: '', schema: {}, model: 'gemini-flash-latest' })
+    await vi.runAllTimersAsync()
+    expect(await p).toEqual({ ok: 1 })
+    expect(urls.filter((u) => u.includes('gemini-flash-latest:')).length).toBe(3)
+    expect(urls.some((u) => u.includes('gemini-2.5-flash:'))).toBe(true)
+  })
+  it('shows Google’s reason when every model is busy', async () => {
+    vi.useFakeTimers()
+    setGeminiKey('AIzaTESTKEY1234')
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/models?')
+      ? new Response(JSON.stringify({ models: [] }), { status: 200 })
+      : new Response(JSON.stringify({ error: { code: 503, message: 'The model is overloaded.' } }), { status: 503 })))
+    const p = readFileAsJson({ file: new Blob(['x']), mimeType: 'application/pdf', prompt: '', schema: {} })
+    const check = expect(p).rejects.toThrow(/overloaded/)
+    await vi.runAllTimersAsync()
+    await check
+  })
+})

@@ -70,7 +70,10 @@ export function maskKey(key: string): string {
 
 // ---------- errors ----------
 
-export class GeminiError extends Error {}
+export class GeminiError extends Error {
+  /** Server-side trouble (overloaded / internal error) — worth retrying. */
+  retryable = false
+}
 
 interface GoogleErrorBody {
   error?: { code?: number; message?: string; status?: string; details?: { reason?: string }[] }
@@ -96,10 +99,16 @@ export function friendlyError(status: number, body: GoogleErrorBody | null): Gem
     return new GeminiError('The file is too large for Smart import. Try a smaller PDF or a photo of the page.')
   }
   if (status >= 500) {
-    return new GeminiError('Gemini is busy right now. Try again in a moment.')
+    const e = new GeminiError(
+      `Gemini is busy right now (Google said: ${msg || `error ${status}`}). Try again in a few minutes, or pick another model in Settings → Smart import (AI).`,
+    )
+    e.retryable = true
+    return e
   }
   return new GeminiError(msg ? `Gemini error: ${msg}` : `Gemini error (${status}).`)
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 async function call(path: string, key: string, init: RequestInit = {}, timeoutMs = 60_000): Promise<unknown> {
   if (!key) throw new GeminiError('Add your Gemini API key in Settings → Smart import (AI) first.')
@@ -178,12 +187,46 @@ async function generateJson<T>(parts: Part[], schema: Record<string, unknown>, o
       temperature: 0,
     },
   }
-  const res = (await call(
-    `models/${encodeURIComponent(model)}:generateContent`,
-    key,
-    { method: 'POST', body: JSON.stringify(body) },
-    180_000,
-  )) as GenerateResponse
+  // Google often answers 503 "model overloaded" / 500 at busy times. Retry
+  // with growing waits, then try other Flash models before giving up (it
+  // used to fail on the first busy answer).
+  const payload = JSON.stringify(body)
+  const tryModel = async (m: string): Promise<GenerateResponse> => {
+    let last: unknown
+    for (const wait of [0, 2_000, 6_000]) {
+      if (wait) await sleep(wait)
+      try {
+        return (await call(`models/${encodeURIComponent(m)}:generateContent`, key, { method: 'POST', body: payload }, 180_000)) as GenerateResponse
+      } catch (err) {
+        last = err
+        if (!(err instanceof GeminiError && err.retryable)) throw err
+      }
+    }
+    throw last
+  }
+  let res: GenerateResponse
+  try {
+    res = await tryModel(model)
+  } catch (err) {
+    if (!(err instanceof GeminiError && err.retryable)) throw err
+    let alt: string[] = []
+    try {
+      alt = (await listGeminiModels(key)).map((x) => x.id).filter((id) => id !== model && /flash/.test(id)).slice(0, 2)
+    } catch {
+      /* can't list — give up with the original error */
+    }
+    let done: GenerateResponse | null = null
+    for (const m of alt) {
+      try {
+        done = await tryModel(m)
+        break
+      } catch (e2) {
+        if (!(e2 instanceof GeminiError && e2.retryable)) throw e2
+      }
+    }
+    if (!done) throw err
+    res = done
+  }
   if (res?.promptFeedback?.blockReason) {
     throw new GeminiError(`Gemini refused to read this ${opts.what}.`)
   }
