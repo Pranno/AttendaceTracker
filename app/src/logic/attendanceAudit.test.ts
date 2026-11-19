@@ -129,4 +129,30 @@ describe('attendance audit', () => {
     const r = buildReport(d, TODAY, '2026-11-01', TODAY)
     expect(r.bySubject[0].held).toBe(t.held)
   })
+
+  it('"start counting from today only" keeps counting from the day it was switched on', () => {
+    const d = base({
+      slots: [1, 2, 3, 4, 5].map((wd) => slot(`cp${wd}`, 'cp', wd, '09:00', '10:00')),
+      marks: [mark('2026-11-03', 'cp2', 'present'), mark('2026-11-04', 'cp3', 'absent'), mark('2026-11-05', 'cp4', 'present')],
+    })
+    d.settings.assumedPastAttendance = 80
+    d.settings.ignorePastAttendance = true
+    d.settings.countFromDate = '2026-11-03' // switched on Tuesday
+    // viewed on Friday: Tue+Wed+Thu marks count (used to be 0/0); Monday is before → ignored; no assumed %
+    expect(tot(d, 'cp')).toMatchObject({ held: 3, attended: 2, unmarkedPast: 0 })
+    // switched on before the date was saved → counts from the first marked class
+    delete d.settings.countFromDate
+    expect(tot(d, 'cp')).toMatchObject({ held: 3, attended: 2 })
+  })
+
+  it('"count unmarked classes as present" counts past and today\'s unmarked classes as attended', () => {
+    const d = base({
+      slots: [1, 2, 3, 4, 5].map((wd) => slot(`cp${wd}`, 'cp', wd, '09:00', '10:00')),
+      marks: [mark('2026-11-03', 'cp2', 'absent')],
+    })
+    d.settings.assumedPastAttendance = 50
+    d.settings.unmarkedAsPresent = true
+    // Mon, Wed, Thu unmarked → present; Tue absent; Fri (today) unmarked → present
+    expect(tot(d, 'cp')).toMatchObject({ held: 5, attended: 4, unmarkedPast: 0 })
+  })
 })

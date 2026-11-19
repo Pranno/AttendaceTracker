@@ -100,6 +100,16 @@ export function eachDay(from: DateStr, to: DateStr): DateStr[] {
   return out
 }
 
+/** First day counted in "start counting from today only" mode: the day it
+ *  was switched on (or the date picked). For people who switched it on
+ *  before that date was saved: their first marked class, so no mark is lost. */
+export function countFromOf(data: AppData, today: DateStr): DateStr {
+  const saved = data.settings.countFromDate
+  if (saved) return saved < today ? saved : today
+  const first = data.marks.reduce<DateStr | null>((min, m) => (min === null || m.date < min ? m.date : min), null)
+  return first && first < today ? first : today
+}
+
 export interface SubjectTotals {
   subjectId: string
   /** Classes counted as held (No class excluded). */
@@ -134,7 +144,12 @@ export function computeSubjectTotals(
   // carry-over, no assumed past attendance. Marks made from today onward are
   // still counted normally.
   const ignorePast = !!data.settings.ignorePastAttendance
-  if (ignorePast && rangeStart < today) rangeStart = today
+  // Count from the day "start counting from today only" was switched on.
+  // (It used to clamp to the CURRENT date, so every new day dropped all
+  // earlier marks and the percentage never built up.)
+  const countFrom = countFromOf(data, today)
+  if (ignorePast && rangeStart < countFrom) rangeStart = countFrom
+  const unmarkedPresent = !!data.settings.unmarkedAsPresent
   let held = 0
   let attended = 0
   let unmarkedPast = 0
@@ -150,13 +165,13 @@ export function computeSubjectTotals(
       if (status === 'noclass' || status === 'cancelled') continue // B2: counts in neither
       // Start-fresh: only marks the user actually made count; scheduled-but-
       // unmarked classes before today are skipped entirely.
-      if (ignorePast && date < today && status === null) continue
+      if (ignorePast && date < today && status === null && !unmarkedPresent) continue
       // Today's (and later) classes that aren't marked yet haven't been
       // attended OR missed. They used to count as held-but-not-attended, so
       // the percentage dropped every morning until each class was marked.
       // (With the "unmarked = present" setting they count as attended.)
       if (status === null && date >= today) {
-        if (data.settings.unmarkedAsPresent) {
+        if (unmarkedPresent) {
           held += 1
           attended += 1
         }
@@ -166,6 +181,9 @@ export function computeSubjectTotals(
       if (status === 'present' || status === 'converted') attended += 1
       else if (status === 'absent') {
         /* not attended */
+      } else if (unmarkedPresent) {
+        // "Count unmarked classes as present": a past class you didn't mark was attended
+        attended += 1
       } else {
         // unmarked and in the past (today/future handled above)
         unmarkedPast += 1

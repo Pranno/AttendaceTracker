@@ -14,6 +14,7 @@ import { THEME_TOKENS } from '../theme/tokens'
 import type { ExtractedDeadline } from '../logic/deadlines'
 import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
 import { todayStr, formatShort } from '../logic/dates'
+import { countFromOf } from '../logic/attendance'
 import { isNative, ensureNotifyPermission, resyncAllNotifications } from '../logic/reminders'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import EmailInbox from './EmailInbox'
@@ -289,7 +290,13 @@ export default function Settings() {
         min={0}
         max={100}
         onChange={(n) => updateSettings({ assumedPastAttendance: n })}
-        hint="Used until you mark a day or type real ERP totals."
+        hint={
+          s.unmarkedAsPresent
+            ? 'Not used right now — “Count unmarked classes as present” is on.'
+            : s.ignorePastAttendance
+              ? 'Not used right now — “Start counting from today only” is on.'
+              : 'Used until you mark a day or type real ERP totals.'
+        }
       />
 
       {/* "Start fresh": mid-semester adopters can ignore everything before today. */}
@@ -298,14 +305,45 @@ export default function Settings() {
           <b>Start counting from today only</b>
           <div className="class-meta">
             {s.ignorePastAttendance
-              ? 'Previous attendance is ignored — percentages begin at zero and count only what you mark from today. Uncheck to restore full-semester calculations.'
-              : 'Everything since the semester start counts (carry-over + assumed past attendance).'}
+              ? `Counting only the classes you mark from ${formatShort(countFromOf(data, todayStr()), true)} — nothing before, no assumed attendance. Uncheck to go back to the whole semester.`
+              : 'Off: everything since the semester start counts (your marks + assumed attendance for the rest).'}
           </div>
         </span>
         <input
           type="checkbox"
           checked={s.ignorePastAttendance}
           onChange={(e) => updateSettings({ ignorePastAttendance: e.target.checked })}
+        />
+      </label>
+      {s.ignorePastAttendance && (
+        <label className="card row spread" style={{ alignItems: 'center' }}>
+          <span className="msg" style={{ color: 'var(--text)' }}>Count from</span>
+          <input
+            type="date"
+            value={countFromOf(data, todayStr())}
+            max={todayStr()}
+            min={s.semesterStart ?? undefined}
+            onChange={(e) => e.target.value && updateSettings({ countFromDate: e.target.value })}
+            style={{ width: 'auto' }}
+            aria-label="Count attendance from"
+          />
+        </label>
+      )}
+
+      {/* B14: what an unmarked class means */}
+      <label className={`card row spread toggle-row ${s.unmarkedAsPresent ? 'on' : ''}`} style={{ alignItems: 'center' }}>
+        <span>
+          <b>Count unmarked classes as present</b>
+          <div className="class-meta">
+            {s.unmarkedAsPresent
+              ? 'On: any class you don’t mark counts as attended (today’s too). Mark Absent when you miss one.'
+              : 'Off: past unmarked classes use the assumed % above; today’s count once you mark them.'}
+          </div>
+        </span>
+        <input
+          type="checkbox"
+          checked={!!s.unmarkedAsPresent}
+          onChange={(e) => updateSettings({ unmarkedAsPresent: e.target.checked })}
         />
       </label>
 

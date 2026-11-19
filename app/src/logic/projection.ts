@@ -31,7 +31,7 @@
 
 import type { AppData, DateStr, Slot } from '../data/model'
 import { slotMatchesBatch } from '../data/model'
-import { computeSubjectTotals, conversionFor, isHoliday, markFor } from './attendance'
+import { computeSubjectTotals, conversionFor, countFromOf, isHoliday, markFor } from './attendance'
 import { addDays, daysInMonth, monthKey, pad2, weekdayOf } from './dates'
 
 const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
@@ -259,9 +259,11 @@ export function projectSubjectMonth(
   let presentInMonth = 0
   let absentInMonth = 0
 
+  // "Start counting from today only": days before counting began are not part of the plan.
+  const countFrom = ignorePast ? countFromOf(data, today) : null
   let d = monthStart
   while (d <= monthEnd) {
-    const holiday = isHoliday(data, d)
+    const holiday = isHoliday(data, d) || (countFrom !== null && d < countFrom)
     if (!holiday) {
       const slots = rawSlotsForDate(data, d).filter((sl) => ownerOf(data, d, sl) === subjectId)
       for (const slot of slots) {

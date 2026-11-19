@@ -517,6 +517,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateSettings(patch) {
         setRaw((d) => {
           const next = { ...d, settings: { ...d.settings, ...patch } }
+          // Switching "start counting from today only" on remembers the day,
+          // so counting keeps starting there as the days go by.
+          if (patch.ignorePastAttendance === true && !d.settings.ignorePastAttendance && patch.countFromDate === undefined) {
+            next.settings.countFromDate = todayStr()
+          }
           // Keep myBatch and the standalone myDivision in sync: choosing a
           // batch implies its division; changing division keeps the batch
           // number (or clears the batch entirely if division is cleared).

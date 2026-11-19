@@ -79,6 +79,9 @@ export interface AppSettings {
    *  mark from now on. Uncheck it any time to bring back full-semester
    *  calculations (carry-over + assumed past attendance). */
   ignorePastAttendance: boolean
+  /** The day "start counting from today only" was switched on (or the date
+   *  the user picked). Counting starts here and STAYS here as days pass. */
+  countFromDate?: DateStr | null
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
