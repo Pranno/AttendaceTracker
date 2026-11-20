@@ -21,3 +21,9 @@ describe('email auto-add', () => {
     expect(shouldAutoAdd({ ...base, date: null }, settings, 'vupune.ac.in')).toBe(false)
   })
 })
+
+describe('older suggestions', () => {
+  it('a suggestion without a known sender is not blocked by college-only', () => {
+    expect(shouldAutoAdd({ ...base, from: undefined }, settings, 'vupune.ac.in')).toBe(true)
+  })
+})

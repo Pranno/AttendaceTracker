@@ -140,7 +140,8 @@ public class GmailAuthPlugin extends Plugin {
         String domain = call.getString("domain", "");
         android.content.SharedPreferences prefs = getContext().getSharedPreferences(GmailCheckWorker.PREFS, android.content.Context.MODE_PRIVATE);
         prefs.edit().putString(GmailCheckWorker.KEY_PATTERN, pattern).putString(GmailCheckWorker.KEY_DOMAIN, domain == null ? "" : domain)
-            .putLong(GmailCheckWorker.KEY_SINCE, System.currentTimeMillis()).apply();
+            .apply();
+        if (prefs.getLong(GmailCheckWorker.KEY_SINCE, 0) == 0) prefs.edit().putLong(GmailCheckWorker.KEY_SINCE, System.currentTimeMillis()).apply();
         WorkManager wm = WorkManager.getInstance(getContext());
         if (enabled && pattern != null && !pattern.isEmpty()) {
             PeriodicWorkRequest req = new PeriodicWorkRequest.Builder(GmailCheckWorker.class, 1, TimeUnit.HOURS)
@@ -151,6 +152,17 @@ public class GmailAuthPlugin extends Plugin {
             wm.cancelUniqueWork("college-email-check");
         }
         call.resolve();
+    }
+
+    /** Ids the background check notified about; cleared so each is reported once. */
+    @PluginMethod
+    public void takeNotified(PluginCall call) {
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences(GmailCheckWorker.PREFS, android.content.Context.MODE_PRIVATE);
+        java.util.Set<String> ids = prefs.getStringSet(GmailCheckWorker.KEY_NOTIFIED, new java.util.HashSet<>());
+        prefs.edit().remove(GmailCheckWorker.KEY_NOTIFIED).apply();
+        JSObject ret = new JSObject();
+        ret.put("ids", new com.getcapacitor.JSArray(ids));
+        call.resolve(ret);
     }
 
     private void fetchToken(final PluginCall call, final GoogleSignInAccount account, final boolean allowConsent) {

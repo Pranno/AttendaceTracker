@@ -45,6 +45,7 @@ public class GmailCheckWorker extends Worker {
     static final String KEY_PATTERN = "pattern";
     static final String KEY_DOMAIN = "domain";
     static final String KEY_SINCE = "sinceMs";
+    static final String KEY_NOTIFIED = "notifiedIds";
     private static final String CHANNEL = "college_email";
     private static final int NOTIFICATION_ID = 999_400;
     private static final String API = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
@@ -74,6 +75,7 @@ public class GmailCheckWorker extends Worker {
             JSONObject list = get(API + "?maxResults=20&q=" + URLEncoder.encode(q, "UTF-8"), token);
             JSONArray msgs = list.optJSONArray("messages");
             List<String> hits = new ArrayList<>();
+            java.util.Set<String> notified = new java.util.HashSet<>(prefs.getStringSet(KEY_NOTIFIED, new java.util.HashSet<>()));
             Pattern re = Pattern.compile(pattern);
             String domain = prefs.getString(KEY_DOMAIN, "");
             if (msgs != null) {
@@ -83,10 +85,11 @@ public class GmailCheckWorker extends Worker {
                     String subject = header(m, "Subject");
                     String from = header(m, "From").toLowerCase();
                     if (domain != null && !domain.isEmpty() && !from.contains("@" + domain) && !from.contains("." + domain)) continue;
-                    if (re.matcher(subject).find()) hits.add(subject);
+                    if (notified.contains(id)) continue;
+                    if (re.matcher(subject).find()) { hits.add(subject); notified.add(id); }
                 }
             }
-            prefs.edit().putLong(KEY_SINCE, now).apply();
+            prefs.edit().putLong(KEY_SINCE, now).putStringSet(KEY_NOTIFIED, notified).apply();
             if (!hits.isEmpty()) notify(ctx, hits);
             return Result.success();
         } catch (Exception e) {

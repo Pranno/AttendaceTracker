@@ -112,7 +112,7 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     setError(null)
     setNote(null)
     try {
-      const { checked, fresh, autoAdded, reader, fallbackReason } = await checkEmailForDeadlines(data, { addSuggestions, addDeadline }, { notify: true })
+      const { checked, fresh, autoAdded, reader, fallbackReason } = await checkEmailForDeadlines(data, { addSuggestions, addDeadline, updateSuggestions: (patch) => setData((d) => ({ ...d, suggestions: d.suggestions.map((x) => (patch.has(x.id) ? { ...x, ...patch.get(x.id) } : x)) })) }, { notify: true })
       const how = reader === 'smart' ? ' (read by Smart AI)' : ''
       const review = fresh.length - autoAdded.length
       setNote(

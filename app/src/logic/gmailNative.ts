@@ -75,6 +75,7 @@ export async function nativeSigningInfo(): Promise<{ packageName: string; sha1: 
 
 interface BackgroundPlugin {
   scheduleBackgroundCheck(o: { enabled: boolean; pattern: string; domain: string }): Promise<void>
+  takeNotified(): Promise<{ ids: string[] }>
 }
 const GmailBg = registerPlugin<BackgroundPlugin>('GmailAuth')
 
@@ -86,4 +87,14 @@ export async function syncBackgroundEmailCheck(settings: AppSettings): Promise<v
   const domain = settings.emailCollegeOnly !== false ? collegeDomainOf(st.email) ?? '' : ''
   const pattern = importantSubjectPattern(settings.emailAutoAddCategories ?? AUTO_ADD_DEFAULT)
   await GmailBg.scheduleBackgroundCheck({ enabled, pattern, domain }).catch(() => {})
+}
+
+/** Email ids the background check already sent a notification about (cleared once read). */
+export async function backgroundNotifiedIds(): Promise<string[]> {
+  if (!useNativeGmail()) return []
+  try {
+    return (await GmailBg.takeNotified()).ids ?? []
+  } catch {
+    return []
+  }
 }

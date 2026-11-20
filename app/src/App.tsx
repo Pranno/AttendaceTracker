@@ -150,7 +150,7 @@ function EmailAutoChecker() {
     const run = () => {
       const a = latest.current
       if (!a.data.settings.onboarded) return
-      void autoCheckEmail(a.data, { addSuggestions: a.addSuggestions, addDeadline: a.addDeadline })
+      void autoCheckEmail(a.data, { addSuggestions: a.addSuggestions, addDeadline: a.addDeadline, updateSuggestions: (patch) => a.setData((d) => ({ ...d, suggestions: d.suggestions.map((x) => (patch.has(x.id) ? { ...x, ...patch.get(x.id) } : x)) })) })
       void syncBackgroundEmailCheck(a.data.settings)
     }
     run()

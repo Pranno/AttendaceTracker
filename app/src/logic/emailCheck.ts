@@ -6,6 +6,8 @@
 // kept as a suggestion to add by hand. A notification says what happened.
 
 import type { AppData, Deadline, Suggestion } from '../data/model'
+import { backgroundNotifiedIds } from './gmailNative'
+import { categorize } from './deadlineCategory'
 import { connectedEmail, fetchInbox, hasGmailSetup, isConnected, parseMessagesWith, toSuggestions } from './gmail'
 import { notifyNow } from './reminders'
 import { deadlineReaderOf } from './smartDeadlines'
@@ -18,6 +20,24 @@ export const AUTO_CHECK_EVERY_MS = 3 * 60 * 60 * 1000
 export interface EmailApi {
   addSuggestions: (s: Suggestion[]) => void
   addDeadline: (d: Omit<Deadline, 'id' | 'reminderDates' | 'done' | 'tentative'> & { tentative?: boolean }, id?: string) => void
+  /** change suggestions already saved (used to auto-add ones found by an older fetch) */
+  updateSuggestions?: (patch: Map<string, Partial<Suggestion>>) => void
+}
+
+const NOTIFIED = 'at.gmail.notified.v1'
+function loadNotified(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(NOTIFIED) ?? '[]') as string[])
+  } catch {
+    return new Set()
+  }
+}
+function saveNotified(ids: Set<string>) {
+  try {
+    localStorage.setItem(NOTIFIED, JSON.stringify([...ids].slice(-500)))
+  } catch {
+    /* ignore */
+  }
 }
 
 export interface EmailCheckResult {
@@ -40,7 +60,8 @@ export function shouldAutoAdd(s: Suggestion, settings: AppData['settings'], coll
   if (settings.emailAutoAdd === false || !s.date) return false
   const cats = settings.emailAutoAddCategories ?? AUTO_ADD_DEFAULT
   if (!cats.includes(s.category ?? 'other')) return false
-  if (settings.emailCollegeOnly !== false && !fromCollege(s.from ?? '', collegeDomain)) return false
+  // sender unknown (found by an older version) → can't tell, don't block
+  if (settings.emailCollegeOnly !== false && s.from && !fromCollege(s.from, collegeDomain)) return false
   return true
 }
 
@@ -54,29 +75,57 @@ export async function checkEmailForDeadlines(data: AppData, api: EmailApi, opts:
 
   const domain = collegeDomainOf(await connectedEmail().catch(() => null))
   const autoAdded: Suggestion[] = []
-  const final = fresh.map((s) => {
+  const takenKeys = new Set(data.deadlines.map((d) => `${d.dueDate}|${d.title.trim().toLowerCase()}`))
+  const tryAdd = (s: Suggestion): Suggestion => {
     if (!shouldAutoAdd(s, data.settings, domain)) return s
-    // never add the same deadline twice
-    const dup = data.deadlines.some((d) => d.dueDate === s.date && d.title.trim().toLowerCase() === s.title.trim().toLowerCase())
-    if (dup) return { ...s, status: 'added' as const }
+    const key = `${s.date}|${s.title.trim().toLowerCase()}`
+    if (takenKeys.has(key)) return { ...s, status: 'added' as const } // never add the same deadline twice
+    takenKeys.add(key)
     const id = `dl_${s.id}`
     api.addDeadline({ title: s.title, dueDate: s.date!, subjectId: s.subjectId, sourceText: s.sourceSnippet }, id)
     const added = { ...s, status: 'added' as const, autoDeadlineId: id }
     autoAdded.push(added)
     return added
-  })
+  }
+  const final = fresh.map(tryAdd)
   api.addSuggestions(final)
 
+  // suggestions an earlier fetch left waiting that now qualify
+  if (api.updateSuggestions) {
+    const patch = new Map<string, Partial<Suggestion>>()
+    for (const old of data.suggestions) {
+      if (old.status !== 'new' || old.cameFrom !== 'gmail') continue
+      const withCat = old.category ? old : { ...old, category: categorize(old.title, old.sourceSnippet) }
+      const r = tryAdd(withCat)
+      if (r.status !== 'new' || r.category !== old.category) patch.set(old.id, { status: r.status, category: r.category, autoDeadlineId: r.autoDeadlineId })
+    }
+    if (patch.size) api.updateSuggestions(patch)
+  }
+
+  // one notification per email: skip emails already told about (here or by the background check)
+  const notified = loadNotified()
+  for (const id of await backgroundNotifiedIds()) notified.add(id)
+  let firstRun = false
+  try {
+    firstRun = localStorage.getItem(LAST_CHECK) === null
+  } catch {
+    /* ignore */
+  }
+  const isNew = (s: Suggestion) => !s.messageId || !notified.has(s.messageId)
+  const newAdded = autoAdded.filter(isNew)
   const toReview = final.filter((s) => s.status === 'new')
-  if (opts.notify !== false && (autoAdded.length || toReview.length)) {
-    const title = autoAdded.length
-      ? `📬 Added ${autoAdded.length} deadline${autoAdded.length === 1 ? '' : 's'} from your email`
-      : `📬 ${toReview.length} new deadline${toReview.length === 1 ? '' : 's'} from your email`
-    const body = autoAdded.length
-      ? `${describeFinds(autoAdded)}.${toReview.length ? ` ${toReview.length} more to review in the app.` : ''}`
-      : `${describeFinds(toReview)}. Open the app to add ${toReview.length === 1 ? 'it' : 'them'}.`
+  const newReview = toReview.filter(isNew)
+  if (opts.notify !== false && !firstRun && (newAdded.length || newReview.length)) {
+    const title = newAdded.length
+      ? `📬 Added ${newAdded.length} deadline${newAdded.length === 1 ? '' : 's'} from your email`
+      : `📬 ${newReview.length} new deadline${newReview.length === 1 ? '' : 's'} from your email`
+    const body = newAdded.length
+      ? `${describeFinds(newAdded)}.${newReview.length ? ` ${newReview.length} more to review in the app.` : ''}`
+      : `${describeFinds(newReview)}. Open the app to add ${newReview.length === 1 ? 'it' : 'them'}.`
     await notifyNow(title, body).catch(() => {})
   }
+  for (const s of final) if (s.messageId) notified.add(s.messageId)
+  saveNotified(notified)
   try {
     localStorage.setItem(LAST_CHECK, String(Date.now()))
   } catch {
