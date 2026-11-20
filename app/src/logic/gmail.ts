@@ -298,7 +298,18 @@ export async function fetchInbox(max = 25, cfg = loadGmailConfig()): Promise<Inb
     listRes = await list1()
   }
   if (listRes.status === 401) throw new Error('Gmail session expired — reconnect your account in Settings.')
-  if (!listRes.ok) throw new Error(`Could not load messages (${listRes.status}).`)
+  if (!listRes.ok) {
+    // Show Google's own reason (e.g. "Gmail API has not been used in project … or it is disabled",
+    // "Request had insufficient authentication scopes") — a bare status code isn't fixable.
+    let why = ''
+    try {
+      const j = (await listRes.json()) as { error?: { message?: string; status?: string } }
+      why = j.error?.message ?? j.error?.status ?? ''
+    } catch {
+      /* no JSON body */
+    }
+    throw new Error(`Could not load messages (${listRes.status})${why ? `: ${why}` : '.'}`)
+  }
   const list = (await listRes.json()) as { messages?: { id: string }[] }
   const ids = (list.messages ?? []).map((m) => m.id)
   const msgs = await Promise.all(
