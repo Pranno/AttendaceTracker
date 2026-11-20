@@ -7,6 +7,8 @@ import { useApp } from '../data/store'
 import { Sheet } from './ui/parts'
 import type { ExtractedDeadline } from '../logic/deadlines'
 import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
+import type { ExtractedHoliday } from '../logic/holidays'
+import FoundHolidays from './FoundHolidays'
 import { todayStr, formatShort } from '../logic/dates'
 
 export default function PasteDeadlineSheet({
@@ -25,12 +27,14 @@ export default function PasteDeadlineSheet({
   const reader = deadlineReaderOf(data.settings)
   const [reading, setReading] = useState(false)
   const [readerNote, setReaderNote] = useState<string | null>(null)
+  const [holidays, setHolidays] = useState<ExtractedHoliday[]>([])
 
   async function runExtraction() {
     if (!text.trim()) return
     setReading(true)
     setReaderNote(null)
-    const { items: res, fallbackReason } = await readDeadlines(text, todayStr(), data.subjects, reader)
+    const { items: res, holidays: hol, fallbackReason } = await readDeadlines(text, todayStr(), data.subjects, reader)
+    setHolidays(hol)
     setReading(false)
     if (fallbackReason) setReaderNote(`Smart reader unavailable (${fallbackReason}) — used the Standard reader.`)
     setResults(res)
@@ -64,6 +68,7 @@ export default function PasteDeadlineSheet({
     setSavedCount(count)
     setTimeout(() => {
       setResults(null)
+      setHolidays([])
       setText('')
       setSavedCount(null)
       onClose()
@@ -72,6 +77,7 @@ export default function PasteDeadlineSheet({
 
   function handleClose() {
     setResults(null)
+    setHolidays([])
     setText('')
     setSavedCount(null)
     onClose()
@@ -82,7 +88,7 @@ export default function PasteDeadlineSheet({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <p className="msg" style={{ margin: 0 }}>
           Copy any deadline or notice from WhatsApp or email and paste it below.{' '}
-          {reader === 'smart' ? 'Smart AI reads it and finds every deadline.' : 'Fixed rules extract the due date and subject.'}
+          {reader === 'smart' ? 'Smart AI finds every deadline and holiday in it.' : 'Deadlines and holidays in it are picked out for you to check.'}
         </p>
 
         <textarea
@@ -100,13 +106,14 @@ export default function PasteDeadlineSheet({
             onClick={() => void runExtraction()}
           >
             <ClipboardPaste size={18} />
-            {reading ? 'Reading…' : reader === 'smart' ? '✨ Extract with Smart AI' : 'Extract deadline'}
+            {reading ? 'Reading…' : reader === 'smart' ? '✨ Read with Smart AI' : 'Find deadlines & holidays'}
           </button>
           {results && (
             <button
               className="danger-quiet big-btn"
               onClick={() => {
                 setResults(null)
+                setHolidays([])
                 setText('')
               }}
             >
@@ -126,11 +133,13 @@ export default function PasteDeadlineSheet({
 
         {results && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {results.length === 0 && (
+            {results.length === 0 && holidays.length === 0 && (
               <div className="card msg">
-                No deadlines detected — check that the message has a date and a word like "submission", "due", "test", or "certificate".
+                No deadlines or holidays detected — check that the message has a date and says what it is (a submission, test, registration, holiday…).
               </div>
             )}
+
+            <FoundHolidays items={holidays} />
 
             {results.map((d, i) => (
               <div key={i} className="card extract-item">

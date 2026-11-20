@@ -155,8 +155,8 @@ function OnboardingShell({
   return (
     <Onboarding
       key="onb" // fresh state each time it mounts
-      onDone={() => {
-        go('settings') // semester dates & division/batch live here
+      onDone={(goTo) => {
+        go(goTo) // the setup steps already saved semester, batch and rules
       }}
     />
   )

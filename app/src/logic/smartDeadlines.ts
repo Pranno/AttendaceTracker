@@ -9,6 +9,7 @@
 import type { AppSettings, DateStr } from '../data/model'
 import { extractDeadlines, type ExtractedDeadline, type SubjectRef } from './deadlines'
 import { hasGeminiKey, readTextAsJson } from './gemini'
+import { extractHolidays, type ExtractedHoliday } from './holidays'
 
 export type DeadlineReader = 'standard' | 'smart'
 
@@ -27,6 +28,48 @@ const ITEM_SCHEMA = {
     urls: { type: 'array', items: { type: 'string' }, description: 'Links in the message that belong to this task' },
   },
   required: ['title', 'dueDate', 'sourceLine'],
+}
+
+const HOLIDAY_SCHEMA = {
+  type: 'object',
+  properties: {
+    label: { type: 'string', description: 'Short name, e.g. "Diwali vacation" or "Guru Nanak Jayanti"; "Holiday" if no reason is given' },
+    startDate: { type: 'string', description: 'First day off, YYYY-MM-DD' },
+    endDate: { type: 'string', description: 'Last day off, YYYY-MM-DD (same as startDate for one day)' },
+    yearPrinted: { type: 'boolean' },
+    sourceLine: { type: 'string' },
+  },
+  required: ['label', 'startDate', 'endDate', 'sourceLine'],
+}
+
+const HOLIDAY_RULES = `
+Also list HOLIDAYS separately: days when the college is closed or there are no lectures for everyone (holiday, vacation, break, "college will remain closed", "no lectures", classes suspended). Give the first and last day off. A holiday is NOT a deadline — never put it in the deadlines list. Exam days are not holidays.`
+
+interface RawHoliday { label?: string; startDate?: string; endDate?: string; yearPrinted?: boolean; sourceLine?: string }
+
+/** Validate Gemini's holidays into the Standard reader's shape. */
+export function toHolidays(items: RawHoliday[] | undefined, today: DateStr): ExtractedHoliday[] {
+  const out: ExtractedHoliday[] = []
+  const real = (v: string | undefined) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((v ?? '').trim())
+    if (!m) return null
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? (`${m[1]}-${m[2]}-${m[3]}` as DateStr) : null
+  }
+  for (const h of items ?? []) {
+    const start = real(h.startDate)
+    const end = real(h.endDate) ?? start
+    if (!start || !end || end < start) continue
+    if (out.some((x) => x.startDate === start && x.endDate === end)) continue
+    out.push({
+      label: (h.label ?? '').trim() || 'Holiday',
+      startDate: start,
+      endDate: end,
+      tentative: h.yearPrinted === false && start.slice(0, 4) > today.slice(0, 4),
+      sourceLine: (h.sourceLine ?? '').trim().slice(0, 300),
+    })
+  }
+  return out
 }
 
 function instructions(today: DateStr, subjects: SubjectRef[]): string {
@@ -83,6 +126,8 @@ export function toExtracted(items: RawItem[] | undefined, subjects: SubjectRef[]
 
 export interface DeadlineReadResult {
   items: ExtractedDeadline[]
+  /** Holiday notices found in the same message. */
+  holidays: ExtractedHoliday[]
   reader: DeadlineReader
   /** Set when Smart was chosen but the Standard reader had to be used. */
   fallbackReason?: string
@@ -97,21 +142,26 @@ export async function readDeadlines(
 ): Promise<DeadlineReadResult> {
   if (reader === 'smart') {
     try {
-      const ans = await readTextAsJson<{ deadlines?: RawItem[] }>({
+      const ans = await readTextAsJson<{ deadlines?: RawItem[]; holidays?: RawHoliday[] }>({
         text: `MESSAGE:\n${text.slice(0, 30_000)}`,
-        prompt: instructions(today, subjects),
-        schema: { type: 'object', properties: { deadlines: { type: 'array', items: ITEM_SCHEMA } }, required: ['deadlines'] },
+        prompt: instructions(today, subjects) + HOLIDAY_RULES,
+        schema: {
+          type: 'object',
+          properties: { deadlines: { type: 'array', items: ITEM_SCHEMA }, holidays: { type: 'array', items: HOLIDAY_SCHEMA } },
+          required: ['deadlines', 'holidays'],
+        },
       })
-      return { items: toExtracted(ans.deadlines, subjects, today), reader: 'smart' }
+      return { items: toExtracted(ans.deadlines, subjects, today), holidays: toHolidays(ans.holidays, today), reader: 'smart' }
     } catch (err) {
       return {
         items: extractDeadlines(text, today, subjects),
+        holidays: extractHolidays(text, today),
         reader: 'standard',
         fallbackReason: err instanceof Error ? err.message : 'Smart reader failed.',
       }
     }
   }
-  return { items: extractDeadlines(text, today, subjects), reader: 'standard' }
+  return { items: extractDeadlines(text, today, subjects), holidays: extractHolidays(text, today), reader: 'standard' }
 }
 
 /** Read many emails at once. Smart sends them all in one request. */

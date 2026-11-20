@@ -16,6 +16,8 @@ import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
 import type { ExtractedDeadline } from '../logic/deadlines'
 import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
+import type { ExtractedHoliday } from '../logic/holidays'
+import FoundHolidays from './FoundHolidays'
 import { todayStr, formatShort } from '../logic/dates'
 import { countFromOf } from '../logic/attendance'
 import { isNative, ensureNotifyPermission, resyncAllNotifications } from '../logic/reminders'
@@ -34,6 +36,7 @@ function DeadlinePaste() {
   const [results, setResults] = useState<ExtractedDeadline[] | null>(null)
   const [checked, setChecked] = useState<boolean[]>([])
   const [savedMsg, setSavedMsg] = useState<string | null>(null)
+  const [holidays, setHolidays] = useState<ExtractedHoliday[]>([])
 
   const reader = deadlineReaderOf(data.settings)
   const [reading, setReading] = useState(false)
@@ -41,7 +44,8 @@ function DeadlinePaste() {
   async function run() {
     setReading(true)
     setSavedMsg(null)
-    const { items: r, fallbackReason } = await readDeadlines(text, todayStr(), data.subjects, reader)
+    const { items: r, holidays: hol, fallbackReason } = await readDeadlines(text, todayStr(), data.subjects, reader)
+    setHolidays(hol)
     setReading(false)
     setResults(r)
     if (fallbackReason) {
@@ -88,10 +92,10 @@ function DeadlinePaste() {
       />
       <div className="row" style={{ marginTop: 8, gap: 8 }}>
         <button className="secondary big-btn grow" disabled={text.trim().length < 4 || reading} onClick={() => void run()}>
-          {reading ? 'Reading…' : reader === 'smart' ? '✨ Extract with Smart AI' : 'Extract deadlines'}
+          {reading ? 'Reading…' : reader === 'smart' ? '✨ Read with Smart AI' : 'Find deadlines & holidays'}
         </button>
         {results && (
-          <button className="danger-quiet big-btn" onClick={() => { setResults(null); setText('') }}>
+          <button className="danger-quiet big-btn" onClick={() => { setResults(null); setHolidays([]); setText('') }}>
             Clear
           </button>
         )}
@@ -101,9 +105,10 @@ function DeadlinePaste() {
 
       {results && (
         <div style={{ marginTop: 12 }}>
-          {results.length === 0 && (
-            <div className="card msg">No deadlines detected — check the message has a date + words like "submission", "due", "test".</div>
+          {results.length === 0 && holidays.length === 0 && (
+            <div className="card msg">No deadlines or holidays detected — check the message has a date and says what it is (a submission, test, registration, holiday…).</div>
           )}
+          <FoundHolidays items={holidays} />
           {results.map((d, i) => (
             <div key={i} className="card extract-item">
               <button
@@ -708,6 +713,9 @@ export default function Settings() {
         </div>
 
 
+        <button className="secondary" style={{ width: '100%', marginTop: 8 }} onClick={() => updateSettings({ onboarded: false })}>
+          Replay the welcome tour
+        </button>
       </Group>
 
       <Group id="data" icon="💾" title="Backup &amp; data"

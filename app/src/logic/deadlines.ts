@@ -4,6 +4,10 @@
 // Everything is tentative until the user confirms in the preview UI.
 
 import type { DateStr } from '../data/model'
+import { HOLIDAY_RE } from './holidays'
+
+/** Words that make a line a real task even if it also mentions a holiday. */
+const TASK_RE = /\b(submit|submission|assignment|exam|test|quiz|viva|registration|register|form|fee|payment|apply|upload|report|project|presentation)\b/i
 
 export interface ExtractedDeadline {
   title: string
@@ -158,6 +162,9 @@ export function extractDeadlines(
     if (!dm) continue
     const hasKeyword = KEYWORD.test(line)
     if (!hasKeyword) continue
+    // Holiday notices ("college will remain closed on 25/11") are holidays,
+    // not deadlines — unless the same line also names a real task.
+    if (HOLIDAY_RE.test(line) && !TASK_RE.test(line)) continue
 
     // Determine year: if explicit, use it. Otherwise, roll if date has passed (D4).
     let y = dm.y ?? ty

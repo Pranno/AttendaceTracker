@@ -83,3 +83,25 @@ describe('Smart deadline reader', () => {
     expect(r.byId.get('m2')?.[0].title).toBe('Fee payment')
   })
 })
+
+describe('Smart reader: holidays', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('returns holidays separately and validates them', async () => {
+    setGeminiKey('AIzaTESTKEY1234')
+    answer({
+      deadlines: [{ title: 'WAD lab file submission', dueDate: '2026-11-27', sourceLine: 'WAD lab file submission on 27/11' }],
+      holidays: [
+        { label: 'Guru Nanak Jayanti', startDate: '2026-11-25', endDate: '2026-11-25', yearPrinted: false, sourceLine: 'College closed on 25/11' },
+        { label: 'Bad', startDate: '2026-11-30', endDate: '2026-11-28', sourceLine: '' }, // end before start → dropped
+      ],
+    })
+    const r = await readDeadlines('College closed on 25/11 …', '2026-11-20', subjects, 'smart')
+    expect(r.items.map((i) => i.title)).toEqual(['WAD lab file submission'])
+    expect(r.holidays).toEqual([{ label: 'Guru Nanak Jayanti', startDate: '2026-11-25', endDate: '2026-11-25', tentative: false, sourceLine: 'College closed on 25/11' }])
+  })
+  it('the Standard reader finds holidays too (and on fallback)', async () => {
+    const r = await readDeadlines('Diwali vacation from 10/12 to 15/12', '2026-11-20', subjects, 'standard')
+    expect(r.holidays.map((h) => `${h.startDate}→${h.endDate}`)).toEqual(['2026-12-10→2026-12-15'])
+    expect(r.items).toEqual([])
+  })
+})
