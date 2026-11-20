@@ -15,6 +15,7 @@ import { useTheme } from '../theme/ThemeProvider'
 import type { ThemeChoice } from '../theme/ThemeProvider'
 import { THEME_TOKENS } from '../theme/tokens'
 import type { ExtractedDeadline } from '../logic/deadlines'
+import { AUTO_ADD_DEFAULT, CATEGORY_LABEL, type DeadlineCategory } from '../logic/deadlineCategory'
 import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
 import type { ExtractedHoliday } from '../logic/holidays'
 import FoundHolidays from './FoundHolidays'
@@ -655,6 +656,27 @@ export default function Settings() {
           <div className="settings-sub">College email</div>
         <GmailSetup />
         <EmailInbox />
+
+          <div className="settings-sub">Automatic email check</div>
+        <div className="card">
+          <div className="msg">Gmail is checked by itself when you open the app (at most every 3 hours). Deadlines in the ticked kinds are added straight away; everything else (scholarships, internships, competitions…) waits above for you to add.</div>
+          <label className="row spread"><b>Add important deadlines automatically</b>
+            <Toggle checked={s.emailAutoAdd !== false} onChange={(v) => updateSettings({ emailAutoAdd: v })} label="Auto-add" /></label>
+          {(Object.keys(CATEGORY_LABEL) as DeadlineCategory[]).filter((c) => c !== 'other').map((c) => {
+            const cats = s.emailAutoAddCategories ?? AUTO_ADD_DEFAULT
+            return (
+              <label key={c} className="row">
+                <input type="checkbox" checked={cats.includes(c)} disabled={s.emailAutoAdd === false}
+                  onChange={(e) => updateSettings({ emailAutoAddCategories: e.target.checked ? [...cats, c] : cats.filter((x) => x !== c) })} />
+                <span>{CATEGORY_LABEL[c]}</span>
+              </label>
+            )
+          })}
+          <label className="row spread"><span><b>Only from my college's email</b><div className="msg">Ignore these words in mail from outside senders.</div></span>
+            <Toggle checked={s.emailCollegeOnly !== false} onChange={(v) => updateSettings({ emailCollegeOnly: v })} label="College only" /></label>
+          <label className="row spread"><span><b>Check in the background</b><div className="msg">Android: about every hour, notifies you when an important college email arrives.</div></span>
+            <Toggle checked={s.emailBackgroundCheck !== false} onChange={(v) => updateSettings({ emailBackgroundCheck: v })} label="Background check" /></label>
+        </div>
 
 
       </Group>

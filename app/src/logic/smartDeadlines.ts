@@ -10,6 +10,7 @@ import type { AppSettings, DateStr } from '../data/model'
 import { extractDeadlines, type ExtractedDeadline, type SubjectRef } from './deadlines'
 import { hasGeminiKey, readTextAsJson } from './gemini'
 import { extractHolidays, type ExtractedHoliday } from './holidays'
+import { categorize } from './deadlineCategory'
 
 export type DeadlineReader = 'standard' | 'smart'
 
@@ -26,6 +27,12 @@ const ITEM_SCHEMA = {
     subject: { type: 'string', description: 'Short name of the matching subject from the list, or empty' },
     sourceLine: { type: 'string', description: 'The sentence of the message that states this deadline' },
     urls: { type: 'array', items: { type: 'string' }, description: 'Links in the message that belong to this task' },
+    category: {
+      type: 'string',
+      enum: ['exam', 'submission', 'form', 'event', 'other'],
+      description:
+        "exam = exams/tests/quizzes/vivas/hall tickets; submission = assignments, lab files, projects, reports, presentations; form = the college's own official forms, registrations and fee payments (exam form, course/elective registration, college fees); event = the college's own events and festivals (fest, annual day, convocation, orientation); other = everything else, e.g. scholarships, internships, jobs, outside competitions/hackathons, webinars, promotions",
+    },
   },
   required: ['title', 'dueDate', 'sourceLine'],
 }
@@ -92,7 +99,8 @@ Rules:
 - Never invent deadlines or dates that are not in the message.`
 }
 
-interface RawItem { title?: string; dueDate?: string; yearPrinted?: boolean; subject?: string; sourceLine?: string; urls?: string[] }
+interface RawItem { title?: string; dueDate?: string; yearPrinted?: boolean; subject?: string; sourceLine?: string; urls?: string[]; category?: string }
+const CATS = ['exam', 'submission', 'form', 'event', 'other'] as const
 
 /** Validate Gemini's items into the same shape the Standard reader returns. */
 export function toExtracted(items: RawItem[] | undefined, subjects: SubjectRef[], today: DateStr): ExtractedDeadline[] {
@@ -119,6 +127,7 @@ export function toExtracted(items: RawItem[] | undefined, subjects: SubjectRef[]
       tentative: it.yearPrinted === false && m[1] > today.slice(0, 4),
       sourceLine: (it.sourceLine ?? title).trim().slice(0, 300),
       ...(urls.length ? { urls } : {}),
+      category: (CATS as readonly string[]).includes(it.category ?? '') ? (it.category as (typeof CATS)[number]) : categorize(title, it.sourceLine),
     })
   }
   return out

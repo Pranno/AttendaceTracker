@@ -5,6 +5,7 @@
 
 import type { DateStr } from '../data/model'
 import { HOLIDAY_RE } from './holidays'
+import type { DeadlineCategory } from './deadlineCategory'
 
 /** Words that make a line a real task even if it also mentions a holiday. */
 const TASK_RE = /\b(submit|submission|assignment|exam|test|quiz|viva|registration|register|form|fee|payment|apply|upload|report|project|presentation)\b/i
@@ -21,6 +22,8 @@ export interface ExtractedDeadline {
   sourceLine: string
   /** H4: http(s) links found on the same line (e.g. course/certificate URLs). */
   urls?: string[]
+  /** What kind of deadline (decides what email deadlines are added automatically). */
+  category?: DeadlineCategory
 }
 
 export interface SubjectRef {

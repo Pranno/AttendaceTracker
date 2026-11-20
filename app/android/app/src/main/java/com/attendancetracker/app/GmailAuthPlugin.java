@@ -28,6 +28,12 @@ import com.google.android.gms.common.api.Scope;
 import com.google.android.gms.tasks.Task;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 import java.security.MessageDigest;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -124,6 +130,27 @@ public class GmailAuthPlugin extends Plugin {
     public void signOut(PluginCall call) {
         final GoogleSignInClient c = client();
         c.revokeAccess().addOnCompleteListener(getActivity(), t -> c.signOut().addOnCompleteListener(getActivity(), t2 -> call.resolve()));
+    }
+
+    /** Turn the ~hourly background check of college email on or off. */
+    @PluginMethod
+    public void scheduleBackgroundCheck(PluginCall call) {
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        String pattern = call.getString("pattern", "");
+        String domain = call.getString("domain", "");
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences(GmailCheckWorker.PREFS, android.content.Context.MODE_PRIVATE);
+        prefs.edit().putString(GmailCheckWorker.KEY_PATTERN, pattern).putString(GmailCheckWorker.KEY_DOMAIN, domain == null ? "" : domain)
+            .putLong(GmailCheckWorker.KEY_SINCE, System.currentTimeMillis()).apply();
+        WorkManager wm = WorkManager.getInstance(getContext());
+        if (enabled && pattern != null && !pattern.isEmpty()) {
+            PeriodicWorkRequest req = new PeriodicWorkRequest.Builder(GmailCheckWorker.class, 1, TimeUnit.HOURS)
+                .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build();
+            wm.enqueueUniquePeriodicWork("college-email-check", ExistingPeriodicWorkPolicy.UPDATE, req);
+        } else {
+            wm.cancelUniqueWork("college-email-check");
+        }
+        call.resolve();
     }
 
     private void fetchToken(final PluginCall call, final GoogleSignInAccount account, final boolean allowConsent) {

@@ -16,8 +16,8 @@ android {
         applicationId "com.attendancetracker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 8
-        versionName "1.5.1"
+        versionCode 9
+        versionName "1.6"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -80,6 +80,7 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
     // Native Gmail sign-in (GmailAuthPlugin): Google account picker + Gmail read-only tokens
     implementation 'com.google.android.gms:play-services-auth:21.2.0'
+    implementation 'androidx.work:work-runtime:2.9.1'
 }
 
 apply from: 'capacitor.build.gradle'

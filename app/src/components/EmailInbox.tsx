@@ -10,6 +10,7 @@ import { formatShort, todayStr } from '../logic/dates'
 import type { Suggestion } from '../data/model'
 import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
 import { checkEmailForDeadlines } from '../logic/emailCheck'
+import { CATEGORY_LABEL } from '../logic/deadlineCategory'
 import { nativeSignIn, useNativeGmail } from '../logic/gmailNative'
 import {
   beginLogin,
@@ -22,7 +23,7 @@ import {
 } from '../logic/gmail'
 
 export default function EmailInbox({ compact = false }: { compact?: boolean }) {
-  const { data, addSuggestions, acceptSuggestion, dismissSuggestion, clearSeenSuggestions } = useApp()
+  const { data, setData, addSuggestions, addDeadline, deleteDeadline, acceptSuggestion, dismissSuggestion, clearSeenSuggestions } = useApp()
   const [connected, setConnected] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -40,6 +41,19 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
 
   const newOnes = data.suggestions.filter((s) => s.status === 'new')
   const handled = data.suggestions.filter((s) => s.status !== 'new')
+  // deadlines added straight from email that still exist (newest first, a few)
+  const autoList = data.suggestions
+    .filter((s) => s.autoDeadlineId && data.deadlines.some((d) => d.id === s.autoDeadlineId))
+    .slice(-5)
+    .reverse()
+  /** Undo an automatic add: remove the deadline, keep the email as a suggestion. */
+  function undoAuto(s: Suggestion) {
+    if (s.autoDeadlineId) deleteDeadline(s.autoDeadlineId)
+    setData((d) => ({
+      ...d,
+      suggestions: d.suggestions.map((x) => (x.id === s.id ? { ...x, status: 'new' as const, autoDeadlineId: undefined } : x)),
+    }))
+  }
 
   async function refreshAuthState() {
     setConnected(await isConnected())
@@ -98,11 +112,12 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     setError(null)
     setNote(null)
     try {
-      const { checked, fresh, reader, fallbackReason } = await checkEmailForDeadlines(data, addSuggestions, { notify: true })
+      const { checked, fresh, autoAdded, reader, fallbackReason } = await checkEmailForDeadlines(data, { addSuggestions, addDeadline }, { notify: true })
       const how = reader === 'smart' ? ' (read by Smart AI)' : ''
+      const review = fresh.length - autoAdded.length
       setNote(
         (fresh.length > 0
-          ? `Checked ${checked} recent emails${how} — ${fresh.length} new suggestion${fresh.length === 1 ? '' : 's'}.`
+          ? `Checked ${checked} recent emails${how} — ${autoAdded.length ? `${autoAdded.length} added automatically, ` : ''}${review} to review.`
           : `Checked ${checked} recent emails${how} — nothing new with a date in it.`) +
           (fallbackReason ? ` Smart reader unavailable (${fallbackReason}) — used the Standard reader.` : ''),
       )
@@ -232,6 +247,25 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {autoList.length > 0 && (
+        <div>
+          <div className="small-label" style={{ marginBottom: 4 }}>Added automatically</div>
+          <ul className="list" style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {autoList.map((s) => (
+              <li key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <strong>{s.title}</strong>
+                  <div className="msg">Due {s.date ? formatShort(s.date) : '—'}{s.category ? ` · ${CATEGORY_LABEL[s.category].split(' (')[0]}` : ''}</div>
+                </div>
+                <button className="btn small ghost" title="Undo — remove this deadline" onClick={() => undoAuto(s)}>
+                  Undo
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {handled.length > 0 && (

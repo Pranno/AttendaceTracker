@@ -8,6 +8,7 @@
 
 import { extractDeadlines, type ExtractedDeadline } from './deadlines'
 import { readDeadlinesFromMessages, type DeadlineReader } from './smartDeadlines'
+import { categorize } from './deadlineCategory'
 import { fromDate, todayStr } from './dates'
 import { clearEncrypted, decryptJson, encryptJson } from './tokenCrypto'
 import { nativeSignOut, nativeStatus, nativeToken, useNativeGmail } from './gmailNative'
@@ -214,6 +215,8 @@ export async function connectedEmail(): Promise<string | null> {
 export interface InboxMessage {
   id: string
   subject: string
+  /** "Exam Cell <exams@college.ac.in>" */
+  from: string
   snippet: string
   body: string
   date: DateStr
@@ -279,6 +282,7 @@ function parseMessage(msg: { id: string; snippet?: string; internalDate?: string
   return {
     id: msg.id,
     subject: get('subject'),
+    from: get('from'),
     snippet: msg.snippet ?? '',
     body,
     date: fromDate(new Date(ts)),
@@ -369,6 +373,8 @@ export function toSuggestions(parsed: ParsedMessage[], existing: Suggestion[], s
         id: `sug_${p.message.id}_${i}`,
         kind: 'deadline',
         title: d.title,
+        category: d.category ?? categorize(d.title, d.sourceLine, p.message.subject),
+        from: p.message.from || undefined,
         subjectId: d.subjectHint ? idByShort.get(d.subjectHint.toUpperCase()) : undefined,
         date: d.dueDate,
         sourceSnippet: `${p.message.subject ? p.message.subject + ' — ' : ''}${d.sourceLine}`.slice(0, 200),

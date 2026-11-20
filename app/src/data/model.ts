@@ -44,6 +44,13 @@ export interface AppSettings {
   /** How pasted messages and emails are read for deadlines:
    *  'standard' = offline rule-based reader, 'smart' = Gemini AI. */
   deadlineReader?: 'standard' | 'smart'
+  /** Email deadlines in these categories are added automatically (others stay suggestions). */
+  emailAutoAdd?: boolean
+  emailAutoAddCategories?: ('exam' | 'submission' | 'form' | 'event' | 'other')[]
+  /** Auto-add only emails from the college's own mail domain. */
+  emailCollegeOnly?: boolean
+  /** Android: check Gmail about every hour in the background and notify. */
+  emailBackgroundCheck?: boolean
   /** F13: subject cards on Today show the next class room & teacher. */
   showRoomTeacher: boolean
   /** F14: quick actions (Mark / Add deadline) shown in the day sheet. */
@@ -278,6 +285,12 @@ export interface Suggestion {
   cameFrom: 'share' | 'notification' | 'gmail'
   messageId?: string
   status: 'new' | 'added' | 'dismissed'
+  /** exam / submission / form / event / other — see logic/deadlineCategory.ts */
+  category?: 'exam' | 'submission' | 'form' | 'event' | 'other'
+  /** Sender of the email it came from. */
+  from?: string
+  /** Added to deadlines automatically (can be undone); id of that deadline. */
+  autoDeadlineId?: string
 }
 
 /** Event (record, section I calendar events). */

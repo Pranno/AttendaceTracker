@@ -36,7 +36,7 @@ describe('email suggestions', () => {
   it('carry the matched subject id', () => {
     const out = toSuggestions(
       [{
-        message: { id: 'm1', subject: 'CP', snippet: '', body: '', date: '2026-11-19' },
+        message: { id: 'm1', subject: 'CP', from: '', snippet: '', body: '', date: '2026-11-19' },
         items: [{ title: 'Lab report', dueDate: '2026-11-25', subjectHint: 'CP', tentative: false, sourceLine: 'CP lab report due 25/11' }],
       }],
       [],

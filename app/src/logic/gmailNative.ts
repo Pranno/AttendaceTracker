@@ -3,6 +3,8 @@
 // Services hands out Gmail read-only tokens — no client ID, no redirect.
 
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import type { AppSettings } from '../data/model'
+import { AUTO_ADD_DEFAULT, collegeDomainOf, importantSubjectPattern } from './deadlineCategory'
 
 interface GmailAuthPlugin {
   signingInfo(): Promise<{ packageName: string; sha1: string }>
@@ -69,4 +71,19 @@ export async function nativeSigningInfo(): Promise<{ packageName: string; sha1: 
   } catch {
     return null
   }
+}
+
+interface BackgroundPlugin {
+  scheduleBackgroundCheck(o: { enabled: boolean; pattern: string; domain: string }): Promise<void>
+}
+const GmailBg = registerPlugin<BackgroundPlugin>('GmailAuth')
+
+/** Android: keep the hourly background check of college email in step with Settings. */
+export async function syncBackgroundEmailCheck(settings: AppSettings): Promise<void> {
+  if (!useNativeGmail()) return
+  const st = await nativeStatus()
+  const enabled = st.connected && settings.emailBackgroundCheck !== false
+  const domain = settings.emailCollegeOnly !== false ? collegeDomainOf(st.email) ?? '' : ''
+  const pattern = importantSubjectPattern(settings.emailAutoAddCategories ?? AUTO_ADD_DEFAULT)
+  await GmailBg.scheduleBackgroundCheck({ enabled, pattern, domain }).catch(() => {})
 }

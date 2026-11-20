@@ -44,10 +44,10 @@ describe('Smart deadline reader', () => {
       '2026-11-19',
     )
     expect(out).toEqual([
-      { title: 'WAD lab file', dueDate: '2026-11-25', subjectHint: 'WAD', tentative: false, sourceLine: 'Submit WAD lab file by 25/11', urls: ['https://x.com/f'] },
-      { title: 'Quiz', dueDate: '2026-12-01', subjectHint: undefined, tentative: false, sourceLine: 'Quiz on 1 Dec' },
+      { title: 'WAD lab file', dueDate: '2026-11-25', subjectHint: 'WAD', tentative: false, sourceLine: 'Submit WAD lab file by 25/11', urls: ['https://x.com/f'], category: 'submission' },
+      { title: 'Quiz', dueDate: '2026-12-01', subjectHint: undefined, tentative: false, sourceLine: 'Quiz on 1 Dec', category: 'exam' },
       // year not written and rolled into next year → "next year?" like the Standard reader
-      { title: 'Exam', dueDate: '2027-01-10', subjectHint: undefined, tentative: true, sourceLine: 'Exam on 10 Jan' },
+      { title: 'Exam', dueDate: '2027-01-10', subjectHint: undefined, tentative: true, sourceLine: 'Exam on 10 Jan', category: 'exam' },
     ])
   })
 

@@ -1,7 +1,7 @@
 // Step-2 app shell: ThemeProvider (design tokens, F9) wraps the data store;
 // the floating pill navigation switches Today / Calendar / Subjects / Settings.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { AppProvider, useApp } from './data/store'
 import { ThemeProvider } from './theme/ThemeProvider'
 import NavBar from './components/NavBar'
@@ -17,6 +17,7 @@ import Onboarding from './components/Onboarding'
 import { Capacitor } from '@capacitor/core'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import { autoCheckEmail } from './logic/emailCheck'
+import { syncBackgroundEmailCheck } from './logic/gmailNative'
 import { runCatchUpReminders, ensureNotifyPermission, eveningNudgeDue, fireEveningNudgeAsync, syncDailyNotifications } from './logic/reminders'
 import { todayStr } from './logic/dates'
 
@@ -26,7 +27,7 @@ import { todayStr } from './logic/dates'
  *  fire any deadline reminders that came due while closed and show the evening
  *  "mark attendance" nudge. */
 function ReminderRunner() {
-  const { data, addSuggestions } = useApp()
+  const { data } = useApp()
   const onboarded = data.settings.onboarded
   useEffect(() => {
     if (!onboarded) return // ask only after the wizard is dismissed
@@ -35,8 +36,6 @@ function ReminderRunner() {
       await ensureNotifyPermission()
       if (cancelled) return
       runCatchUpReminders(data)
-      // New deadlines in Gmail (if connected; at most every 6 h) → suggestions + a notification.
-      void autoCheckEmail(data, addSuggestions)
       // Native: arm the two recurring daily notifications (9 PM nudge + next-day
       // class preview) with the OS scheduler so they fire even when the app is
       // closed — same mechanism as the deadline reminders. Web relies on the
@@ -126,6 +125,7 @@ export default function App() {
       <AppProvider>
         <ReminderRunner />
         <StatusBarTint />
+        <EmailAutoChecker />
         <OnboardingShell go={go} onShownChange={setShowOnboarding} />
         {tab === 'today' && <Today go={go} />}
         {tab === 'calendar' && <Calendar />}
@@ -137,6 +137,30 @@ export default function App() {
       </AppProvider>
     </ThemeProvider>
   )
+}
+
+/** New deadlines in Gmail (if connected): checked when the app starts and
+ *  every time it comes back to the front, at most every 3 hours. Important
+ *  ones are added automatically; the rest become suggestions. */
+function EmailAutoChecker() {
+  const app = useApp()
+  const latest = useRef(app)
+  latest.current = app
+  useEffect(() => {
+    const run = () => {
+      const a = latest.current
+      if (!a.data.settings.onboarded) return
+      void autoCheckEmail(a.data, { addSuggestions: a.addSuggestions, addDeadline: a.addDeadline })
+      void syncBackgroundEmailCheck(a.data.settings)
+    }
+    run()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') run()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+  return null
 }
 
 /** First-launch wizard host: reads settings.onboarded (inside AppProvider) and
