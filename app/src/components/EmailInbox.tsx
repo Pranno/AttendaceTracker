@@ -10,6 +10,7 @@ import { formatShort, todayStr } from '../logic/dates'
 import type { Suggestion } from '../data/model'
 import { deadlineReaderOf, readDeadlines } from '../logic/smartDeadlines'
 import { checkEmailForDeadlines } from '../logic/emailCheck'
+import { nativeSignIn, useNativeGmail } from '../logic/gmailNative'
 import {
   beginLogin,
   beginLoginNative,
@@ -35,7 +36,10 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
   // Native (Capacitor) redirect mode: window.location.href can't leave the app,
   // so we open Google's consent page in a system-browser tab and read the code
   // back from localStorage (see beginLoginNative / poll below).
-  const nativeMode = typeof window !== 'undefined' && !/^https?:$/.test(window.location.protocol)
+  // The Android app serves pages from https://localhost, so the old
+  // "protocol isn't http" test never detected it — it tried the web redirect
+  // inside the app. The Android app now signs in natively instead.
+  const nativeMode = useNativeGmail()
 
   const newOnes = data.suggestions.filter((s) => s.status === 'new')
   const handled = data.suggestions.filter((s) => s.status !== 'new')
@@ -66,7 +70,23 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
       await doFetch()
       return
     }
-    // Not connected yet: start OAuth first, fetch happens once it completes.
+    // Android app: Google account picker, then fetch straight away.
+    if (nativeMode) {
+      setBusy(true)
+      setError(null)
+      try {
+        const who = await nativeSignIn()
+        await refreshAuthState()
+        setNote(`Gmail connected (${who}).`)
+        setBusy(false)
+        await doFetch()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not sign in to Google.')
+        setBusy(false)
+      }
+      return
+    }
+    // Web: start OAuth first, fetch happens once it completes.
     const cfg = loadGmailConfig()
     if (!cfg) {
       setError('Add your Google Cloud Client ID in Settings → College email first.')

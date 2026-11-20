@@ -955,3 +955,9 @@ body.viewer-open .pillnav, body.viewer-open .fab { display: none; }
 .found-holiday-dates { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .found-holiday-dates input { min-height: 38px; padding: 4px 8px; font-size: 13px; flex: 1; min-width: 0; }
 .found-holiday-dates span { font-size: 12px; color: var(--soft); }
+
+/* Settings → College email (Android setup) */
+.gmail-setup { display: flex; flex-direction: column; gap: 8px; }
+.gmail-id-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+.gmail-id-row span { font-size: 12px; color: var(--soft); min-width: 88px; }
+.gmail-id-row code { font-size: 12px; background: color-mix(in srgb, var(--soft) 14%, transparent); padding: 3px 6px; border-radius: 6px; overflow-wrap: anywhere; flex: 1; min-width: 0; }

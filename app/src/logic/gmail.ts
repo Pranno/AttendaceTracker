@@ -10,6 +10,7 @@ import { extractDeadlines, type ExtractedDeadline } from './deadlines'
 import { readDeadlinesFromMessages, type DeadlineReader } from './smartDeadlines'
 import { fromDate, todayStr } from './dates'
 import { clearEncrypted, decryptJson, encryptJson } from './tokenCrypto'
+import { nativeSignOut, nativeStatus, nativeToken, useNativeGmail } from './gmailNative'
 import type { DateStr, Suggestion, Subject } from '../data/model'
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
@@ -44,7 +45,8 @@ export function saveGmailConfig(clientId: string): void {
 }
 
 export function hasGmailSetup(): boolean {
-  return loadGmailConfig() !== null
+  // The Android app signs in natively (no client ID to paste).
+  return useNativeGmail() || loadGmailConfig() !== null
 }
 
 // ---------- PKCE helpers ----------
@@ -79,11 +81,13 @@ export async function getTokens(): Promise<TokenBundle | null> {
 }
 
 export async function isConnected(): Promise<boolean> {
+  if (useNativeGmail()) return (await nativeStatus()).connected
   const t = await getTokens()
   return !!t && (!!t.access || !!t.refresh)
 }
 
 export async function disconnect(): Promise<void> {
+  if (useNativeGmail()) await nativeSignOut()
   await clearEncrypted()
 }
 
@@ -255,6 +259,7 @@ export async function completeLoginFromUrl(search: string): Promise<boolean> {
 }
 
 export async function connectedEmail(): Promise<string | null> {
+  if (useNativeGmail()) return (await nativeStatus()).email
   return (await getTokens())?.email ?? null
 }
 
@@ -336,11 +341,16 @@ function parseMessage(msg: { id: string; snippet?: string; internalDate?: string
 
 /** Fetch the most recent `max` messages and parse deadline candidates from each. */
 export async function fetchInbox(max = 25, cfg = loadGmailConfig()): Promise<InboxMessage[]> {
-  if (!cfg) throw new Error('Gmail is not set up. Add your Google Cloud Client ID in Settings first.')
-  const token = await getFreshToken(cfg)
-  const listRes = await fetch(`${API_BASE}/messages?maxResults=${max}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const native = useNativeGmail()
+  if (!native && !cfg) throw new Error('Gmail is not set up. Add your Google Cloud Client ID in Settings first.')
+  let token = native ? await nativeToken() : await getFreshToken(cfg!)
+  const list1 = () => fetch(`${API_BASE}/messages?maxResults=${max}`, { headers: { Authorization: `Bearer ${token}` } })
+  let listRes = await list1()
+  if (listRes.status === 401 && native) {
+    // a cached token Google no longer accepts — get a fresh one once
+    token = await nativeToken(true)
+    listRes = await list1()
+  }
   if (listRes.status === 401) throw new Error('Gmail session expired — reconnect your account in Settings.')
   if (!listRes.ok) throw new Error(`Could not load messages (${listRes.status}).`)
   const list = (await listRes.json()) as { messages?: { id: string }[] }

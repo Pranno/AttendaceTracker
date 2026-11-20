@@ -21,7 +21,37 @@ password — Google handles sign-in in its own page.
 
 ---
 
-## Step-by-step setup
+## Android app (recommended): native sign-in
+
+The Android app signs in with the phone's Google account picker (Google Play
+Services) — there is **no Client ID to paste** and no redirect URI.
+
+1. <https://console.cloud.google.com/> → create a project.
+2. **APIs & Services → Library** → enable the **Gmail API**.
+3. **OAuth consent screen** → External → app name + your email → under
+   **Test users** add the Gmail address you will connect.
+4. **Credentials → Create credentials → OAuth client ID** → type **Android**:
+   - Package name: `com.attendancetracker.app`
+   - SHA-1: the fingerprint of the key the installed APK was signed with.
+     The app shows it (with a copy button) in **Settings → Deadlines & email →
+     College email**. For your own keystore:
+     `keytool -list -v -keystore attendancetracker.keystore -alias attendancetracker`
+5. In the app: **Connect Gmail & fetch** → pick the account → allow read-only
+   access. The app then checks mail on open (at most every 6 hours) and
+   notifies you about new deadlines.
+
+Code: `android/app/src/main/java/com/attendancetracker/app/GmailAuthPlugin.java`
+(native) and `app/src/logic/gmailNative.ts` (bridge).
+
+| Android symptom | Fix |
+|---|---|
+| "Google doesn't recognise this app yet" (code 10) | The Android OAuth client is missing, or its package name / SHA-1 doesn't match the installed APK. |
+| Sign-in works but access is denied | Add the account under **Test users** on the consent screen. |
+| Asked to sign in again after ~a week | Expected while the Google project is in "Testing". |
+
+---
+
+## Web build: step-by-step setup
 
 ### 1. Create a Google Cloud project
 1. Go to <https://console.cloud.google.com/> and sign in with **any** Google

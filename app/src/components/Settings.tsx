@@ -25,6 +25,8 @@ import { LocalNotifications } from '@capacitor/local-notifications'
 import EmailInbox from './EmailInbox'
 import SmartImportSettings from './SmartImportSettings'
 import { defaultRedirectUri, loadGmailConfig, saveGmailConfig } from '../logic/gmail'
+import { nativeSigningInfo, useNativeGmail } from '../logic/gmailNative'
+import { openExternal } from './Locker'
 
 // ------------------------------------------------------------
 // Deadline paste extraction (D-series): paste a class-group message,
@@ -863,9 +865,54 @@ function ArchiveSection() {
 // I1/I2: one-time Google Cloud OAuth setup. The user creates an "OAuth client
 // ID (Web application)" in their own Google Cloud project, enables the Gmail
 // API, and pastes the client ID here — no secrets bundled in the app.
+/** Android app: the Google Cloud steps for native sign-in, with this app's
+ *  package name and signing SHA-1 read from the phone (copy buttons). */
+function GmailSetupAndroid() {
+  const [info, setInfo] = useState<{ packageName: string; sha1: string } | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+  useEffect(() => {
+    void nativeSigningInfo().then(setInfo)
+  }, [])
+  const copy = (label: string, v: string) =>
+    navigator.clipboard.writeText(v).then(() => {
+      setCopied(label)
+      setTimeout(() => setCopied(null), 1500)
+    }).catch(() => {})
+  return (
+    <div className="card gmail-setup">
+      <b>Set up Gmail once (about 10 minutes)</b>
+      <ol className="smart-guide">
+        <li>
+          Open <b>Google Cloud Console</b> and sign in with any Google account:
+          <button className="secondary smart-guide-btn" onClick={() => void openExternal('https://console.cloud.google.com/')}>Open Google Cloud</button>
+        </li>
+        <li>Create a project (top bar → <b>New project</b>), then in <b>APIs &amp; Services → Library</b> enable the <b>Gmail API</b>.</li>
+        <li>
+          <b>OAuth consent screen</b>: choose <b>External</b>, fill in an app name and your email, and under <b>Test users</b> add the
+          Gmail address you’ll connect.
+        </li>
+        <li>
+          <b>Credentials → Create credentials → OAuth client ID</b> → type <b>Android</b>, and enter exactly:
+          <div className="gmail-id-row"><span>Package name</span><code>{info?.packageName ?? '…'}</code>
+            {info && <button className="link-btn" onClick={() => copy('pkg', info.packageName)}>{copied === 'pkg' ? 'Copied' : 'Copy'}</button>}</div>
+          <div className="gmail-id-row"><span>SHA-1</span><code>{info?.sha1 || '…'}</code>
+            {info?.sha1 && <button className="link-btn" onClick={() => copy('sha', info.sha1)}>{copied === 'sha' ? 'Copied' : 'Copy'}</button>}</div>
+          Then <b>Create</b>. Nothing needs to be pasted back into the app.
+        </li>
+        <li>Come back and tap <b>Connect Gmail &amp; fetch</b> in the College email card below, then pick your account and allow read-only access.</li>
+      </ol>
+      <div className="msg" style={{ margin: 0 }}>
+        The SHA-1 belongs to the APK you installed — if you later install a copy built on another computer, add its SHA-1 too.
+        While the Google project is in “Testing”, Google may ask you to sign in again after about a week.
+      </div>
+    </div>
+  )
+}
+
 export function GmailSetup() {
   const [clientId, setClientId] = useState(loadGmailConfig()?.clientId ?? '')
   const [saved, setSaved] = useState<string | null>(null)
+  if (useNativeGmail()) return <GmailSetupAndroid />
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
