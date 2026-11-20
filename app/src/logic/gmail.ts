@@ -1,10 +1,10 @@
 // College-email integration (Section I) — LIVE GMAIL FIRST, PASTE AS FALLBACK.
-// Primary path: OAuth 2.0 Authorization Code + PKCE against Google's endpoints
-// (works from a static web app / Capacitor WebView — no backend needed), then
-// reads recent mail straight from the Gmail REST API with the gmail.readonly
-// scope and feeds each message body through the same deadline parser the paste
-// box uses. Fallback path: PasteDeadlineSheet (zero setup, works offline).
-// Tokens are encrypted at rest (tokenCrypto.ts).
+// Sign-in: in the Android app, native Google sign-in (gmailNative.ts →
+// GmailAuthPlugin.java); in the web build, OAuth 2.0 Authorization Code +
+// PKCE with a redirect (no backend needed; tokens encrypted at rest by
+// tokenCrypto.ts). Recent mail is then read from the Gmail REST API with the
+// gmail.readonly scope and fed through the chosen deadline reader.
+// Fallback path: PasteDeadlineSheet (zero setup, works offline).
 
 import { extractDeadlines, type ExtractedDeadline } from './deadlines'
 import { readDeadlinesFromMessages, type DeadlineReader } from './smartDeadlines'
@@ -25,12 +25,10 @@ export interface GmailConfig {
   redirectUri: string
 }
 
-/** Redirect URI must match an Authorized redirect URI in Google Cloud Console.
- *  Web: current origin + pathname; Capacitor Android: custom scheme. */
+/** Web build only: must match an Authorized redirect URI in Google Cloud
+ *  Console (the Android app signs in natively — see gmailNative.ts). */
 export function defaultRedirectUri(): string {
   if (typeof window === 'undefined') return ''
-  const isNative = !window.location.protocol.startsWith('http')
-  if (isNative) return 'io.attendancetracker.app://callback'
   return window.location.origin + window.location.pathname
 }
 
@@ -141,59 +139,7 @@ export async function beginLogin(cfg: GmailConfig): Promise<string> {
   return `${AUTH_URL}?${params.toString()}`
 }
 
-// ---------- native (Capacitor) login via system browser ----------
-// The WebView can't navigate to accounts.google.com, so we open it in the
-// phone's browser. Google redirects back to our custom scheme; Android hands
-// that deep link to the app, whose MainActivity writes the raw URI into
-// localStorage under PENDING_CODE_KEY. We pick it up here (also on next cold
-// start) and finish the token exchange inside the app.
-
-const PENDING_CODE_KEY = 'at.gmail.pendingcode.v1'
-
-export async function beginLoginNative(cfg: GmailConfig): Promise<void> {
-  const verifier = randomVerifier()
-  const state = randomVerifier()
-  // sessionStorage may not survive a browser-app handoff -> keep both copies.
-  sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier)
-  sessionStorage.setItem(PKCE_STATE_KEY, state)
-  localStorage.setItem(PKCE_VERIFIER_KEY, verifier)
-  localStorage.setItem(PKCE_STATE_KEY, state)
-  const params = new URLSearchParams({
-    client_id: cfg.clientId,
-    redirect_uri: cfg.redirectUri,
-    response_type: 'code',
-    scope: `${GMAIL_SCOPE} email`,
-    code_challenge: await sha256(verifier),
-    code_challenge_method: 'S256',
-    access_type: 'offline',
-    prompt: 'consent',
-    state,
-  })
-  const url = `${AUTH_URL}?${params.toString()}`
-  try {
-    const cap = (window as { Capacitor?: { isNativePlatform(): boolean } }).Capacitor
-    if (cap?.isNativePlatform()) {
-      const { Browser } = await import('@capacitor/browser')
-      await Browser.open({ url })
-      return
-    }
-  } catch {
-    /* fall through */
-  }
-  window.open(url, '_blank')
-}
-
-/** Returns the search string ("?code=..&state=..") captured from a deep link,
- *  clearing it so we never re-consume a one-time code. */
-export function loadPendingNativeCode(): string | null {
-  const raw = localStorage.getItem(PENDING_CODE_KEY)
-  if (!raw) return null
-  localStorage.removeItem(PENDING_CODE_KEY)
-  const idx = raw.indexOf('?')
-  return idx >= 0 ? raw.slice(idx) : null
-}
-
-/** Exchange an authorization code (from URL or deep link) for tokens. */
+/** Exchange an authorization code (from the redirect URL) for tokens. */
 export async function completeLogin(search: string): Promise<boolean> {
   const q = new URLSearchParams(search)
   const code = q.get('code')

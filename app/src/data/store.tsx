@@ -3,8 +3,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppData, CgpaSemester, LockerFile, Note, Syllabus, CourseLink, DateStr, Holiday, MarkStatus, Score, Slot, Subject, Deadline, Suggestion } from '../data/model'
-import { mergeCourseLinks, newId } from '../data/model'
+import type { AppData, CgpaSemester, LockerFile, Note, Syllabus, CourseLink, DateStr, Holiday, MarkStatus, Slot, Subject, Deadline, Suggestion } from '../data/model'
+import { newId } from '../data/model'
 import { clearFileBlobs, deleteFileBlobs } from '../logic/fileStore'
 import { timetableStartOf } from '../logic/timetableStart'
 import { loadData, normalizeData, saveData, clearData, saveArchive, listArchives, deleteArchive, loadArchive } from '../data/storage'
@@ -32,9 +32,6 @@ interface AppApi {
   /** Hard-delete a slot. Use for lectures added by mistake that haven't
    *  happened yet — no attendance history to preserve. */
   deleteSlot: (id: string) => void
-  updateSlot: (id: string, patch: Partial<Slot>) => void
-  /** A8: removing a class applies from today onward; past keeps what it had. */
-  removeSlotFromToday: (id: string, today: DateStr) => void
   // ---- attendance marking (B1) ----
   setMark: (date: DateStr, slotId: string, status: MarkStatus | null) => void
   // ---- converted lectures (Stretch #5: subject swap on a day) ----
@@ -61,20 +58,14 @@ interface AppApi {
   deleteDeadline: (id: string) => void
   // ---- holidays / exam days (A12) ----
   addHoliday: (h: Omit<Holiday, 'id'>) => void
-  updateHoliday: (id: string, patch: Partial<Holiday>) => void
   deleteHoliday: (id: string) => void
   // ---- special course links (H-series) ----
   addCourseLink: (c: Omit<CourseLink, 'id'>) => CourseLink
-  updateCourseLink: (id: string, patch: Partial<CourseLink>) => void
   deleteCourseLink: (id: string) => void
   /** H6: mark status with the date; completed sets completedDate too. */
   setCourseStatus: (id: string, status: CourseLink['status'], date: DateStr) => void
-  /** H8: tick/untick "certificate submitted" with a date. */
-  setCertificateSubmitted: (id: string, date: DateStr | null) => void
   /** H8: attach/detach course links to a deadline for progress display. */
   setDeadlineCourseLinks: (deadlineId: string, linkIds: string[]) => void
-  /** H11: merge an imported batch of links, keeping status of existing ones. */
-  importCourseLinks: (links: Omit<CourseLink, 'id'>[]) => void
   // ---- email suggestions (I-series) ----
   /** I3: append freshly parsed suggestions without duplicating message ids. */
   addSuggestions: (s: Suggestion[]) => void
@@ -84,15 +75,11 @@ interface AppApi {
   clearSeenSuggestions: () => void
   // ---- study units & topics (E-series) ----
   // ---- marks & scores (E5) ----
-  /** E5: add a score to a marking-scheme component. */
-  addScore: (s: Omit<Score, 'id'>) => void
-  removeScore: (id: string) => void
   // ---- E11: CGPA planner semesters ----
   addSemester: (sem?: Partial<CgpaSemester>) => CgpaSemester
   updateSemester: (id: string, patch: Partial<CgpaSemester>) => void
   deleteSemester: (id: string) => void
   // ---- focus sessions (E9 timer log) ----
-  addFocusSession: (date: DateStr, minutes: number, kind: 'study' | 'project' | 'break') => void
   // ---- settings ----
   updateSettings: (patch: Partial<AppData['settings']>) => void
   resetAll: () => void
@@ -243,20 +230,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }))
       },
 
-      updateSlot(id, patch) {
-        setRaw((d) => ({ ...d, slots: d.slots.map((s) => (s.id === id ? { ...s, ...patch } : s)) }))
-      },
-
-      removeSlotFromToday(id, today) {
-        // Keep history: end validity at yesterday rather than deleting.
-        setRaw((d) => ({
-          ...d,
-          slots: d.slots.map((s) =>
-            s.id === id ? { ...s, validUntil: today } : s,
-          ),
-        }))
-      },
-
       setMark(date, slotId, status) {
         setRaw((d) => {
           const marks = d.marks.filter((m) => !(m.date === date && m.slotId === slotId))
@@ -363,10 +336,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setRaw((d) => ({ ...d, holidays: [...d.holidays, { ...h, id: newId('hol') }] }))
       },
 
-      updateHoliday(id, patch) {
-        setRaw((d) => ({ ...d, holidays: d.holidays.map((x) => (x.id === id ? { ...x, ...patch } : x)) }))
-      },
-
       deleteHoliday(id) {
         setRaw((d) => ({ ...d, holidays: d.holidays.filter((x) => x.id !== id) }))
       },
@@ -375,13 +344,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const link: CourseLink = { ...c, id: newId('course') }
         setRaw((d) => ({ ...d, courseLinks: [...d.courseLinks, link] }))
         return link
-      },
-
-      updateCourseLink(id, patch) {
-        setRaw((d) => ({
-          ...d,
-          courseLinks: d.courseLinks.map((x) => (x.id === id ? { ...x, ...patch } : x)),
-        }))
       },
 
       deleteCourseLink(id) {
@@ -412,15 +374,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }))
       },
 
-      setCertificateSubmitted(id, date) {
-        setRaw((d) => ({
-          ...d,
-          courseLinks: d.courseLinks.map((x) =>
-            x.id === id ? { ...x, certificateSubmittedDate: date ?? undefined } : x,
-          ),
-        }))
-      },
-
       // H8: attach/detach course links to a deadline ("WAD certificates: 6 of 10 done").
       setDeadlineCourseLinks(deadlineId, linkIds) {
         setRaw((d) => ({
@@ -429,16 +382,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             dl.id === deadlineId
               ? { ...dl, courseLinkIds: linkIds.length > 0 ? linkIds : undefined }
               : dl,
-          ),
-        }))
-      },
-
-      importCourseLinks(links) {
-        setRaw((d) => ({
-          ...d,
-          courseLinks: mergeCourseLinks(
-            d.courseLinks,
-            links.map((l) => ({ ...l, id: newId('course') })),
           ),
         }))
       },
@@ -476,19 +419,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       clearSeenSuggestions() {
         setRaw((d) => ({ ...d, suggestions: d.suggestions.filter((x) => x.status === 'new') }))
-      },
-
-      addFocusSession(date, minutes, kind) {
-        setRaw((d) => ({ ...d, focusSessions: [...d.focusSessions, { id: newId('fs'), date, minutes, kind }] }))
-      },
-
-      // ---- E5: scores ----
-      addScore(s) {
-        setRaw((d) => ({ ...d, scores: [...d.scores, { ...s, id: newId('score') }] }))
-      },
-
-      removeScore(id) {
-        setRaw((d) => ({ ...d, scores: d.scores.filter((x) => x.id !== id) }))
       },
 
       // ---- E11: CGPA planner semesters ----

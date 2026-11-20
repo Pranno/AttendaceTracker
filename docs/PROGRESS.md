@@ -2,6 +2,15 @@
 
 Chronological log of what has been built. Newest first. See [REQUIREMENTS.md](REQUIREMENTS.md) for the feature matrix and current gaps.
 
+## 2026-11 — v1.2 → v1.5: bug sweep, Locker, Smart import, Gmail on Android
+- **Bug sweep**: timetable grid parser rewritten around label-centred period boxes (Div A read exactly; afternoon times in 24 h; no cross-period duplicates; staggered lunch cells; continuation pages); attendance fixes (today's unmarked classes no longer count as missed, "start counting from today" anchored to its start date, edited classes no longer doubled, imported classes start at the semester start, re-imports don't duplicate); reminders (one-shot daily notifications instead of Android's broken repeat, evening nudge only when needed); store/deadline/date-parsing fixes; old saved data repaired on load.
+- **Locker** tab (replaced Study): per-subject notes, files (in-app PDF/image viewer, open with / share) and course links.
+- **Smart import (Gemini, user's own key)**: timetable, full syllabus per subject, and deadlines + holidays in pasted messages and email; retries / falls back when Gemini is busy.
+- **Deadlines & holidays**: every kind of deadline, holiday notices from pasted messages, all-deadlines list, email notifications + automatic Gmail check.
+- **Gmail in the Android app**: native Google sign-in (GmailAuthPlugin) — the old redirect never worked on Android.
+- **UX**: new onboarding (setup + tour), Settings grouped into 7 sections, home screen tidied (paste bar, day actions, can-skip tags).
+- **Repo**: single `main` branch, unused screens / store actions / fixtures / template tests removed, sample PDFs moved to `app/samples/`, CI added.
+
 ## 2026-10-31 — Repo cleanup & docs
 - Removed scratch files (raw requirement dumps, extraction scripts), sample timetable/syllabus uploads from history-tracked paths.
 - Added `docs/REQUIREMENTS.md` (feature matrix with per-item status) and this progress doc.
@@ -45,7 +54,6 @@ Chronological log of what has been built. Newest first. See [REQUIREMENTS.md](RE
 | Item | Ref | Notes |
 |------|-----|-------|
 | Excel (.xlsx) timetable import UI | A3 | dependency present, needs file-input wiring |
-| Syllabus upload UI | E2 | Smart import (Gemini, user’s own key): Timetable tab → Import syllabus; shown per subject on the Subjects tab. Old rule-based syllabus reader removed. |
 | Week view | C3 | |
 | Per-subject custom reminder times | D8 | |
-| Permission-status display in Settings | F6 | |
+| Gmail "Testing" mode re-sign-in (~weekly) | — | inherent to unverified Google projects with Gmail scope |

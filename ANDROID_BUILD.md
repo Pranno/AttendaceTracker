@@ -26,7 +26,9 @@ Then either:
 ```bash
 cd app && npm run build && npx cap sync android
 ```
-(then rebuild in Android Studio, or run gradlew again). Native plugins already wired: LocalNotifications (reminders) and Browser (Gmail OAuth login).
+(then rebuild in Android Studio, or run gradlew again). Native pieces already wired: LocalNotifications (reminders), Browser (opening links), Filesystem + Share + FileOpener (Locker files, data export) and the app's own `GmailAuthPlugin` (native Gmail sign-in — needs Google Play Services on the phone).
+
+The version shown on the phone comes from `versionCode` / `versionName` in `android/app/build.gradle`.
 
 ## Release build (Play Store / clean signing)
 Create a keystore (`keytool -genkey ...`) and configure `android/app/signing.properties`, then `gradlew assembleRelease`. See https://capacitorjs.com/docs/android/building for details.

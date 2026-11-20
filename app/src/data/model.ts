@@ -56,8 +56,6 @@ export interface AppSettings {
   assumedPastAttendance: number
   /** J2: the month the plan starts (1st of the month after the timetable was first confirmed), "YYYY-MM". */
   planStartMonth: string | null
-  /** E16: commute minutes (default 30). */
-  commuteMinutes: number
   /** A13: Sunday classes on/off (off by default). */
   sundayClasses: boolean
   /** B14: unmarked classes — leave blank (default) or count as present. */
@@ -97,7 +95,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   semesterEnd: null,
   assumedPastAttendance: 80,
   planStartMonth: null,
-  commuteMinutes: 30,
   sundayClasses: false,
   unmarkedAsPresent: false,
   myBatch: '',
@@ -247,12 +244,6 @@ export interface CgpaSemester {
   credits?: number
 }
 
-export interface FocusSession {
-  id: string
-  date: DateStr
-  minutes: number
-  kind: 'study' | 'project' | 'break'
-}
 
 /** Course link (record, H / Special courses). */
 export interface CourseLink {
@@ -274,26 +265,6 @@ export interface CourseLink {
   needsChecking: boolean
 }
 
-/** H11: merge next semester's imported links into the existing list —
- *  new ones are added, links that are still there keep their status/dates.
- *  Matching is by subject + normalized name (+ unit when both have one). */
-const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-export function mergeCourseLinks(existing: CourseLink[], incoming: CourseLink[]): CourseLink[] {
-  const out = [...existing]
-  let added = 0
-  for (const inc of incoming) {
-    const match = out.find(
-      (x) =>
-        x.subjectId === inc.subjectId &&
-        normName(x.name) === normName(inc.name) &&
-        (x.unitNumber == null || inc.unitNumber == null || x.unitNumber === inc.unitNumber),
-    )
-    if (match) continue // still there → keep its status/dates (H11)
-    out.push({ ...inc, id: `${inc.id}_n${added}` })
-    added += 1
-  }
-  return out
-}
 
 /** Suggestion (record, section I). */
 export interface Suggestion {
@@ -393,7 +364,6 @@ export interface AppData {
   holidays: Holiday[]
   deadlines: Deadline[]
   scores: Score[]
-  focusSessions: FocusSession[]
   courseLinks: CourseLink[]
   suggestions: Suggestion[]
   events: CalendarEvent[]
@@ -418,7 +388,6 @@ export const EMPTY_DATA: AppData = {
   holidays: [],
   deadlines: [],
   scores: [],
-  focusSessions: [],
   courseLinks: [],
   suggestions: [],
   events: [],

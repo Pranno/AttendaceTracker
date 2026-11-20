@@ -1,6 +1,6 @@
 // Dev helper: extract per-page positioned text items from a timetable PDF,
 // exactly as the app's pdf.js reader does, and write a JSON fixture.
-// Usage: node scripts/extract-tt-pages.mjs ../att.pdf src/logic/__fixtures__/tt-divA.json
+// Usage: node scripts/extract-tt-pages.mjs samples/timetable-divA.pdf src/logic/__fixtures__/tt-divA.json
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'

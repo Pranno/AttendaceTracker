@@ -13,15 +13,12 @@ import { checkEmailForDeadlines } from '../logic/emailCheck'
 import { nativeSignIn, useNativeGmail } from '../logic/gmailNative'
 import {
   beginLogin,
-  beginLoginNative,
-  completeLogin,
   completeLoginFromUrl,
   connectedEmail,
   disconnect,
   hasGmailSetup,
   isConnected,
   loadGmailConfig,
-  loadPendingNativeCode,
 } from '../logic/gmail'
 
 export default function EmailInbox({ compact = false }: { compact?: boolean }) {
@@ -53,13 +50,6 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     // Web mode: if Google just redirected back with ?code=..., finish silently.
     if (window.location.search.includes('code=')) {
       void completeLoginFromUrl(window.location.search).then((ok) => {
-        if (ok) void refreshAuthState()
-      })
-    }
-    // Native mode: a deep link may have landed while the app was closed.
-    const pending = loadPendingNativeCode()
-    if (pending) {
-      void completeLogin(pending).then((ok) => {
         if (ok) void refreshAuthState()
       })
     }
@@ -95,44 +85,13 @@ export default function EmailInbox({ compact = false }: { compact?: boolean }) {
     setBusy(true)
     setError(null)
     try {
-      if (nativeMode) {
-        await beginLoginNative(cfg)
-        setNote('Finish signing in in the browser — the app picks it up automatically when you return.')
-        pollForCode()
-      } else {
-        window.location.href = await beginLogin(cfg)
-      }
+      window.location.href = await beginLogin(cfg)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start sign-in.')
     } finally {
       setBusy(false)
     }
   }
-
-  let pollTimer: ReturnType<typeof setInterval> | null = null
-  function pollForCode() {
-    if (pollTimer) clearInterval(pollTimer)
-    pollTimer = setInterval(async () => {
-      const search = loadPendingNativeCode()
-      if (!search) return
-      clearInterval(pollTimer!)
-      pollTimer = null
-      const ok = await completeLogin(search)
-      if (ok) {
-        void refreshAuthState()
-        setNote('Gmail connected!')
-        await doFetch()
-      } else {
-        setError('Sign-in could not be completed. Try again.')
-      }
-    }, 1500)
-  }
-  useEffect(
-    () => () => {
-      if (pollTimer) clearInterval(pollTimer)
-    },
-    [],
-  )
 
   async function doFetch() {
     setBusy(true)
